@@ -1,0 +1,97 @@
+<Window x:Class="Lonnii.Client.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Lonnii Business"
+        Height="760" Width="1240"
+        MinHeight="560" MinWidth="960"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource SurfaceAlt}">
+
+    <Window.Resources>
+        <!--
+          Flat sidebar row: no chrome of its own, so the coloured stripe and the
+          selected-row tint carry the state. Built in code-behind because the entries
+          come from the API, not from a fixed list.
+        -->
+        <ControlTemplate x:Key="NavButtonTemplate" TargetType="Button">
+            <Border x:Name="Root"
+                    Background="{TemplateBinding Background}"
+                    CornerRadius="3"
+                    Padding="{TemplateBinding Padding}"
+                    SnapsToDevicePixels="True">
+                <ContentPresenter VerticalAlignment="Center"
+                                  HorizontalAlignment="Stretch" />
+            </Border>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter TargetName="Root" Property="Background" Value="{StaticResource SurfaceSunken}" />
+                </Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
+    </Window.Resources>
+
+    <DockPanel>
+
+        <!-- Menu bar -->
+        <Menu DockPanel.Dock="Top" x:Name="MainMenu" Padding="4,2">
+            <MenuItem Header="_Fichier">
+                <MenuItem x:Name="MenuChangeGroup" Header="Changer d'espace…" Click="ChangeGroup_Click" />
+                <MenuItem Header="Actualiser" InputGestureText="F5" Click="Refresh_Click" />
+                <Separator />
+                <!-- Reachable by everyone: members cannot open Options. -->
+                <MenuItem Header="Changer mon mot de passe…" Click="ChangePassword_Click" />
+                <Separator />
+                <MenuItem Header="Se déconnecter" Click="SignOut_Click" />
+                <MenuItem Header="Quitter" InputGestureText="Alt+F4" Click="Quit_Click" />
+            </MenuItem>
+
+            <MenuItem x:Name="MenuEspace" Header="_Espace" />
+            <MenuItem x:Name="MenuGestion" Header="_Gestion" />
+
+            <MenuItem Header="_Aide">
+                <MenuItem Header="À propos de Lonnii…" Click="About_Click" />
+            </MenuItem>
+        </Menu>
+
+        <!-- Status bar -->
+        <StatusBar DockPanel.Dock="Bottom" Height="26">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText" Text="Prêt" />
+            </StatusBarItem>
+            <StatusBarItem HorizontalAlignment="Right">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock x:Name="StatusUser" Foreground="{StaticResource TextSecondary}" />
+                    <TextBlock Text="  •  " Foreground="{StaticResource TextMuted}" />
+                    <TextBlock x:Name="StatusHost" Foreground="{StaticResource TextMuted}" />
+                </StackPanel>
+            </StatusBarItem>
+        </StatusBar>
+
+        <!-- Navigation sidebar -->
+        <Border DockPanel.Dock="Left" Width="238"
+                Background="{StaticResource Surface}"
+                BorderBrush="{StaticResource Border}" BorderThickness="0,0,1,0">
+            <DockPanel>
+
+                <Border DockPanel.Dock="Top" Padding="14,12"
+                        Background="{StaticResource AccentLight}"
+                        BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1">
+                    <StackPanel>
+                        <TextBlock x:Name="GroupName" FontWeight="SemiBold" FontSize="14"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock x:Name="GroupRole" Style="{StaticResource PageSubtitle}" />
+                    </StackPanel>
+                </Border>
+
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="NavPanel" Margin="0,0,0,12" />
+                </ScrollViewer>
+
+            </DockPanel>
+        </Border>
+
+        <!-- Content host -->
+        <ContentControl x:Name="ContentHost" />
+
+    </DockPanel>
+</Window>

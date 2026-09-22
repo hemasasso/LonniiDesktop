@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Lonnii.Api/Lonnii.Api.csproj" />
+    <Project Path="src/Lonnii.Client/Lonnii.Client.csproj" />
+    <Project Path="src/Lonnii.Data/Lonnii.Data.csproj" />
+    <Project Path="src/Lonnii.Shared/Lonnii.Shared.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Lonnii.Tests/Lonnii.Tests.csproj" />
+  </Folder>
+</Solution>

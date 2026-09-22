@@ -1,0 +1,53 @@
+<Window x:Class="Lonnii.Client.Views.Dialogs.StockHistoryDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Historique du stock"
+        Height="540" Width="760"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{StaticResource Surface}">
+
+    <DockPanel>
+
+        <Border DockPanel.Dock="Top" Padding="18,14"
+                BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1">
+            <StackPanel>
+                <TextBlock x:Name="ProductName" Style="{StaticResource PageTitle}" />
+                <TextBlock x:Name="Subtitle" Style="{StaticResource PageSubtitle}" />
+            </StackPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" Padding="18,12"
+                Background="{StaticResource SurfaceAlt}"
+                BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0">
+            <Button Content="Fermer" IsCancel="True" IsDefault="True"
+                    HorizontalAlignment="Right" Style="{StaticResource SecondaryButton}" />
+        </Border>
+
+        <Grid>
+            <DataGrid x:Name="HistoryGrid">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Date" Width="140"
+                                        Binding="{Binding CreatedAt, StringFormat={}{0:dd/MM/yyyy HH:mm}}" />
+                    <DataGridTextColumn Header="Mouvement" Binding="{Binding MovementType}" Width="110" />
+                    <DataGridTextColumn Header="Avant" Binding="{Binding PreviousQuantity}" Width="70" />
+                    <DataGridTextColumn Header="Variation" Width="85"
+                                        Binding="{Binding QuantityChanged, StringFormat={}{0:+#;-#;0}}" />
+                    <DataGridTextColumn Header="Après" Binding="{Binding NewQuantity}" Width="70" />
+                    <DataGridTextColumn Header="Motif" Binding="{Binding Reason}" Width="*" />
+                    <DataGridTextColumn Header="Par" Binding="{Binding UserName}" Width="120" />
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <Border x:Name="EmptyPanel" Visibility="Collapsed" Background="{StaticResource Surface}">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <TextBlock Text="Aucun mouvement" FontSize="15" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Style="{StaticResource PageSubtitle}" Margin="0,6,0,0"
+                               Text="Ce produit n'a encore enregistré aucun mouvement de stock." />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+    </DockPanel>
+</Window>

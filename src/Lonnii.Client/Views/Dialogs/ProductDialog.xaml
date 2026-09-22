@@ -1,0 +1,147 @@
+<Window x:Class="Lonnii.Client.Views.Dialogs.ProductDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Height="580" Width="720"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="{StaticResource Surface}">
+
+    <DockPanel>
+
+        <Border DockPanel.Dock="Top" Padding="18,14"
+                BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1">
+            <StackPanel>
+                <TextBlock x:Name="HeaderText" Style="{StaticResource PageTitle}" />
+                <TextBlock x:Name="HeaderHint" Style="{StaticResource PageSubtitle}" />
+            </StackPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" Padding="18,12"
+                Background="{StaticResource SurfaceAlt}"
+                BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0">
+            <Grid>
+                <TextBlock x:Name="ErrorText" Foreground="{StaticResource Danger}"
+                           VerticalAlignment="Center" TextWrapping="Wrap"
+                           MaxWidth="330" HorizontalAlignment="Left" FontSize="12" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Annuler" IsCancel="True" Margin="0,0,8,0"
+                            Style="{StaticResource SecondaryButton}" />
+                    <Button Content="Enregistrer" IsDefault="True"
+                            Style="{StaticResource PrimaryButton}" Click="Save_Click" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <DockPanel Margin="18,16">
+
+            <!-- Photo: a fixed-size preview with pick/remove buttons underneath. -->
+            <StackPanel DockPanel.Dock="Left" Width="150" Margin="0,0,18,0">
+                <TextBlock Text="Photo" Style="{StaticResource FieldLabel}" />
+                <Border Width="150" Height="150"
+                        Background="{StaticResource SurfaceAlt}"
+                        BorderBrush="{StaticResource Border}" BorderThickness="1"
+                        CornerRadius="3">
+                    <Grid>
+                        <Image x:Name="PhotoImage" Stretch="Uniform" Margin="4" />
+                        <TextBlock x:Name="PhotoPlaceholder" Text="Aucune photo"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Foreground="{StaticResource TextMuted}" FontSize="12" />
+                    </Grid>
+                </Border>
+                <Button x:Name="ChoosePhotoButton" Content="Choisir…" Margin="0,8,0,0"
+                        Style="{StaticResource SecondaryButton}" Click="ChoosePhoto_Click" />
+                <Button x:Name="RemovePhotoButton" Content="Supprimer la photo" Margin="0,6,0,0"
+                        Style="{StaticResource SecondaryButton}" Click="RemovePhoto_Click"
+                        Visibility="Collapsed" />
+            </StackPanel>
+
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="16" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- Name spans both columns -->
+                <StackPanel Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3">
+                    <TextBlock Text="Nom du produit *" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="NameBox" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,12,0,0">
+                    <TextBlock Text="Description" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="DescriptionBox" Height="56"
+                             TextWrapping="Wrap" AcceptsReturn="True"
+                             VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="2" Grid.Column="0" Margin="0,12,0,0">
+                    <TextBlock Text="SKU" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="SkuBox" ToolTip="Référence interne, unique dans l'espace" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="2" Grid.Column="2" Margin="0,12,0,0">
+                    <TextBlock Text="Code-barres" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="BarcodeBox" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="3" Grid.Column="0" Margin="0,12,0,0">
+                    <TextBlock Text="Catégorie" Style="{StaticResource FieldLabel}" />
+                    <ComboBox x:Name="CategoryBox" DisplayMemberPath="Name" SelectedValuePath="Id" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="3" Grid.Column="2" Margin="0,12,0,0">
+                    <TextBlock Text="Emplacement" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="LocationBox" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="4" Grid.Column="0" Margin="0,12,0,0">
+                    <TextBlock Text="Prix d'achat" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="CostBox" LostFocus="Regroup_LostFocus" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="4" Grid.Column="2" Margin="0,12,0,0">
+                    <TextBlock Text="Prix de vente *" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="PriceBox" LostFocus="Regroup_LostFocus" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="5" Grid.Column="0" Margin="0,12,0,0">
+                    <TextBlock x:Name="QuantityLabel" Text="Quantité initiale" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="QuantityBox" LostFocus="Regroup_LostFocus" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="5" Grid.Column="2" Margin="0,12,0,0">
+                    <TextBlock Text="Seuil d'alerte" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="ThresholdBox" LostFocus="Regroup_LostFocus"
+                             ToolTip="En dessous de ce niveau, le produit est signalé en stock bas" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,14,0,0">
+                    <CheckBox x:Name="PrixFixeCheck"
+                              Content="Prix fixe (non modifiable au moment de la vente)" />
+                </StackPanel>
+
+                <TextBlock x:Name="QuantityHint" Grid.Row="7" Grid.Column="0" Grid.ColumnSpan="3"
+                           Margin="0,12,0,0" Style="{StaticResource PageSubtitle}"
+                           TextWrapping="Wrap" Visibility="Collapsed"
+                           Text="La quantité se modifie par « Ajuster le stock », pour que chaque mouvement soit tracé." />
+
+            </Grid>
+            </ScrollViewer>
+
+        </DockPanel>
+
+    </DockPanel>
+</Window>

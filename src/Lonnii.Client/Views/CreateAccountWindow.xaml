@@ -1,0 +1,85 @@
+<Window x:Class="Lonnii.Client.Views.CreateAccountWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Lonnii — Créer le compte administrateur"
+        Height="560" Width="540"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="{StaticResource Surface}">
+
+    <DockPanel>
+
+        <Border DockPanel.Dock="Top" Padding="20,16"
+                Background="{StaticResource AccentLight}"
+                BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1">
+            <StackPanel>
+                <TextBlock Text="Première utilisation" Style="{StaticResource PageTitle}" />
+                <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap"
+                           Text="Ce serveur ne contient encore aucun compte. Créez le compte administrateur : il sera propriétaire de l'entreprise et pourra ensuite créer les comptes de vos employés." />
+            </StackPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" Padding="20,12"
+                Background="{StaticResource SurfaceAlt}"
+                BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0">
+            <Grid>
+                <TextBlock x:Name="ErrorText" Foreground="{StaticResource Danger}"
+                           VerticalAlignment="Center" TextWrapping="Wrap"
+                           MaxWidth="260" HorizontalAlignment="Left" FontSize="12" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Annuler" IsCancel="True" Margin="0,0,8,0"
+                            Style="{StaticResource SecondaryButton}" />
+                    <Button x:Name="CreateButton" Content="Créer le compte" IsDefault="True"
+                            Style="{StaticResource PrimaryButton}" Click="Create_Click" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <StackPanel Margin="20,18">
+
+            <TextBlock Text="Adresse email *" Style="{StaticResource FieldLabel}" />
+            <TextBox x:Name="EmailBox" />
+            <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap"
+                       Text="Sert d'identifiant de connexion. Aucun email n'est envoyé : le serveur est hors ligne." />
+
+            <TextBlock Text="Nom d'utilisateur" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
+            <TextBox x:Name="UsernameBox" ToolTip="Identifiant court, plus rapide à saisir qu'une adresse email" />
+
+            <Grid Margin="0,14,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="14" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Prénom" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="FirstNameBox" />
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Nom" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="LastNameBox" />
+                </StackPanel>
+            </Grid>
+
+            <TextBlock Text="Mot de passe *" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
+            <PasswordBox x:Name="PasswordBox" PasswordChanged="Password_Changed" />
+
+            <TextBlock Text="Confirmer le mot de passe *" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
+            <PasswordBox x:Name="ConfirmBox" PasswordChanged="Password_Changed" />
+
+            <TextBlock x:Name="PasswordHint" Style="{StaticResource PageSubtitle}"
+                       TextWrapping="Wrap" Margin="0,8,0,0" />
+
+            <Border Margin="0,16,0,0" Padding="12,10"
+                    Background="{StaticResource SurfaceAlt}"
+                    BorderBrush="{StaticResource Border}" BorderThickness="1"
+                    CornerRadius="3">
+                <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextSecondary}"
+                           Text="Notez ce mot de passe. Il n'y a pas de récupération par email sur un serveur local : seul un administrateur peut réinitialiser un compte." />
+            </Border>
+
+        </StackPanel>
+
+    </DockPanel>
+</Window>

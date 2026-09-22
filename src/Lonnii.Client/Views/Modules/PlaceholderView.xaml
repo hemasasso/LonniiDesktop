@@ -1,0 +1,14 @@
+<UserControl x:Class="Lonnii.Client.Views.Modules.PlaceholderView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource Surface}">
+
+    <Grid>
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="440">
+            <TextBlock x:Name="TitleText" FontSize="19" FontWeight="SemiBold"
+                       HorizontalAlignment="Center" TextAlignment="Center" />
+            <TextBlock x:Name="MessageText" Style="{StaticResource PageSubtitle}"
+                       Margin="0,10,0,0" TextWrapping="Wrap" TextAlignment="Center" LineHeight="20" />
+        </StackPanel>
+    </Grid>
+</UserControl>

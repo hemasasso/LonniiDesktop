@@ -1,0 +1,85 @@
+<Window x:Class="Lonnii.Client.Views.Dialogs.CategoryDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Height="520" Width="640"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="{StaticResource Surface}">
+
+    <DockPanel>
+
+        <Border DockPanel.Dock="Top" Padding="18,14"
+                BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1">
+            <StackPanel>
+                <TextBlock x:Name="HeaderText" Style="{StaticResource PageTitle}" />
+                <TextBlock x:Name="HeaderHint" Style="{StaticResource PageSubtitle}" />
+            </StackPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" Padding="18,12"
+                Background="{StaticResource SurfaceAlt}"
+                BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0">
+            <Grid>
+                <TextBlock x:Name="ErrorText" Foreground="{StaticResource Danger}"
+                           VerticalAlignment="Center" TextWrapping="Wrap"
+                           MaxWidth="330" HorizontalAlignment="Left" FontSize="12" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Annuler" IsCancel="True" Margin="0,0,8,0"
+                            Style="{StaticResource SecondaryButton}" />
+                    <Button Content="Enregistrer" IsDefault="True"
+                            Style="{StaticResource PrimaryButton}" Click="Save_Click" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <DockPanel Margin="18,16">
+
+            <!-- Photo, same pattern as the product dialog. -->
+            <StackPanel DockPanel.Dock="Left" Width="150" Margin="0,0,18,0">
+                <TextBlock Text="Photo" Style="{StaticResource FieldLabel}" />
+                <Border Width="150" Height="150"
+                        Background="{StaticResource SurfaceAlt}"
+                        BorderBrush="{StaticResource Border}" BorderThickness="1"
+                        CornerRadius="3">
+                    <Grid>
+                        <Image x:Name="PhotoImage" Stretch="Uniform" Margin="4" />
+                        <TextBlock x:Name="PhotoPlaceholder" Text="Aucune photo"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Foreground="{StaticResource TextMuted}" FontSize="12" />
+                    </Grid>
+                </Border>
+                <Button Content="Choisir…" Margin="0,8,0,0"
+                        Style="{StaticResource SecondaryButton}" Click="ChoosePhoto_Click" />
+                <Button x:Name="RemovePhotoButton" Content="Supprimer la photo" Margin="0,6,0,0"
+                        Style="{StaticResource SecondaryButton}" Click="RemovePhoto_Click"
+                        Visibility="Collapsed" />
+            </StackPanel>
+
+            <StackPanel>
+
+                <TextBlock Text="Nom *" Style="{StaticResource FieldLabel}" />
+                <TextBox x:Name="NameBox" />
+
+                <TextBlock Text="Description" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
+                <TextBox x:Name="DescriptionBox" Height="64"
+                         TextWrapping="Wrap" AcceptsReturn="True"
+                         VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" />
+
+                <TextBlock Text="Couleur" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
+                <WrapPanel x:Name="ColorPanel" Orientation="Horizontal" />
+
+                <TextBlock Text="Icône" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
+                <TextBox x:Name="IconBox" ToolTip="Nom d'icône libre, ex. « cup », « box », « tag »" />
+
+                <CheckBox x:Name="ActiveCheck" Content="Catégorie active" Margin="0,16,0,0"
+                          IsChecked="True" />
+                <TextBlock Style="{StaticResource PageSubtitle}" Margin="0,4,0,0" TextWrapping="Wrap"
+                           Text="Une catégorie désactivée disparaît des choix proposés à la création d'un produit, mais reste affichée sur les produits qui l'utilisent déjà." />
+
+            </StackPanel>
+
+        </DockPanel>
+
+    </DockPanel>
+</Window>

@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!--
+      System.Drawing.Common only works on Windows, which CA1416 flags on every call site
+      since the project targets plain net10.0 rather than net10.0-windows. That mismatch
+      is intentional: only Lonnii.Api's image handling is Windows-only, not the whole
+      project, and the API itself only ever runs on the Windows host laptop anyway.
+    -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="System.Drawing.Common" Version="10.0.12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Lets the tests exercise account creation without making it part of the public surface. -->
+    <InternalsVisibleTo Include="Lonnii.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Lonnii.Data\Lonnii.Data.csproj" />
+    <ProjectReference Include="..\Lonnii.Shared\Lonnii.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

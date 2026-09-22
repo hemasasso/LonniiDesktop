@@ -1,0 +1,122 @@
+<UserControl x:Class="Lonnii.Client.Views.Modules.ParametresView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource Surface}">
+
+    <DockPanel>
+
+        <Border DockPanel.Dock="Top" Padding="16,12"
+                BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1">
+            <StackPanel>
+                <TextBlock Text="Paramètres" Style="{StaticResource PageTitle}" />
+                <TextBlock Style="{StaticResource PageSubtitle}"
+                           Text="Configuration de l'espace et des accès." />
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,16">
+            <StackPanel MaxWidth="720" HorizontalAlignment="Left">
+
+                <!-- Workspace -->
+                <TextBlock Text="ESPACE" Style="{StaticResource SectionHeader}" Margin="0,0,0,6" />
+                <Border Background="{StaticResource SurfaceAlt}" BorderBrush="{StaticResource Border}"
+                        BorderThickness="1" CornerRadius="3" Padding="16,12">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="200" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Nom de l'espace"
+                                   Foreground="{StaticResource TextSecondary}" Margin="0,3" />
+                        <TextBlock x:Name="GroupNameText" Grid.Row="0" Grid.Column="1"
+                                   FontWeight="SemiBold" Margin="0,3" />
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Votre rôle"
+                                   Foreground="{StaticResource TextSecondary}" Margin="0,3" />
+                        <TextBlock x:Name="RoleText" Grid.Row="1" Grid.Column="1" Margin="0,3" />
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Membres"
+                                   Foreground="{StaticResource TextSecondary}" Margin="0,3" />
+                        <TextBlock x:Name="MemberCountText" Grid.Row="2" Grid.Column="1" Margin="0,3" />
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Module Gestion"
+                                   Foreground="{StaticResource TextSecondary}" Margin="0,3" />
+                        <TextBlock x:Name="GestionAccessText" Grid.Row="3" Grid.Column="1" Margin="0,3" />
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Module Prestations"
+                                   Foreground="{StaticResource TextSecondary}" Margin="0,3" />
+                        <TextBlock x:Name="PrestationsText" Grid.Row="4" Grid.Column="1" Margin="0,3" />
+                    </Grid>
+                </Border>
+
+                <!-- Currency (admin only) -->
+                <StackPanel x:Name="CurrencyPanel" Visibility="Collapsed">
+                    <TextBlock Text="DEVISE" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                    <Border Background="{StaticResource SurfaceAlt}" BorderBrush="{StaticResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Libellé affiché après chaque montant"
+                                       Foreground="{StaticResource TextSecondary}" VerticalAlignment="Center"
+                                       Width="260" />
+                            <TextBox x:Name="CurrencyBox" Width="120" MaxLength="12" />
+                            <Button Content="Enregistrer" Margin="10,0,0,0"
+                                    Style="{StaticResource SecondaryButton}" Click="SaveCurrency_Click" />
+                            <TextBlock x:Name="CurrencyStatusText" Margin="12,0,0,0"
+                                       VerticalAlignment="Center" FontSize="12" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Connection -->
+                <TextBlock Text="CONNEXION" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                <Border Background="{StaticResource SurfaceAlt}" BorderBrush="{StaticResource Border}"
+                        BorderThickness="1" CornerRadius="3" Padding="16,12">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="200" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Serveur"
+                                   Foreground="{StaticResource TextSecondary}" Margin="0,3" />
+                        <TextBlock x:Name="HostText" Grid.Row="0" Grid.Column="1" Margin="0,3" />
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Poste"
+                                   Foreground="{StaticResource TextSecondary}" Margin="0,3" />
+                        <TextBlock x:Name="MachineText" Grid.Row="1" Grid.Column="1" Margin="0,3" />
+                    </Grid>
+                </Border>
+
+                <!-- Privilege summary: pointless for the Admin Général, who already has
+                     everything, so this whole block is hidden for them in code-behind. -->
+                <StackPanel x:Name="PrivilegeSection">
+                    <TextBlock Text="VOS PRIVILÈGES" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                    <TextBlock x:Name="PrivilegeSummary" Style="{StaticResource PageSubtitle}"
+                               Margin="12,0,0,8" TextWrapping="Wrap" />
+                    <Border BorderBrush="{StaticResource Border}" BorderThickness="1" CornerRadius="3">
+                        <DataGrid x:Name="PrivilegeGrid" MaxHeight="320" BorderThickness="0">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Module" Binding="{Binding Module}" Width="150" />
+                                <DataGridTextColumn Header="Privilège" Binding="{Binding DisplayName}" Width="*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Border>
+                </StackPanel>
+
+            </StackPanel>
+        </ScrollViewer>
+
+    </DockPanel>
+</UserControl>

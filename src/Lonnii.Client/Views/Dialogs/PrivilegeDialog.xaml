@@ -6,12 +6,12 @@
         MinHeight="480" MinWidth="640"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
-        Background="{StaticResource Surface}">
+        Background="{DynamicResource Surface}">
 
     <DockPanel>
 
         <Border DockPanel.Dock="Top" Padding="18,14"
-                BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1">
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
             <StackPanel>
                 <TextBlock x:Name="MemberName" Style="{StaticResource PageTitle}" />
                 <TextBlock x:Name="MemberHint" Style="{StaticResource PageSubtitle}" />
@@ -19,11 +19,11 @@
         </Border>
 
         <Border DockPanel.Dock="Bottom" Padding="18,12"
-                Background="{StaticResource SurfaceAlt}"
-                BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0">
+                Background="{DynamicResource SurfaceAlt}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
             <Grid>
                 <TextBlock x:Name="StatusText" VerticalAlignment="Center"
-                           Foreground="{StaticResource TextSecondary}" FontSize="12"
+                           Foreground="{DynamicResource TextSecondary}" FontSize="12"
                            TextWrapping="Wrap" MaxWidth="440" HorizontalAlignment="Left" />
                 <Button Content="Fermer" IsCancel="True" IsDefault="True"
                         HorizontalAlignment="Right" Style="{StaticResource SecondaryButton}" />
@@ -31,7 +31,7 @@
         </Border>
 
         <TabControl x:Name="Tabs" Margin="12" BorderThickness="1"
-                    BorderBrush="{StaticResource Border}" Background="{StaticResource Surface}" />
+                    BorderBrush="{DynamicResource Border}" Background="{DynamicResource Surface}" />
 
     </DockPanel>
 </Window>

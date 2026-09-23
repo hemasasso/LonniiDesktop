@@ -97,6 +97,15 @@ public class Product
     /// <summary>Mirrors <c>prix_fixe</c>: when true the sale price cannot be edited at the till.</summary>
     public bool PrixFixe { get; set; }
 
+    /// <summary>Sold without stock tracking (e.g. a service): quantity is never adjusted or checked.</summary>
+    public bool VenteLibre { get; set; }
+
+    /// <summary>Stock is never depleted or flagged low, regardless of <see cref="Quantity"/>.</summary>
+    public bool StockIllimite { get; set; }
+
+    /// <summary>Optional unit shown next to the quantity, e.g. "page", "service", "copie".</summary>
+    public string? UniteAffichage { get; set; }
+
     // Physical properties
     public decimal? Weight { get; set; }
     public decimal? DimensionsLength { get; set; }

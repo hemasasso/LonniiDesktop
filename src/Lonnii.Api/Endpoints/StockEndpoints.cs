@@ -121,7 +121,7 @@ public static class StockEndpoints
         if (request.Quantity < 0)
             return Results.BadRequest(new ApiError("La quantité ne peut pas être négative"));
 
-        if (await IsDuplicateAsync(db, scope.GroupId, request.Sku, request.Barcode, excludeId: null, ct) is { } conflict)
+        if (await IsDuplicateAsync(db, scope.GroupId, request.Name, request.Sku, request.Barcode, excludeId: null, ct) is { } conflict)
             return Results.Conflict(new ApiError(conflict));
 
         var product = new Product
@@ -138,6 +138,9 @@ public static class StockEndpoints
             CostPrice = request.CostPrice,
             Price = request.Price,
             PrixFixe = request.PrixFixe,
+            VenteLibre = request.VenteLibre,
+            StockIllimite = request.StockIllimite,
+            UniteAffichage = Blank(request.UniteAffichage),
             StorageLocation = request.StorageLocation,
             ExpiryDate = request.ExpiryDate,
             CreatedBy = scope.UserId,
@@ -186,7 +189,7 @@ public static class StockEndpoints
         if (request.Price < 0)
             return Results.BadRequest(new ApiError("Le prix ne peut pas être négatif"));
 
-        if (await IsDuplicateAsync(db, scope.GroupId, request.Sku, request.Barcode, id, ct) is { } conflict)
+        if (await IsDuplicateAsync(db, scope.GroupId, request.Name, request.Sku, request.Barcode, id, ct) is { } conflict)
             return Results.Conflict(new ApiError(conflict));
 
         product.Name = request.Name.Trim();
@@ -199,6 +202,9 @@ public static class StockEndpoints
         product.CostPrice = request.CostPrice;
         product.Price = request.Price;
         product.PrixFixe = request.PrixFixe;
+        product.VenteLibre = request.VenteLibre;
+        product.StockIllimite = request.StockIllimite;
+        product.UniteAffichage = Blank(request.UniteAffichage);
         product.StorageLocation = request.StorageLocation;
         product.ExpiryDate = request.ExpiryDate;
         product.UpdatedBy = scope.UserId;
@@ -243,6 +249,9 @@ public static class StockEndpoints
             .FirstOrDefaultAsync(p => p.Id == id && p.GroupId == scope.GroupId && p.DeletedAt == null, ct);
 
         if (product is null) return Results.NotFound(new ApiError("Produit introuvable"));
+
+        if (product.VenteLibre || product.StockIllimite)
+            return Results.BadRequest(new ApiError("Ce produit n'a pas de suivi de stock"));
 
         var newQuantity = product.Quantity + request.QuantityChanged;
         if (newQuantity < 0)
@@ -535,8 +544,14 @@ public static class StockEndpoints
     /// client gets a readable message instead of a constraint violation.
     /// </summary>
     private static async Task<string?> IsDuplicateAsync(
-        LonniiDbContext db, string groupId, string? sku, string? barcode, string? excludeId, CancellationToken ct)
+        LonniiDbContext db, string groupId, string name, string? sku, string? barcode, string? excludeId, CancellationToken ct)
     {
+        var normalizedName = name.Trim().ToLowerInvariant();
+        if (await db.Products.AnyAsync(
+                p => p.GroupId == groupId && p.Id != excludeId && p.DeletedAt == null &&
+                     p.Name.ToLower() == normalizedName, ct))
+            return $"Un produit nommé \"{name.Trim()}\" existe déjà";
+
         sku = Blank(sku);
         barcode = Blank(barcode);
 
@@ -600,5 +615,6 @@ public static class StockEndpoints
         p.CategoryId, p.Category != null ? p.Category.Name : null,
         p.SupplierId, p.Supplier != null ? p.Supplier.Name : null,
         p.Quantity, p.MinimumThreshold, p.CostPrice, p.Price, p.PrixFixe,
+        p.VenteLibre, p.StockIllimite, p.UniteAffichage,
         p.IsActive, p.StorageLocation, p.ExpiryDate, p.ImageUrl, p.UpdatedAt);
 }

@@ -5,7 +5,7 @@
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
-        Background="{StaticResource Surface}">
+        Background="{DynamicResource Surface}">
 
     <Grid Margin="20">
         <Grid.RowDefinitions>

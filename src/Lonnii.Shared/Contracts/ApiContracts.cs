@@ -174,14 +174,25 @@ public sealed record ProductDto(
     decimal? CostPrice,
     decimal Price,
     bool PrixFixe,
+    bool VenteLibre,
+    bool StockIllimite,
+    string? UniteAffichage,
     bool IsActive,
     string? StorageLocation,
     DateTime? ExpiryDate,
     string? ImageUrl,
     DateTime UpdatedAt)
 {
-    /// <summary>True when stock has fallen to or below the alert threshold.</summary>
-    public bool IsLowStock => Quantity <= MinimumThreshold;
+    /// <summary>True when stock has fallen to or below the alert threshold. A product sold
+    /// without stock tracking or with unlimited stock is never low.</summary>
+    public bool IsLowStock => !VenteLibre && !StockIllimite && Quantity <= MinimumThreshold;
+
+    /// <summary>"∞" for a product with no stock tracking, otherwise the quantity with its
+    /// display unit (e.g. "12 page") when one is set.</summary>
+    public string QuantityDisplay =>
+        VenteLibre || StockIllimite
+            ? "∞"
+            : string.IsNullOrEmpty(UniteAffichage) ? Quantity.ToString() : $"{Quantity} {UniteAffichage}";
 }
 
 /// <summary>Creates or updates a product.</summary>
@@ -197,6 +208,9 @@ public sealed record SaveProductRequest(
     int MinimumThreshold = 5,
     decimal? CostPrice = null,
     bool PrixFixe = false,
+    bool VenteLibre = false,
+    bool StockIllimite = false,
+    string? UniteAffichage = null,
     string? StorageLocation = null,
     DateTime? ExpiryDate = null);
 

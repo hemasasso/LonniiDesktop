@@ -15,6 +15,7 @@ public partial class LoginWindow : Window
     public LoginWindow()
     {
         InitializeComponent();
+        Icon = AppIcon.Current;
 
         HostBox.Text = App.Settings.HostAddress;
         IdentifierBox.Text = App.Settings.LastIdentifier ?? string.Empty;

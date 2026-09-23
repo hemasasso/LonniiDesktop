@@ -5,12 +5,12 @@
         Height="540" Width="760"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
-        Background="{StaticResource Surface}">
+        Background="{DynamicResource Surface}">
 
     <DockPanel>
 
         <Border DockPanel.Dock="Top" Padding="18,14"
-                BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1">
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
             <StackPanel>
                 <TextBlock x:Name="ProductName" Style="{StaticResource PageTitle}" />
                 <TextBlock x:Name="Subtitle" Style="{StaticResource PageSubtitle}" />
@@ -18,8 +18,8 @@
         </Border>
 
         <Border DockPanel.Dock="Bottom" Padding="18,12"
-                Background="{StaticResource SurfaceAlt}"
-                BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0">
+                Background="{DynamicResource SurfaceAlt}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
             <Button Content="Fermer" IsCancel="True" IsDefault="True"
                     HorizontalAlignment="Right" Style="{StaticResource SecondaryButton}" />
         </Border>
@@ -39,7 +39,7 @@
                 </DataGrid.Columns>
             </DataGrid>
 
-            <Border x:Name="EmptyPanel" Visibility="Collapsed" Background="{StaticResource Surface}">
+            <Border x:Name="EmptyPanel" Visibility="Collapsed" Background="{DynamicResource Surface}">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                     <TextBlock Text="Aucun mouvement" FontSize="15" FontWeight="SemiBold"
                                HorizontalAlignment="Center" />

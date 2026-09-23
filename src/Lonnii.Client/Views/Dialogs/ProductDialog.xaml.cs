@@ -62,6 +62,7 @@ public partial class ProductDialog : Window
             ThresholdBox.Text = Money.FormatPlain(5);
             QuantityBox.Text = Money.FormatPlain(0);
             CategoryBox.SelectedIndex = 0;
+            PrixNegociableCheck.IsChecked = false;
         }
         else
         {
@@ -77,7 +78,10 @@ public partial class ProductDialog : Window
             CostBox.Text = existing.CostPrice is { } cost ? Money.FormatPlain(cost) : string.Empty;
             PriceBox.Text = Money.FormatPlain(existing.Price);
             ThresholdBox.Text = Money.FormatPlain(existing.MinimumThreshold);
-            PrixFixeCheck.IsChecked = existing.PrixFixe;
+            PrixNegociableCheck.IsChecked = !existing.PrixFixe;
+            VenteLibreCheck.IsChecked = existing.VenteLibre;
+            StockIllimiteCheck.IsChecked = existing.StockIllimite;
+            UnitBox.Text = existing.UniteAffichage ?? string.Empty;
 
             CategoryBox.SelectedValue = existing.CategoryId ?? string.Empty;
 
@@ -88,6 +92,8 @@ public partial class ProductDialog : Window
 
             RemovePhotoButton.Visibility = existing.ImageUrl is null ? Visibility.Collapsed : Visibility.Visible;
         }
+
+        ApplySalesModeVisuals();
 
         Loaded += async (_, _) =>
         {
@@ -160,6 +166,34 @@ public partial class ProductDialog : Window
         ClearPhoto();
     }
 
+    /// <summary>
+    /// Stock indéfini only makes sense once Vente Libre is on - unchecking Vente Libre
+    /// turns it back off. Either one means quantity is never tracked, so the quantity
+    /// (new products only - it stays read-only on edit regardless) and threshold fields
+    /// are disabled while it applies. Vente Libre also has no purchase cost to track
+    /// (it is a service, not a stocked good), so Prix d'achat is disabled and cleared.
+    /// </summary>
+    private void ApplySalesModeVisuals()
+    {
+        var venteLibre = VenteLibreCheck.IsChecked == true;
+        StockIllimiteCheck.IsEnabled = venteLibre;
+        if (!venteLibre) StockIllimiteCheck.IsChecked = false;
+
+        var noStockTracking = venteLibre || StockIllimiteCheck.IsChecked == true;
+        StockIllimiteHint.Visibility = StockIllimiteCheck.IsChecked == true
+            ? Visibility.Visible : Visibility.Collapsed;
+
+        if (_existing is null) QuantityBox.IsEnabled = !noStockTracking;
+        ThresholdBox.IsEnabled = !noStockTracking;
+
+        CostBox.IsEnabled = !venteLibre;
+        if (venteLibre) CostBox.Text = string.Empty;
+    }
+
+    private void VenteLibre_Changed(object sender, RoutedEventArgs e) => ApplySalesModeVisuals();
+
+    private void StockIllimite_Changed(object sender, RoutedEventArgs e) => ApplySalesModeVisuals();
+
     private void Save_Click(object sender, RoutedEventArgs e)
     {
         var name = NameBox.Text.Trim();
@@ -186,14 +220,17 @@ public partial class ProductDialog : Window
             cost = parsedCost;
         }
 
-        if (!Money.TryParse(ThresholdBox.Text, out int threshold) || threshold < 0)
+        var noStockTracking = VenteLibreCheck.IsChecked == true || StockIllimiteCheck.IsChecked == true;
+
+        var threshold = 0;
+        if (!noStockTracking && (!Money.TryParse(ThresholdBox.Text, out threshold) || threshold < 0))
         {
             Fail("Le seuil d'alerte doit être un entier positif.", ThresholdBox);
             return;
         }
 
         var quantity = _existing?.Quantity ?? 0;
-        if (_existing is null)
+        if (_existing is null && !noStockTracking)
         {
             if (!Money.TryParse(QuantityBox.Text, out quantity) || quantity < 0)
             {
@@ -226,7 +263,10 @@ public partial class ProductDialog : Window
             Quantity: quantity,
             MinimumThreshold: threshold,
             CostPrice: cost,
-            PrixFixe: PrixFixeCheck.IsChecked == true,
+            PrixFixe: PrixNegociableCheck.IsChecked != true,
+            VenteLibre: VenteLibreCheck.IsChecked == true,
+            StockIllimite: StockIllimiteCheck.IsChecked == true,
+            UniteAffichage: Blank(UnitBox.Text),
             StorageLocation: Blank(LocationBox.Text),
             ExpiryDate: _existing?.ExpiryDate);
 

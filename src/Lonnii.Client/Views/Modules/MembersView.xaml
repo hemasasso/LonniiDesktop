@@ -1,12 +1,12 @@
 <UserControl x:Class="Lonnii.Client.Views.Modules.MembersView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="{StaticResource Surface}">
+             Background="{DynamicResource Surface}">
 
     <DockPanel>
 
         <Border DockPanel.Dock="Top" Padding="16,12"
-                BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1">
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
             <StackPanel>
                 <TextBlock Text="Options — Membres et privilèges" Style="{StaticResource PageTitle}" />
                 <TextBlock x:Name="SummaryText" Style="{StaticResource PageSubtitle}" />
@@ -25,16 +25,16 @@
                         Style="{StaticResource SecondaryButton}" Click="Password_Click" />
                 <Button x:Name="RemoveButton" Content="Retirer" Margin="6,0,0,0"
                         Style="{StaticResource SecondaryButton}" Click="Remove_Click" />
-                <Rectangle Width="1" Margin="10,2" Fill="{StaticResource Border}" />
+                <Rectangle Width="1" Margin="10,2" Fill="{DynamicResource Border}" />
                 <Button Content="Actualiser" Style="{StaticResource SecondaryButton}" Click="Refresh_Click" />
             </StackPanel>
         </Border>
 
         <Border x:Name="MessagePanel" DockPanel.Dock="Bottom" Visibility="Collapsed"
-                Background="{StaticResource DangerLight}"
-                BorderBrush="{StaticResource Danger}" BorderThickness="0,1,0,0"
+                Background="{DynamicResource DangerLight}"
+                BorderBrush="{DynamicResource Danger}" BorderThickness="0,1,0,0"
                 Padding="14,8">
-            <TextBlock x:Name="MessageText" Foreground="{StaticResource Danger}" TextWrapping="Wrap" />
+            <TextBlock x:Name="MessageText" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" />
         </Border>
 
         <DataGrid x:Name="MemberGrid" SelectionChanged="Grid_SelectionChanged"
@@ -56,7 +56,7 @@
                                             <DataTrigger Binding="{Binding IsAdminGeneral}" Value="True">
                                                 <Setter Property="Text" Value="Administrateur Général" />
                                                 <Setter Property="FontWeight" Value="SemiBold" />
-                                                <Setter Property="Foreground" Value="{StaticResource Accent}" />
+                                                <Setter Property="Foreground" Value="{DynamicResource Accent}" />
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>

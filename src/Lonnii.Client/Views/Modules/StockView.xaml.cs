@@ -1,12 +1,15 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Lonnii.Client.Services;
 using Lonnii.Client.Views.Dialogs;
 using Lonnii.Shared.Contracts;
 using Lonnii.Shared.Security;
+using Microsoft.Win32;
 
 namespace Lonnii.Client.Views.Modules;
 
@@ -21,6 +24,9 @@ public partial class StockView : UserControl
     private List<CategoryDto> _categories = [];
     private List<ProductDto> _pageItems = [];
     private bool _iconView = true;
+    private bool _analyseTab;
+    private string _sortField = "Nom";
+    private bool _sortDescending;
 
     /// <summary>Products load one page at a time so a large catalogue never means downloading
     /// thumbnails for, or rendering, hundreds of cards at once.</summary>
@@ -53,6 +59,7 @@ public partial class StockView : UserControl
 
         ApplyPrivileges();
         ApplyViewModeVisuals();
+        ApplyTabVisuals();
         _searchDebounce.Tick += async (_, _) =>
         {
             _searchDebounce.Stop();
@@ -65,15 +72,18 @@ public partial class StockView : UserControl
     private void ApplyPrivileges()
     {
         AddButton.IsEnabled = _session.Can(Priv.Gestion.AddProducts);
-        EditButton.IsEnabled = _session.Can(Priv.Gestion.EditProducts);
-        AdjustButton.IsEnabled = _session.Can(Priv.Gestion.AdjustStock);
-        DeleteButton.IsEnabled = _session.Can(Priv.Gestion.DeleteProducts);
-        HistoryButton.IsEnabled = _session.Can(Priv.Gestion.ViewStockHistory);
-        CategoriesButton.IsEnabled = _session.Can(Priv.Gestion.ManageCategories);
+        EditMenuItem.IsEnabled = _session.Can(Priv.Gestion.EditProducts);
+        AdjustMenuItem.IsEnabled = _session.Can(Priv.Gestion.AdjustStock);
+        DeleteMenuItem.IsEnabled = _session.Can(Priv.Gestion.DeleteProducts);
+        HistoryMenuItem.IsEnabled = _session.Can(Priv.Gestion.ViewStockHistory);
+        CategoriesMenuItem.IsEnabled = _session.Can(Priv.Gestion.ManageCategories);
+        ExportButton.IsEnabled = _session.Can(Priv.Gestion.ExportStockData);
 
         // An admin-only privilege never resolves true for a member, so say why it is greyed out.
-        if (!DeleteButton.IsEnabled)
-            DeleteButton.ToolTip = "Réservé aux administrateurs";
+        if (!DeleteMenuItem.IsEnabled)
+            DeleteMenuItem.ToolTip = "Réservé aux administrateurs";
+        if (!ExportButton.IsEnabled)
+            ExportButton.ToolTip = "Réservé aux administrateurs";
     }
 
     private async Task LoadAsync(bool resetPage = true)
@@ -96,12 +106,15 @@ public partial class StockView : UserControl
                 categoryId: categoryId,
                 lowStockOnly: LowStockCheck.IsChecked == true);
 
+            ApplySort();
+
             if (resetPage) _page = 0;
             await ApplyPageAsync();
 
             HideMessage();
             UpdateSummary();
             UpdateEmptyState();
+            UpdateAnalyse();
         }
         catch (ApiException ex)
         {
@@ -183,10 +196,11 @@ public partial class StockView : UserControl
     private void Grid_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         var hasSelection = Selected is not null;
-        EditButton.IsEnabled = hasSelection && _session.Can(Priv.Gestion.EditProducts);
-        AdjustButton.IsEnabled = hasSelection && _session.Can(Priv.Gestion.AdjustStock);
-        DeleteButton.IsEnabled = hasSelection && _session.Can(Priv.Gestion.DeleteProducts);
-        HistoryButton.IsEnabled = hasSelection && _session.Can(Priv.Gestion.ViewStockHistory);
+        var tracksStock = Selected is { VenteLibre: false, StockIllimite: false };
+        EditMenuItem.IsEnabled = hasSelection && _session.Can(Priv.Gestion.EditProducts);
+        AdjustMenuItem.IsEnabled = hasSelection && tracksStock && _session.Can(Priv.Gestion.AdjustStock);
+        DeleteMenuItem.IsEnabled = hasSelection && _session.Can(Priv.Gestion.DeleteProducts);
+        HistoryMenuItem.IsEnabled = hasSelection && _session.Can(Priv.Gestion.ViewStockHistory);
     }
 
     private async void Refresh_Click(object sender, RoutedEventArgs e) => await LoadAsync();
@@ -211,6 +225,179 @@ public partial class StockView : UserControl
         ProductGrid.Visibility = _iconView ? Visibility.Collapsed : Visibility.Visible;
         IconScrollViewer.Visibility = _iconView ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    /// <summary>Re-sorts the already-fetched <see cref="_products"/> in place by whichever
+    /// field and direction the toolbar's sort controls hold. No API call - the whole
+    /// filtered set is already in memory.</summary>
+    private void ApplySort()
+    {
+        IOrderedEnumerable<ProductDto> sorted = _sortField switch
+        {
+            "Quantité" => _products.OrderBy(p => p.Quantity),
+            "Prix d'achat" => _products.OrderBy(p => p.CostPrice ?? 0),
+            "Prix de vente" => _products.OrderBy(p => p.Price),
+            _ => _products.OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase),
+        };
+        _products = (_sortDescending ? sorted.Reverse() : sorted).ToList();
+    }
+
+    private async void Sort_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        _sortField = (SortField.SelectedItem as ComboBoxItem)?.Content as string ?? "Nom";
+        ApplySort();
+        await ApplyPageAsync();
+    }
+
+    private async void SortDirection_Click(object sender, RoutedEventArgs e)
+    {
+        _sortDescending = !_sortDescending;
+        SortDirectionButton.Content = _sortDescending ? "▼" : "▲";
+        SortDirectionButton.ToolTip = _sortDescending ? "Ordre décroissant" : "Ordre croissant";
+        ApplySort();
+        await ApplyPageAsync();
+    }
+
+    private void More_Click(object sender, RoutedEventArgs e)
+    {
+        MoreMenu.PlacementTarget = MoreButton;
+        MoreMenu.IsOpen = true;
+    }
+
+    // Setting SelectedDate fires SelectedDateChanged (wired to Filter_Changed), which
+    // reloads - no separate reload needed here.
+    /// <summary>Writes the currently filtered and sorted products to a CSV file the user
+    /// picks. Runs entirely client-side against data already loaded - there is no export
+    /// endpoint on the API to call.</summary>
+    private void Export_Click(object sender, RoutedEventArgs e)
+    {
+        var espaceName = _session.Groupe?.Nom;
+        var fileNamePart = string.IsNullOrWhiteSpace(espaceName)
+            ? "stock"
+            : $"stock-{SanitizeFileName(espaceName)}";
+
+        var dialog = new SaveFileDialog
+        {
+            FileName = $"{fileNamePart}-{DateTime.Now:yyyy-MM-dd}.csv",
+            Filter = "Fichier CSV (*.csv)|*.csv",
+        };
+        if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
+
+        try
+        {
+            using var writer = new StreamWriter(dialog.FileName, false, System.Text.Encoding.UTF8);
+            writer.WriteLine(CsvField(string.IsNullOrWhiteSpace(espaceName)
+                ? "Gestion de Stock"
+                : $"Gestion de Stock — {espaceName}"));
+            writer.WriteLine(CsvField($"Exporté le {DateTime.Now:dd/MM/yyyy HH:mm}"));
+            writer.WriteLine();
+            writer.WriteLine("Produit;SKU;Catégorie;Quantité;Seuil;Prix d'achat;Prix de vente;Emplacement");
+            foreach (var p in _products)
+            {
+                writer.WriteLine(string.Join(';',
+                    CsvField(p.Name), CsvField(p.Sku), CsvField(p.CategoryName),
+                    p.Quantity, p.MinimumThreshold, p.CostPrice ?? 0, p.Price, CsvField(p.StorageLocation)));
+            }
+
+            MessageBox.Show(Window.GetWindow(this),
+                $"{_products.Count} produit(s) exporté(s) vers\n{dialog.FileName}",
+                "Export terminé", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (IOException ex)
+        {
+            ShowMessage($"Échec de l'export : {ex.Message}");
+        }
+    }
+
+    private static string CsvField(string? value) =>
+        $"\"{(value ?? string.Empty).Replace("\"", "\"\"")}\"";
+
+    private static string SanitizeFileName(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var cleaned = new string(value.Select(c => invalid.Contains(c) ? '-' : c).ToArray());
+        return cleaned.Trim();
+    }
+
+    private void StockTab_Click(object sender, RoutedEventArgs e) => SetActiveTab(analyse: false);
+
+    private void AnalyseTab_Click(object sender, RoutedEventArgs e) => SetActiveTab(analyse: true);
+
+    private void SetActiveTab(bool analyse)
+    {
+        if (_analyseTab == analyse) return;
+        _analyseTab = analyse;
+        ApplyTabVisuals();
+    }
+
+    private void ApplyTabVisuals()
+    {
+        var mutedBrush = (Brush)FindResource("TextMuted");
+        var accentBrush = (Brush)FindResource("Accent");
+        var onAccentBrush = (Brush)FindResource("TextOnAccent");
+        var transparent = Brushes.Transparent;
+
+        StockTabButton.Background = _analyseTab ? transparent : accentBrush;
+        StockTabButton.Foreground = _analyseTab ? mutedBrush : onAccentBrush;
+        StockTabButton.FontWeight = _analyseTab ? FontWeights.Normal : FontWeights.SemiBold;
+        AnalyseTabButton.Background = _analyseTab ? accentBrush : transparent;
+        AnalyseTabButton.Foreground = _analyseTab ? onAccentBrush : mutedBrush;
+        AnalyseTabButton.FontWeight = _analyseTab ? FontWeights.SemiBold : FontWeights.Normal;
+
+        StockToolsPanel.Visibility = _analyseTab ? Visibility.Collapsed : Visibility.Visible;
+        PaginationPanel.Visibility = _analyseTab ? Visibility.Collapsed : Visibility.Visible;
+        StockContentGrid.Visibility = _analyseTab ? Visibility.Collapsed : Visibility.Visible;
+        AnalysePanel.Visibility = _analyseTab ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>Recomputes the Analyse tab's stat cards from the currently loaded, already
+    /// filtered <see cref="_products"/>. Cheap enough to run after every load; no separate
+    /// API call of its own.</summary>
+    private void UpdateAnalyse()
+    {
+        AnalyseStatsPanel.Children.Clear();
+
+        var count = _products.Count;
+        var lowStock = _products.Count(p => p.IsLowStock);
+        var saleValue = _products.Sum(p => p.Price * p.Quantity);
+        var costValue = _products.Sum(p => (p.CostPrice ?? 0) * p.Quantity);
+        var margin = saleValue - costValue;
+
+        AnalyseStatsPanel.Children.Add(StatCard("Produits", count.ToString(), (Brush)FindResource("Accent")));
+        AnalyseStatsPanel.Children.Add(StatCard("Valeur du stock (vente)", Money.Format(saleValue), (Brush)FindResource("Accent")));
+        AnalyseStatsPanel.Children.Add(StatCard("Valeur du stock (achat)", Money.Format(costValue), (Brush)FindResource("TextSecondary")));
+        AnalyseStatsPanel.Children.Add(StatCard("Marge potentielle", Money.Format(margin), (Brush)FindResource("Success")));
+        AnalyseStatsPanel.Children.Add(StatCard("En stock bas", lowStock.ToString(),
+            (Brush)FindResource(lowStock > 0 ? "Danger" : "TextSecondary")));
+    }
+
+    private static Border StatCard(string label, string value, Brush accent) => new()
+    {
+        Width = 190,
+        Margin = new Thickness(0, 0, 12, 12),
+        Padding = new Thickness(16, 14, 16, 14),
+        CornerRadius = new CornerRadius(10),
+        Background = (Brush)Application.Current.Resources["SurfaceAlt"],
+        BorderBrush = (Brush)Application.Current.Resources["Border"],
+        BorderThickness = new Thickness(1),
+        Child = new StackPanel
+        {
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = value, FontSize = 22, FontWeight = FontWeights.Bold, Foreground = accent,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                },
+                new TextBlock
+                {
+                    Text = label, Margin = new Thickness(0, 4, 0, 0),
+                    Foreground = (Brush)Application.Current.Resources["TextSecondary"],
+                    TextWrapping = TextWrapping.Wrap, FontSize = 12,
+                },
+            },
+        },
+    };
 
     /// <summary>
     /// Downloads the thumbnail for every product on the current page, reusing whatever is
@@ -272,6 +459,8 @@ public partial class StockView : UserControl
 
     private void Search_TextChanged(object sender, TextChangedEventArgs e)
     {
+        SearchPlaceholder.Visibility = SearchBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+
         if (!IsLoaded) return;
         _searchDebounce.Stop();
         _searchDebounce.Start();

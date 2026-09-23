@@ -5,7 +5,7 @@
         Height="480" Width="620"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
-        Background="{StaticResource Surface}">
+        Background="{DynamicResource Surface}">
 
     <Grid Margin="24">
         <Grid.RowDefinitions>
@@ -23,7 +23,7 @@
 
         <DataGrid x:Name="GroupGrid" Grid.Row="1"
                   MouseDoubleClick="Grid_DoubleClick"
-                  BorderThickness="1" BorderBrush="{StaticResource Border}">
+                  BorderThickness="1" BorderBrush="{DynamicResource Border}">
             <DataGrid.Columns>
                 <DataGridTextColumn Header="Espace" Binding="{Binding Nom}" Width="*" />
                 <DataGridTextColumn Header="Rôle" Width="150"
@@ -34,8 +34,8 @@
         </DataGrid>
 
         <Border x:Name="EmptyPanel" Grid.Row="1" Visibility="Collapsed"
-                Background="{StaticResource SurfaceAlt}"
-                BorderBrush="{StaticResource Border}" BorderThickness="1"
+                Background="{DynamicResource SurfaceAlt}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="1"
                 Padding="24">
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                 <TextBlock Text="Aucun espace" FontWeight="SemiBold" FontSize="15"
@@ -47,10 +47,10 @@
         </Border>
 
         <Border x:Name="ErrorPanel" Grid.Row="2" Visibility="Collapsed" Margin="0,12,0,0"
-                Background="{StaticResource DangerLight}"
-                BorderBrush="{StaticResource Danger}" BorderThickness="1"
+                Background="{DynamicResource DangerLight}"
+                BorderBrush="{DynamicResource Danger}" BorderThickness="1"
                 CornerRadius="3" Padding="10,8">
-            <TextBlock x:Name="ErrorText" Foreground="{StaticResource Danger}"
+            <TextBlock x:Name="ErrorText" Foreground="{DynamicResource Danger}"
                        TextWrapping="Wrap" FontSize="12" />
         </Border>
 

@@ -7,12 +7,12 @@
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResize"
         ShowInTaskbar="False"
-        Background="{StaticResource Surface}">
+        Background="{DynamicResource Surface}">
 
     <DockPanel>
 
         <Border DockPanel.Dock="Top" Padding="18,14"
-                BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1">
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
             <StackPanel>
                 <TextBlock Text="Catégories" Style="{StaticResource PageTitle}" />
                 <TextBlock x:Name="SummaryText" Style="{StaticResource PageSubtitle}" />
@@ -26,16 +26,16 @@
                         Style="{StaticResource SecondaryButton}" Click="Edit_Click" />
                 <Button x:Name="ToggleActiveButton" Content="Désactiver" Margin="6,0,0,0"
                         Style="{StaticResource SecondaryButton}" Click="ToggleActive_Click" />
-                <Rectangle Width="1" Margin="10,2" Fill="{StaticResource Border}" />
+                <Rectangle Width="1" Margin="10,2" Fill="{DynamicResource Border}" />
                 <Button Content="Actualiser" Style="{StaticResource SecondaryButton}" Click="Refresh_Click" />
             </StackPanel>
         </Border>
 
         <Border DockPanel.Dock="Bottom" Padding="18,12"
-                Background="{StaticResource SurfaceAlt}"
-                BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0">
+                Background="{DynamicResource SurfaceAlt}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
             <Grid>
-                <TextBlock x:Name="ErrorText" Foreground="{StaticResource Danger}"
+                <TextBlock x:Name="ErrorText" Foreground="{DynamicResource Danger}"
                            VerticalAlignment="Center" TextWrapping="Wrap"
                            MaxWidth="400" HorizontalAlignment="Left" FontSize="12" />
                 <Button Content="Fermer" IsCancel="True" IsDefault="True"
@@ -51,8 +51,8 @@
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <Border Width="36" Height="36" Margin="4"
-                                        Background="{StaticResource SurfaceAlt}"
-                                        BorderBrush="{StaticResource Border}" BorderThickness="1"
+                                        Background="{DynamicResource SurfaceAlt}"
+                                        BorderBrush="{DynamicResource Border}" BorderThickness="1"
                                         CornerRadius="3">
                                     <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
                                 </Border>
@@ -70,7 +70,7 @@
                 </DataGrid.Columns>
             </DataGrid>
 
-            <Border x:Name="EmptyPanel" Visibility="Collapsed" Background="{StaticResource Surface}">
+            <Border x:Name="EmptyPanel" Visibility="Collapsed" Background="{DynamicResource Surface}">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                     <TextBlock Text="Aucune catégorie" FontSize="15" FontWeight="SemiBold"
                                HorizontalAlignment="Center" />

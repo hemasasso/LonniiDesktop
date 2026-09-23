@@ -1,16 +1,16 @@
 <Window x:Class="Lonnii.Client.Views.Dialogs.ProductDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Height="580" Width="720"
+        Height="600" Width="780" MinWidth="780"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
-        Background="{StaticResource Surface}">
+        Background="{DynamicResource Surface}">
 
     <DockPanel>
 
         <Border DockPanel.Dock="Top" Padding="18,14"
-                BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1">
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
             <StackPanel>
                 <TextBlock x:Name="HeaderText" Style="{StaticResource PageTitle}" />
                 <TextBlock x:Name="HeaderHint" Style="{StaticResource PageSubtitle}" />
@@ -18,10 +18,10 @@
         </Border>
 
         <Border DockPanel.Dock="Bottom" Padding="18,12"
-                Background="{StaticResource SurfaceAlt}"
-                BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0">
+                Background="{DynamicResource SurfaceAlt}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
             <Grid>
-                <TextBlock x:Name="ErrorText" Foreground="{StaticResource Danger}"
+                <TextBlock x:Name="ErrorText" Foreground="{DynamicResource Danger}"
                            VerticalAlignment="Center" TextWrapping="Wrap"
                            MaxWidth="330" HorizontalAlignment="Left" FontSize="12" />
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
@@ -39,14 +39,14 @@
             <StackPanel DockPanel.Dock="Left" Width="150" Margin="0,0,18,0">
                 <TextBlock Text="Photo" Style="{StaticResource FieldLabel}" />
                 <Border Width="150" Height="150"
-                        Background="{StaticResource SurfaceAlt}"
-                        BorderBrush="{StaticResource Border}" BorderThickness="1"
+                        Background="{DynamicResource SurfaceAlt}"
+                        BorderBrush="{DynamicResource Border}" BorderThickness="1"
                         CornerRadius="3">
                     <Grid>
                         <Image x:Name="PhotoImage" Stretch="Uniform" Margin="4" />
                         <TextBlock x:Name="PhotoPlaceholder" Text="Aucune photo"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"
-                                   Foreground="{StaticResource TextMuted}" FontSize="12" />
+                                   Foreground="{DynamicResource TextMuted}" FontSize="12" />
                     </Grid>
                 </Border>
                 <Button x:Name="ChoosePhotoButton" Content="Choisir…" Margin="0,8,0,0"
@@ -56,7 +56,7 @@
                         Visibility="Collapsed" />
             </StackPanel>
 
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,10,0">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -64,6 +64,9 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
@@ -99,7 +102,13 @@
 
                 <StackPanel Grid.Row="3" Grid.Column="0" Margin="0,12,0,0">
                     <TextBlock Text="Catégorie" Style="{StaticResource FieldLabel}" />
-                    <ComboBox x:Name="CategoryBox" DisplayMemberPath="Name" SelectedValuePath="Id" />
+                    <ComboBox x:Name="CategoryBox" SelectedValuePath="Id">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Name}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
                 </StackPanel>
 
                 <StackPanel Grid.Row="3" Grid.Column="2" Margin="0,12,0,0">
@@ -129,11 +138,38 @@
                 </StackPanel>
 
                 <StackPanel Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,14,0,0">
-                    <CheckBox x:Name="PrixFixeCheck"
-                              Content="Prix fixe (non modifiable au moment de la vente)" />
+                    <!-- Inverted from PrixFixe: checked means the price CAN be changed at
+                         the till, unchecked (the default) means it is fixed. -->
+                    <CheckBox x:Name="PrixNegociableCheck"
+                              Content="Prix négociable (modifiable au moment de la vente)" />
                 </StackPanel>
 
-                <TextBlock x:Name="QuantityHint" Grid.Row="7" Grid.Column="0" Grid.ColumnSpan="3"
+                <!--
+                  A product sold without stock tracking (e.g. a service) never moves
+                  quantity, so Stock indéfini only makes sense once Vente Libre is on -
+                  it is indented under it and disabled until then (see code-behind).
+                -->
+                <StackPanel Grid.Row="7" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,10,0,0">
+                    <CheckBox x:Name="VenteLibreCheck" Content="Vente Libre (sans suivi de stock - ex: services)"
+                              Checked="VenteLibre_Changed" Unchecked="VenteLibre_Changed" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="8" Grid.Column="0" Grid.ColumnSpan="3" Margin="20,8,0,0">
+                    <CheckBox x:Name="StockIllimiteCheck" Content="Stock indéfini (illimité)"
+                              Checked="StockIllimite_Changed" Unchecked="StockIllimite_Changed" />
+                    <TextBlock x:Name="StockIllimiteHint" Margin="0,4,0,0" FontSize="12"
+                               Foreground="{DynamicResource Warning}" Visibility="Collapsed"
+                               Text="ℹ Stock illimité - Parfait pour les services." />
+                </StackPanel>
+
+                <StackPanel Grid.Row="9" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,12,0,0">
+                    <TextBlock Text="Unité d'affichage (optionnel)" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="UnitBox" ToolTip="Ex: page, service, copie…" />
+                    <TextBlock Text="Laissez vide pour utiliser « unité » par défaut"
+                               Style="{StaticResource PageSubtitle}" />
+                </StackPanel>
+
+                <TextBlock x:Name="QuantityHint" Grid.Row="10" Grid.Column="0" Grid.ColumnSpan="3"
                            Margin="0,12,0,0" Style="{StaticResource PageSubtitle}"
                            TextWrapping="Wrap" Visibility="Collapsed"
                            Text="La quantité se modifie par « Ajuster le stock », pour que chaque mouvement soit tracé." />

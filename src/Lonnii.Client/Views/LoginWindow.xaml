@@ -5,7 +5,7 @@
         Height="560" Width="820"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
-        Background="{StaticResource Surface}">
+        Background="{DynamicResource Surface}">
 
     <Grid>
         <Grid.ColumnDefinitions>
@@ -14,7 +14,7 @@
         </Grid.ColumnDefinitions>
 
         <!-- Brand panel -->
-        <Border Grid.Column="0" Background="{StaticResource Accent}">
+        <Border Grid.Column="0" Background="{DynamicResource Accent}">
             <StackPanel VerticalAlignment="Center" Margin="32">
                 <TextBlock Text="Lonnii" FontSize="36" FontWeight="Bold"
                            Foreground="White" />
@@ -71,12 +71,12 @@
 
                 <!-- Shown only when the host has no account yet. -->
                 <Border x:Name="SetupPanel" Visibility="Collapsed" Margin="0,16,0,0"
-                        Background="{StaticResource AccentLight}"
-                        BorderBrush="{StaticResource Accent}" BorderThickness="1"
+                        Background="{DynamicResource AccentLight}"
+                        BorderBrush="{DynamicResource Accent}" BorderThickness="1"
                         CornerRadius="3" Padding="12,10">
                     <StackPanel>
                         <TextBlock Text="Ce serveur n'a encore aucun compte"
-                                   FontWeight="SemiBold" Foreground="{StaticResource AccentDark}" />
+                                   FontWeight="SemiBold" Foreground="{DynamicResource AccentDark}" />
                         <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap"
                                    Text="Créez le compte administrateur pour commencer." />
                         <Button Content="Créer le compte administrateur…"
@@ -86,10 +86,10 @@
                 </Border>
 
                 <Border x:Name="ErrorPanel" Visibility="Collapsed" Margin="0,16,0,0"
-                        Background="{StaticResource DangerLight}"
-                        BorderBrush="{StaticResource Danger}" BorderThickness="1"
+                        Background="{DynamicResource DangerLight}"
+                        BorderBrush="{DynamicResource Danger}" BorderThickness="1"
                         CornerRadius="3" Padding="10,8">
-                    <TextBlock x:Name="ErrorText" Foreground="{StaticResource Danger}"
+                    <TextBlock x:Name="ErrorText" Foreground="{DynamicResource Danger}"
                                TextWrapping="Wrap" FontSize="12" />
                 </Border>
 
@@ -98,7 +98,7 @@
             <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
                 <TextBlock x:Name="BusyText" Text="Connexion…" Visibility="Collapsed"
                            VerticalAlignment="Center" Margin="0,0,12,0"
-                           Foreground="{StaticResource TextSecondary}" />
+                           Foreground="{DynamicResource TextSecondary}" />
                 <Button Content="Quitter" Style="{StaticResource SecondaryButton}"
                         Margin="0,0,8,0" Click="Cancel_Click" />
                 <Button x:Name="SignInButton" Content="Se connecter" IsDefault="True"

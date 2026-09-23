@@ -1,0 +1,30 @@
+<!--
+  Default palette. Every brush key here also exists in Palette.Dark.xaml with the same
+  name - ThemeManager swaps which of the two is merged into App.xaml.Resources, and every
+  Styles.xaml style and every DynamicResource in the app's own XAML picks the change up
+  live, no re-launch needed.
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <SolidColorBrush x:Key="Accent" Color="#4361EE" />
+    <SolidColorBrush x:Key="AccentDark" Color="#3049C4" />
+    <SolidColorBrush x:Key="AccentLight" Color="#EEF1FE" />
+
+    <SolidColorBrush x:Key="Surface" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="SurfaceAlt" Color="#F6F7F9" />
+    <SolidColorBrush x:Key="SurfaceSunken" Color="#EDEFF3" />
+    <SolidColorBrush x:Key="Border" Color="#DCDFE5" />
+    <SolidColorBrush x:Key="BorderStrong" Color="#C3C8D1" />
+
+    <SolidColorBrush x:Key="TextPrimary" Color="#1B1F27" />
+    <SolidColorBrush x:Key="TextSecondary" Color="#5A6270" />
+    <SolidColorBrush x:Key="TextMuted" Color="#8A929E" />
+    <SolidColorBrush x:Key="TextOnAccent" Color="#FFFFFF" />
+
+    <SolidColorBrush x:Key="Success" Color="#10B981" />
+    <SolidColorBrush x:Key="Warning" Color="#F59E0B" />
+    <SolidColorBrush x:Key="Danger" Color="#DC2626" />
+    <SolidColorBrush x:Key="DangerLight" Color="#FEF2F2" />
+
+</ResourceDictionary>

@@ -6,13 +6,13 @@
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
-        Background="{StaticResource Surface}">
+        Background="{DynamicResource Surface}">
 
     <DockPanel>
 
         <Border DockPanel.Dock="Top" Padding="20,16"
-                Background="{StaticResource AccentLight}"
-                BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1">
+                Background="{DynamicResource AccentLight}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
             <StackPanel>
                 <TextBlock Text="Première utilisation" Style="{StaticResource PageTitle}" />
                 <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap"
@@ -21,10 +21,10 @@
         </Border>
 
         <Border DockPanel.Dock="Bottom" Padding="20,12"
-                Background="{StaticResource SurfaceAlt}"
-                BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0">
+                Background="{DynamicResource SurfaceAlt}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
             <Grid>
-                <TextBlock x:Name="ErrorText" Foreground="{StaticResource Danger}"
+                <TextBlock x:Name="ErrorText" Foreground="{DynamicResource Danger}"
                            VerticalAlignment="Center" TextWrapping="Wrap"
                            MaxWidth="260" HorizontalAlignment="Left" FontSize="12" />
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
@@ -72,10 +72,10 @@
                        TextWrapping="Wrap" Margin="0,8,0,0" />
 
             <Border Margin="0,16,0,0" Padding="12,10"
-                    Background="{StaticResource SurfaceAlt}"
-                    BorderBrush="{StaticResource Border}" BorderThickness="1"
+                    Background="{DynamicResource SurfaceAlt}"
+                    BorderBrush="{DynamicResource Border}" BorderThickness="1"
                     CornerRadius="3">
-                <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextSecondary}"
+                <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource TextSecondary}"
                            Text="Notez ce mot de passe. Il n'y a pas de récupération par email sur un serveur local : seul un administrateur peut réinitialiser un compte." />
             </Border>
 

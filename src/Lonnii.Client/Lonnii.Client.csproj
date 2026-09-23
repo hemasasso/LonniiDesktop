@@ -15,6 +15,19 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+
+    <!-- The .exe/shortcut icon is baked in at build time and cannot itself switch with the
+         theme, so it uses the black-ink (light-background) variant. The window icon, which
+         WPF sets at runtime, switches to the white-ink variant in dark mode - see AppIcon.cs. -->
+    <ApplicationIcon>Assets\icon-light.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\icon-light.ico" />
+    <Resource Include="Assets\icon-dark.ico" />
+
+    <!-- Yellow bolt mark, no black ink, for the always-dark top nav bar. -->
+    <Resource Include="Assets\icon-dark.png" />
+  </ItemGroup>
 
 </Project>

@@ -230,6 +230,14 @@ public class LonniiApiClient
     public Task<SupplierDto> CreateSupplierAsync(SupplierDto request, CancellationToken ct = default) =>
         PostAsync<SupplierDto>("api/stock/suppliers", request, ct);
 
+    // --- Ventes ---
+
+    public Task<VenteDto> CreateVenteAsync(CreateVenteRequest request, CancellationToken ct = default) =>
+        PostAsync<VenteDto>("api/ventes", request, ct);
+
+    public Task<VenteDto> GetVenteAsync(string id, CancellationToken ct = default) =>
+        GetAsync<VenteDto>($"api/ventes/{id}", ct);
+
     // --- Images ---
 
     /// <summary>Uploads a product photo, replacing whatever was there before.</summary>

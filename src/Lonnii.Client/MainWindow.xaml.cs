@@ -320,6 +320,7 @@ public partial class MainWindow : Window
     private UserControl CreateModule(string key, string label) => key switch
     {
         "gestion-de-stock" => new StockView(_session),
+        "ventes" => new VentesView(_session),
         "options" => new MembersView(_session),
         "parametres" => new ParametresView(_session),
         _ => PlaceholderView.For(label, key),

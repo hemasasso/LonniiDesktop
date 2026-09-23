@@ -88,6 +88,7 @@ app.MapAuthEndpoints();
 app.MapGroupEndpoints();
 app.MapPrivilegeEndpoints();
 app.MapStockEndpoints();
+app.MapVentesEndpoints();
 app.MapImageEndpoints();
 
 /// <summary>Lets a client confirm it is talking to a Lonnii host before signing in.</summary>

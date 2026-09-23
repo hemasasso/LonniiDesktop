@@ -252,6 +252,58 @@ public sealed record SaveCategoryRequest(
 /// <summary>A supplier.</summary>
 public sealed record SupplierDto(string Id, string Name, string? ContactPerson, string? Email, string? Phone, string? City, int? Rating, bool IsActive);
 
+// --- Ventes ---
+
+/// <summary>One line of a sale being created. <paramref name="UnitPrice"/> is required
+/// when the product is not <c>PrixFixe</c> — its price is decided at sale time.</summary>
+public sealed record CartItemRequest(
+    string ProductId,
+    int Quantity,
+    decimal? UnitPrice = null,
+    decimal Discount = 0,
+    string DiscountType = "percentage");
+
+/// <summary>Creates a sale from a cart. <paramref name="MontantPaye"/> may be less than the
+/// computed total (partial payment) or zero (unpaid). <paramref name="RemiseGlobale"/> is a
+/// flat amount taken off the sum of the lines, e.g. a negotiated rebate on the whole sale.</summary>
+public sealed record CreateVenteRequest(
+    IReadOnlyList<CartItemRequest> Items,
+    string ModePaiement,
+    decimal MontantPaye,
+    decimal RemiseGlobale = 0,
+    string? ClientNom = null,
+    string? ClientTelephone = null,
+    string? ClientEmail = null,
+    string? Notes = null,
+    string? IdempotencyKey = null);
+
+/// <summary>One line of a completed sale.</summary>
+public sealed record VenteItemDto(
+    string Id,
+    string? ProductId,
+    string NomProduit,
+    int Quantite,
+    decimal PrixUnitaire,
+    decimal PrixTotal,
+    decimal Discount,
+    string DiscountType);
+
+/// <summary>A completed sale, as shown on a receipt or in the sales list.</summary>
+public sealed record VenteDto(
+    string Id,
+    string NumeroVente,
+    DateTime DateVente,
+    string? ClientNom,
+    string? ClientTelephone,
+    string? ClientEmail,
+    decimal MontantTotal,
+    decimal MontantPaye,
+    decimal MontantRestant,
+    string StatutPaiement,
+    string? ModePaiement,
+    string? Notes,
+    IReadOnlyList<VenteItemDto> Items);
+
 // --- Images ---
 
 /// <summary>Returned after a photo upload, so the caller can show it immediately.</summary>

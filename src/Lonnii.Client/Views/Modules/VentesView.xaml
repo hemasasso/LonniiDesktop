@@ -1,0 +1,291 @@
+<UserControl x:Class="Lonnii.Client.Views.Modules.VentesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{DynamicResource Surface}">
+
+    <DockPanel>
+
+        <!-- Header -->
+        <Border DockPanel.Dock="Top" Padding="18,14"
+                Background="{DynamicResource Surface}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
+            <Grid>
+                <StackPanel Orientation="Horizontal">
+                    <Border Width="42" Height="42" CornerRadius="10" Background="{DynamicResource Accent}">
+                        <TextBlock Text="🛒" FontSize="19" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="Gestion des Ventes" FontSize="18" FontWeight="Bold"
+                                   Foreground="{DynamicResource Accent}" />
+                        <TextBlock x:Name="SubtitleText" Style="{StaticResource PageSubtitle}" />
+                    </StackPanel>
+                </StackPanel>
+                <Button x:Name="OpenCaisseButton" Content="🏦 Ouvrir Caisse" HorizontalAlignment="Right"
+                        Style="{StaticResource SecondaryButton}" Click="OpenCaisse_Click" />
+            </Grid>
+        </Border>
+
+        <!-- Module tabs -->
+        <Border DockPanel.Dock="Top" Style="{StaticResource ToolbarPanel}">
+            <StackPanel Orientation="Horizontal">
+                <Button x:Name="NouvelleVenteTabButton" Content="＋ Nouvelle Vente" Margin="0,0,6,0"
+                        Style="{StaticResource ModuleTabButton}" Click="NouvelleVenteTab_Click" />
+                <Button x:Name="ListeVentesTabButton" Content="☰ Liste des Ventes" Margin="0,0,6,0"
+                        Style="{StaticResource ModuleTabButton}" Click="OtherTab_Click" />
+                <Button x:Name="StatistiquesTabButton" Content="📈 Statistiques" Margin="0,0,6,0"
+                        Style="{StaticResource ModuleTabButton}" Click="OtherTab_Click" />
+            </StackPanel>
+        </Border>
+
+        <!-- Status strip -->
+        <Border x:Name="MessagePanel" DockPanel.Dock="Bottom" Visibility="Collapsed"
+                Background="{DynamicResource DangerLight}"
+                BorderBrush="{DynamicResource Danger}" BorderThickness="0,1,0,0"
+                Padding="14,8">
+            <TextBlock x:Name="MessageText" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" />
+        </Border>
+
+        <!-- "Liste des Ventes" / "Statistiques" placeholder -->
+        <Border x:Name="PlaceholderPanel" Visibility="Collapsed" Background="{DynamicResource Surface}">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                <TextBlock x:Name="PlaceholderTitle" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                <TextBlock Text="Bientôt disponible." Style="{StaticResource PageSubtitle}"
+                           TextAlignment="Center" Margin="0,6,0,0" />
+            </StackPanel>
+        </Border>
+
+        <!-- Nouvelle Vente -->
+        <Grid x:Name="NouvelleVentePanel">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="3*" />
+                <ColumnDefinition Width="2*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Products -->
+            <DockPanel Grid.Column="0">
+
+                <Border DockPanel.Dock="Top" Style="{StaticResource ToolbarPanel}">
+                    <StackPanel>
+                        <Grid Width="320" HorizontalAlignment="Left" Margin="0,0,0,8">
+                            <TextBox x:Name="SearchBox"
+                                     ToolTip="Rechercher un produit"
+                                     TextChanged="Search_TextChanged"
+                                     KeyDown="Search_KeyDown" />
+                            <TextBlock x:Name="SearchPlaceholder" Text="🔍 Rechercher un produit…"
+                                       Foreground="{DynamicResource TextMuted}" Margin="9,0,0,0"
+                                       VerticalAlignment="Center" IsHitTestVisible="False" />
+                        </Grid>
+                        <ScrollViewer VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Auto">
+                            <WrapPanel x:Name="CategoryPillPanel" Orientation="Horizontal" />
+                        </ScrollViewer>
+                    </StackPanel>
+                </Border>
+
+                <Grid>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <ListBox x:Name="ProductGrid" Background="Transparent" BorderThickness="0"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 SelectionChanged="ProductGrid_SelectionChanged">
+                            <ListBox.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel Orientation="Horizontal" Margin="12" />
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="Margin" Value="6" />
+                                    <Setter Property="Padding" Value="0" />
+                                    <Setter Property="Cursor" Value="Hand" />
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="ListBoxItem">
+                                                <ContentPresenter />
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Width="150" Height="150"
+                                            Background="{DynamicResource Surface}"
+                                            BorderBrush="{DynamicResource Border}" BorderThickness="1"
+                                            CornerRadius="6">
+                                        <StackPanel>
+                                            <Border Width="150" Height="80"
+                                                    Background="{DynamicResource SurfaceAlt}"
+                                                    CornerRadius="6,6,0,0" ClipToBounds="True">
+                                                <Grid>
+                                                    <TextBlock Text="🛒" FontSize="28" HorizontalAlignment="Center"
+                                                               VerticalAlignment="Center"
+                                                               Visibility="{Binding HasNoThumbnail, Converter={StaticResource BoolToVis}}" />
+                                                    <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
+                                                </Grid>
+                                            </Border>
+                                            <StackPanel Margin="8,6">
+                                                <TextBlock Text="{Binding Product.Name}" FontWeight="SemiBold"
+                                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding Product.Name}" />
+                                                <TextBlock Margin="0,2,0,0">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+                                                            <Setter Property="Text" Value="{Binding Product.Price, Converter={StaticResource Currency}}" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Product.PrixFixe}" Value="False">
+                                                                    <Setter Property="Text" Value="À Définir" />
+                                                                    <Setter Property="Foreground" Value="{DynamicResource Warning}" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                                <TextBlock Margin="0,2,0,0" FontSize="11"
+                                                           Foreground="{DynamicResource TextMuted}">
+                                                    <Run Text="Stock : " />
+                                                    <Run Text="{Binding Product.QuantityDisplay, Mode=OneWay}" />
+                                                </TextBlock>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </ScrollViewer>
+
+                    <Border x:Name="EmptyPanel" Visibility="Collapsed" Background="{DynamicResource Surface}">
+                        <TextBlock Text="Aucun produit ne correspond à votre recherche."
+                                   Style="{StaticResource PageSubtitle}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+
+                    <Border x:Name="BusyPanel" Visibility="Collapsed" Background="#66FFFFFF">
+                        <TextBlock Text="Chargement…" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                   FontSize="14" Foreground="{DynamicResource TextSecondary}" />
+                    </Border>
+                </Grid>
+            </DockPanel>
+
+            <!-- Cart -->
+            <Border Grid.Column="1" Background="{DynamicResource SurfaceAlt}"
+                    BorderBrush="{DynamicResource Border}" BorderThickness="1,0,0,0">
+                <DockPanel Margin="14">
+
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
+                        <TextBlock Text="PANIER" FontWeight="Bold" FontSize="13"
+                                   Foreground="{DynamicResource TextSecondary}" VerticalAlignment="Center" />
+                        <Button x:Name="ClearCartButton" Content="🗑 Vider" HorizontalAlignment="Right"
+                                Background="Transparent" BorderThickness="0"
+                                Foreground="{DynamicResource Danger}" Cursor="Hand"
+                                Click="ClearCart_Click" />
+                    </Grid>
+
+                    <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+
+                        <Border Background="{DynamicResource Surface}"
+                                BorderBrush="{DynamicResource Warning}" BorderThickness="1"
+                                CornerRadius="6" Padding="10,8" Margin="0,0,0,10">
+                            <DockPanel>
+                                <TextBlock DockPanel.Dock="Left" Text="Remise globale"
+                                           Foreground="{DynamicResource Warning}"
+                                           VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <TextBlock DockPanel.Dock="Right" x:Name="RemiseCurrencyText"
+                                           Foreground="{DynamicResource TextMuted}"
+                                           VerticalAlignment="Center" Margin="8,0,0,0" />
+                                <TextBox x:Name="RemiseGlobaleBox" Text="0" />
+                            </DockPanel>
+                        </Border>
+
+                        <Border Background="{DynamicResource Surface}"
+                                BorderBrush="{DynamicResource Accent}" BorderThickness="1"
+                                CornerRadius="6" Padding="12,10" Margin="0,0,0,10">
+                            <StackPanel>
+                                <Grid>
+                                    <TextBlock Text="SOUS-TOTAL" FontSize="11"
+                                               Foreground="{DynamicResource TextSecondary}" />
+                                    <TextBlock x:Name="SubtotalText" FontSize="11"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               HorizontalAlignment="Right" />
+                                </Grid>
+                                <Grid x:Name="RemiseSummaryRow" Visibility="Collapsed" Margin="0,2,0,0">
+                                    <TextBlock Text="REMISE GLOBALE" FontSize="11"
+                                               Foreground="{DynamicResource Danger}" />
+                                    <TextBlock x:Name="RemiseSummaryText" FontSize="11"
+                                               Foreground="{DynamicResource Danger}"
+                                               HorizontalAlignment="Right" />
+                                </Grid>
+                                <Grid Margin="0,8,0,0">
+                                    <TextBlock Text="Total" FontWeight="Bold"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock x:Name="TotalText" Text="0"
+                                               FontWeight="Bold" FontSize="18"
+                                               Foreground="{DynamicResource Accent}"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                            <CheckBox x:Name="VenteRapideCheck" Content="Vente Rapide" IsChecked="True"
+                                      Margin="0,0,16,0" />
+                            <CheckBox x:Name="AvecFactureCheck" Content="Avec Facture"
+                                      Checked="AvecFacture_Checked" Unchecked="AvecFacture_Unchecked" />
+                        </StackPanel>
+
+                        <Grid Margin="0,0,0,8">
+                            <TextBox x:Name="ClientNomBox" />
+                            <TextBlock x:Name="ClientNomPlaceholder" Text="Nom client (optionnel)"
+                                       Foreground="{DynamicResource TextMuted}" Margin="9,0,0,0"
+                                       VerticalAlignment="Center" IsHitTestVisible="False" />
+                        </Grid>
+
+                        <StackPanel x:Name="FactureFieldsPanel" Visibility="Collapsed">
+                            <TextBox x:Name="ClientTelephoneBox" Margin="0,0,0,6"
+                                     ToolTip="Téléphone du client" />
+                            <TextBox x:Name="ClientEmailBox" Margin="0,0,0,10"
+                                     ToolTip="Email du client" />
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,10" HorizontalAlignment="Center">
+                            <Button x:Name="PaymentCashButton" Content="💵" Width="44" Height="36" Margin="0,0,8,0"
+                                    Style="{StaticResource SecondaryButton}" ToolTip="Espèces"
+                                    Click="PaymentMode_Click" Tag="cash" />
+                            <Button x:Name="PaymentMobileButton" Content="📱" Width="44" Height="36" Margin="0,0,8,0"
+                                    Style="{StaticResource SecondaryButton}" ToolTip="Mobile Money"
+                                    Click="PaymentMode_Click" Tag="mobile_money" />
+                            <Button x:Name="PaymentCarteButton" Content="💳" Width="44" Height="36"
+                                    Style="{StaticResource SecondaryButton}" ToolTip="Carte"
+                                    Click="PaymentMode_Click" Tag="carte" />
+                        </StackPanel>
+
+                        <Button x:Name="ValidateButton" Content="✓ Payer &amp; Valider"
+                                Style="{StaticResource PrimaryButton}"
+                                Padding="0,10" IsEnabled="False"
+                                Click="Validate_Click" />
+                    </StackPanel>
+
+                    <Grid>
+                        <Border x:Name="CartEmptyPanel">
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <TextBlock Text="🛒" FontSize="34" HorizontalAlignment="Center"
+                                           Foreground="{DynamicResource TextMuted}" />
+                                <TextBlock Text="Votre panier est vide" FontWeight="SemiBold"
+                                           HorizontalAlignment="Center" Margin="0,10,0,2" />
+                                <TextBlock Text="Cliquez sur un produit pour l'ajouter"
+                                           Style="{StaticResource PageSubtitle}"
+                                           HorizontalAlignment="Center" TextAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+
+                        <ScrollViewer x:Name="CartScroll" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl x:Name="CartList" />
+                        </ScrollViewer>
+                    </Grid>
+
+                </DockPanel>
+            </Border>
+
+        </Grid>
+
+    </DockPanel>
+</UserControl>

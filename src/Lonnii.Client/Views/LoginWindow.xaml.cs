@@ -57,6 +57,24 @@ public partial class LoginWindow : Window
         SignInButton.IsEnabled = !needsSetup;
     }
 
+    /// <summary>
+    /// The supplied path: the credentials file creates the workspace and its administrator,
+    /// after our licence server confirms the shop is one we registered.
+    /// </summary>
+    private async void Activate_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new FirstLaunchWindow { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        PasswordBox.Clear();
+        HideError();
+
+        await CheckSetupStateAsync();
+
+        IdentifierBox.Focus();
+        HostHint.Text = "Espace activé. Connectez-vous avec le compte administrateur.";
+    }
+
     /// <summary>Creates the first administrator, then pre-fills sign-in with it.</summary>
     private async void CreateAccount_Click(object sender, RoutedEventArgs e)
     {
@@ -156,6 +174,15 @@ public partial class LoginWindow : Window
                 SetBusy(false);
                 PasswordBox.Clear();
                 return;
+            }
+
+            if (RememberMeCheck.IsChecked == true && _session.AccessToken is { } token)
+            {
+                SessionStore.Save(new StoredSession(host, token, _session.AccessTokenExpiresAt));
+            }
+            else
+            {
+                SessionStore.Clear();
             }
 
             DialogResult = true;

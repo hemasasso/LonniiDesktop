@@ -125,12 +125,18 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <!-- Back: pops the last module off the in-app navigation history. -->
+                <!-- Back: pops the last module off the in-app navigation history. A plain
+                     string Content here used to get auto-wrapped in a TextBlock that took
+                     the implicit TextBlock style's Foreground (dark TextPrimary) instead of
+                     this button's own White - a Style setter beats inherited Foreground -
+                     same reason every other icon TextBlock below uses ButtonContentText. -->
                 <Button x:Name="BackButton" Grid.Column="0" Width="32" Height="32" Margin="0,0,12,0"
-                        Content="←" FontSize="15" Foreground="White" Cursor="Hand"
+                        FontSize="15" Foreground="White" Cursor="Hand"
                         Background="#26FFFFFF" BorderThickness="0" IsEnabled="False"
                         Template="{StaticResource IconSquareButtonTemplate}"
-                        Click="Back_Click" ToolTip="Retour" />
+                        Click="Back_Click" ToolTip="Retour">
+                    <TextBlock Text="←" FontSize="15" Style="{StaticResource ButtonContentText}" />
+                </Button>
 
                 <!-- One pill per module the session's menu allows. -->
                 <StackPanel x:Name="NavPillPanel" Grid.Column="1" Orientation="Horizontal"
@@ -138,18 +144,27 @@
 
                 <!-- Utilities + account -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="DarkModeButton" Content="🌙" FontSize="13" Foreground="White"
+                    <!-- Segoe MDL2 Assets glyphs rather than emoji throughout this group: an
+                         emoji ignores Foreground and keeps its own built-in colours, which
+                         read as dark/muddy against this translucent-white-on-purple bar. -->
+                    <Button x:Name="DarkModeButton" FontSize="13" Foreground="White"
                             Background="#22FFFFFF" BorderThickness="0" Margin="0,0,6,0"
                             Template="{StaticResource IconCircleButtonTemplate}"
-                            ToolTip="Mode sombre" Click="DarkMode_Click" />
-                    <Button x:Name="TopRefreshButton" Content="⟳" FontSize="15" Foreground="White"
+                            ToolTip="Mode sombre" Click="DarkMode_Click">
+                        <TextBlock Text="&#xE706;" FontFamily="Segoe MDL2 Assets" FontSize="13" Style="{StaticResource ButtonContentText}" />
+                    </Button>
+                    <Button x:Name="TopRefreshButton" FontSize="15" Foreground="White"
                             Background="#22FFFFFF" BorderThickness="0" Margin="0,0,6,0"
                             Template="{StaticResource IconCircleButtonTemplate}"
-                            ToolTip="Actualiser (F5)" Click="Refresh_Click" />
-                    <Button x:Name="NotificationsButton" Content="🔔" FontSize="13" Foreground="White"
+                            ToolTip="Actualiser (F5)" Click="Refresh_Click">
+                        <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="15" Style="{StaticResource ButtonContentText}" />
+                    </Button>
+                    <Button x:Name="NotificationsButton" FontSize="13" Foreground="White"
                             Background="#22FFFFFF" BorderThickness="0" Margin="0,0,12,0"
                             Template="{StaticResource IconCircleButtonTemplate}"
-                            ToolTip="Notifications" Click="Notifications_Click" />
+                            ToolTip="Notifications" Click="Notifications_Click">
+                        <TextBlock Text="&#xEA8F;" FontFamily="Segoe MDL2 Assets" FontSize="13" Style="{StaticResource ButtonContentText}" />
+                    </Button>
 
                     <Button x:Name="AvatarButton" Content="?" FontSize="12" FontWeight="Bold"
                             Foreground="#1B1F27" Background="#FFC839" BorderThickness="0" Margin="0,0,6,0"
@@ -170,10 +185,12 @@
                         </Button.ContextMenu>
                     </Button>
 
-                    <Button x:Name="HomeButton" Content="🏠" FontSize="13" Foreground="White"
+                    <Button x:Name="HomeButton" FontSize="13" Foreground="White"
                             Background="#22FFFFFF" BorderThickness="0"
                             Template="{StaticResource IconCircleButtonTemplate}"
-                            ToolTip="Accueil" Click="Home_Click" />
+                            ToolTip="Accueil" Click="Home_Click">
+                        <TextBlock Text="&#xE80F;" FontFamily="Segoe MDL2 Assets" FontSize="13" Style="{StaticResource ButtonContentText}" />
+                    </Button>
                 </StackPanel>
 
                 <!-- Sub-modules of Gestion (Stock, Ventes, Charges...). Opened by the

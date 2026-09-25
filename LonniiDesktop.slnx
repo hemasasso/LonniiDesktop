@@ -5,6 +5,9 @@
     <Project Path="src/Lonnii.Data/Lonnii.Data.csproj" />
     <Project Path="src/Lonnii.Shared/Lonnii.Shared.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Lonnii.Setup/Lonnii.Setup.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Lonnii.Tests/Lonnii.Tests.csproj" />
   </Folder>

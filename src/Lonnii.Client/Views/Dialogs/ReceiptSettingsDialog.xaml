@@ -1,0 +1,341 @@
+<Window x:Class="Lonnii.Client.Views.Dialogs.ReceiptSettingsDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Paramètre Reçu et Facture"
+        Width="1040" Height="760" MinWidth="880" MinHeight="620"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource Surface}">
+
+    <DockPanel>
+
+        <!-- Header -->
+        <Border DockPanel.Dock="Top" Padding="18,14"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Left">
+                    <TextBlock Text="Paramètre Reçu et Facture" Style="{StaticResource PageTitle}" />
+                    <TextBlock Style="{StaticResource PageSubtitle}"
+                               Text="Logo, QR Code, nom de l'entreprise, titres et notes imprimés sur vos documents." />
+                </StackPanel>
+
+                <!-- Which document the form and the preview are showing. The two share most
+                     fields, so switching here changes only the document-specific card. -->
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Document :" VerticalAlignment="Center" Margin="0,0,8,0"
+                               Foreground="{DynamicResource TextSecondary}" />
+                    <Button x:Name="RecuTabButton" Content="Reçu" Margin="0,0,6,0"
+                            Style="{StaticResource ModuleTabButton}" Click="ShowRecu_Click" />
+                    <Button x:Name="FactureTabButton" Content="Facture"
+                            Style="{StaticResource ModuleTabButton}" Click="ShowFacture_Click" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- Footer -->
+        <Border DockPanel.Dock="Bottom" Padding="18,12"
+                Background="{DynamicResource SurfaceAlt}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
+            <DockPanel>
+                <TextBlock x:Name="StatusText" DockPanel.Dock="Left" VerticalAlignment="Center"
+                           TextWrapping="Wrap" MaxWidth="560" />
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="CloseButton" Content="Fermer" IsCancel="True" Margin="0,0,8,0"
+                            Style="{StaticResource SecondaryButton}" />
+                    <Button x:Name="SaveButton" Content="Enregistrer" IsDefault="True"
+                            Style="{StaticResource PrimaryButton}" Click="Save_Click" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MinWidth="420" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="420" />
+            </Grid.ColumnDefinitions>
+
+            <!-- ============ Left: the form ============ -->
+            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" Padding="18,16">
+                <StackPanel>
+
+                    <!-- Logo -->
+                    <TextBlock Text="LOGO" Style="{StaticResource SectionHeader}" Margin="0,0,0,6" />
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12">
+                        <StackPanel Orientation="Horizontal">
+                            <Border Width="96" Height="96" Background="{DynamicResource Surface}"
+                                    BorderBrush="{DynamicResource Border}" BorderThickness="1" CornerRadius="3">
+                                <Grid>
+                                    <TextBlock x:Name="LogoPlaceholder" Text="Aucun logo" FontSize="11"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Foreground="{DynamicResource TextSecondary}" />
+                                    <Image x:Name="LogoImage" Stretch="Uniform" Margin="6" />
+                                </Grid>
+                            </Border>
+                            <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="Imprimé en haut du document, au-dessus du titre."
+                                           Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap"
+                                           MaxWidth="280" Margin="0,0,0,8" />
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="Choisir un logo" Style="{StaticResource SecondaryButton}"
+                                            Click="ChooseLogo_Click" />
+                                    <Button x:Name="RemoveLogoButton" Content="Supprimer" Margin="8,0,0,0"
+                                            Visibility="Collapsed"
+                                            Style="{StaticResource DangerButton}" Click="RemoveLogo_Click" />
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Entreprise -->
+                    <TextBlock Text="ENTREPRISE" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12">
+                        <StackPanel>
+                            <TextBlock Text="Nom de l'entreprise" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="CompanyNameBox" MaxLength="255" />
+                            <TextBlock Text="Laissé vide, le nom de l'espace est imprimé à la place."
+                                       Style="{StaticResource PageSubtitle}" Margin="0,3,0,0" />
+
+                            <TextBlock Text="Libellé du vendeur" Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
+                            <TextBox x:Name="SellerLabelBox" MaxLength="255" />
+                            <TextBlock Text="Affiché devant le nom de la personne qui a enregistré la vente."
+                                       Style="{StaticResource PageSubtitle}" Margin="0,3,0,0" />
+
+                            <TextBlock Text="Police" Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
+                            <ComboBox x:Name="FontFamilyBox" Width="220" HorizontalAlignment="Left" />
+
+                            <TextBlock x:Name="FontSizeLabel" Text="Taille du texte"
+                                       Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
+                            <Slider x:Name="FontSizeSlider" Width="260" HorizontalAlignment="Left"
+                                    TickFrequency="1" IsSnapToTickEnabled="True" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Reçu-only -->
+                    <StackPanel x:Name="RecuCard">
+                        <TextBlock Text="REÇU" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                        <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                                BorderThickness="1" CornerRadius="3" Padding="16,12">
+                            <StackPanel>
+                                <TextBlock Text="Titre" Style="{StaticResource FieldLabel}" />
+                                <TextBox x:Name="ReceiptTitleBox" MaxLength="100" />
+
+                                <TextBlock x:Name="ReceiptTitleSizeLabel" Text="Taille du titre"
+                                           Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
+                                <Slider x:Name="ReceiptTitleSizeSlider" Width="260" HorizontalAlignment="Left"
+                                        TickFrequency="1" IsSnapToTickEnabled="True" />
+
+                                <TextBlock Text="Message de fin" Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
+                                <TextBox x:Name="ReceiptFooterBox" MaxLength="255" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- The avoir notice only ever prints on a receipt, so it lives here
+                             rather than in the shared card above. -->
+                        <TextBlock Text="NOTICE AVOIR" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                        <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                                BorderThickness="1" CornerRadius="3" Padding="16,12">
+                            <StackPanel>
+                                <TextBlock Text="Affiché uniquement quand le client a trop payé et repart avec un avoir."
+                                           Style="{StaticResource PageSubtitle}" Margin="0,0,0,8" TextWrapping="Wrap" />
+
+                                <TextBlock Text="Titre de l'encadré" Style="{StaticResource FieldLabel}" />
+                                <TextBox x:Name="AvoirNoticeTitleBox" MaxLength="255" />
+
+                                <TextBlock Text="Texte" Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
+                                <TextBox x:Name="AvoirNoticeTextBox" MaxLength="255" TextWrapping="Wrap"
+                                         AcceptsReturn="False" />
+                                <TextBlock Text="Le montant de l'avoir est ajouté automatiquement à la fin."
+                                           Style="{StaticResource PageSubtitle}" Margin="0,3,0,0" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Facture-only -->
+                    <StackPanel x:Name="FactureCard" Visibility="Collapsed">
+                        <TextBlock Text="FACTURE" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                        <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                                BorderThickness="1" CornerRadius="3" Padding="16,12">
+                            <StackPanel>
+                                <TextBlock Text="Une vente non réglée s'imprime comme une facture, à payer à la caisse."
+                                           Style="{StaticResource PageSubtitle}" Margin="0,0,0,8" TextWrapping="Wrap" />
+
+                                <TextBlock Text="Titre" Style="{StaticResource FieldLabel}" />
+                                <TextBox x:Name="FactureTitleBox" MaxLength="100" />
+
+                                <TextBlock x:Name="FactureTitleSizeLabel" Text="Taille du titre"
+                                           Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
+                                <Slider x:Name="FactureTitleSizeSlider" Width="260" HorizontalAlignment="Left"
+                                        TickFrequency="1" IsSnapToTickEnabled="True" />
+
+                                <TextBlock Text="Titre de l'encadré" Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
+                                <TextBox x:Name="FactureNoticeTitleBox" MaxLength="255" />
+
+                                <TextBlock Text="Texte de l'encadré" Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
+                                <TextBox x:Name="FactureNoticeTextBox" MaxLength="255" TextWrapping="Wrap"
+                                         AcceptsReturn="False" />
+
+                                <TextBlock Text="Message de fin" Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
+                                <TextBox x:Name="FactureFooterBox" MaxLength="255" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- QR code -->
+                    <TextBlock Text="QR CODE DE PAIEMENT" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12" Margin="0,0,0,16">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <Border Width="96" Height="96" Background="{DynamicResource Surface}"
+                                        BorderBrush="{DynamicResource Border}" BorderThickness="1" CornerRadius="3">
+                                    <Grid>
+                                        <TextBlock x:Name="QrPlaceholder" Text="Aucun QR" FontSize="11"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource TextSecondary}" />
+                                        <Image x:Name="QrImage" Stretch="Uniform" Margin="6" />
+                                    </Grid>
+                                </Border>
+                                <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="Imprimé en bas du document. Enregistré sans perte, pour rester lisible à l'impression."
+                                               Foreground="{DynamicResource TextSecondary}" TextWrapping="Wrap"
+                                               MaxWidth="280" Margin="0,0,0,8" />
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button Content="Choisir un QR Code" Style="{StaticResource SecondaryButton}"
+                                                Click="ChooseQr_Click" />
+                                        <Button x:Name="RemoveQrButton" Content="Supprimer" Margin="8,0,0,0"
+                                                Visibility="Collapsed"
+                                                Style="{StaticResource DangerButton}" Click="RemoveQr_Click" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <TextBlock Text="Note sous le QR Code" Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
+                            <TextBox x:Name="NoteUnderQrBox" MaxLength="255" />
+                        </StackPanel>
+                    </Border>
+
+                </StackPanel>
+            </ScrollViewer>
+
+            <GridSplitter Grid.Column="1" Width="1" HorizontalAlignment="Stretch"
+                          Background="{DynamicResource Border}" IsEnabled="False" />
+
+            <!-- ============ Right: live preview ============ -->
+            <DockPanel Grid.Column="2" Background="{DynamicResource SurfaceAlt}">
+                <TextBlock DockPanel.Dock="Top" Text="APERÇU" Style="{StaticResource SectionHeader}"
+                           Margin="18,16,18,8" />
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,0,18,18">
+                    <!-- Deliberately the same structure as VenteReceiptDialog's paper: same
+                         dashed rules, same column widths, same order. A preview that is only
+                         approximately the printed document is worse than none, because it is
+                         what the shop trusts before committing. -->
+                    <Border x:Name="PreviewPaper" Width="360" Padding="22"
+                            Background="White" BorderBrush="{DynamicResource Border}" BorderThickness="1">
+                        <StackPanel>
+                            <Image x:Name="PreviewLogo" MaxHeight="64" Stretch="Uniform"
+                                   Margin="0,0,0,8" Visibility="Collapsed" />
+
+                            <TextBlock x:Name="PreviewCompany" FontWeight="Bold"
+                                       HorizontalAlignment="Center" Foreground="#4C3B9E" TextAlignment="Center"
+                                       TextWrapping="Wrap" />
+                            <TextBlock x:Name="PreviewTitle" FontWeight="Bold"
+                                       HorizontalAlignment="Center" Foreground="#4C3B9E" Margin="0,4,0,0"
+                                       TextAlignment="Center" TextWrapping="Wrap" />
+                            <TextBlock x:Name="PreviewNumero" HorizontalAlignment="Center"
+                                       Foreground="#333" Margin="0,4,0,0" />
+                            <TextBlock x:Name="PreviewDate" HorizontalAlignment="Center"
+                                       Foreground="#666" Margin="0,2,0,0" />
+
+                            <Line X1="0" Y1="0" X2="312" Y2="0" Stroke="Black" StrokeThickness="1"
+                                  StrokeDashArray="4 2" Margin="0,12,0,10" />
+
+                            <Grid Margin="0,0,0,3">
+                                <TextBlock x:Name="PreviewClientLabel" Text="Client:" Foreground="#333" />
+                                <TextBlock x:Name="PreviewClient" Text="Client Exemple" HorizontalAlignment="Right"
+                                           FontWeight="SemiBold" Foreground="Black" />
+                            </Grid>
+                            <Grid Margin="0,0,0,3">
+                                <TextBlock x:Name="PreviewSellerLabel" Foreground="#333" />
+                                <TextBlock x:Name="PreviewSeller" Text="Jean Dupont" HorizontalAlignment="Right"
+                                           FontWeight="SemiBold" Foreground="Black" />
+                            </Grid>
+
+                            <Line X1="0" Y1="0" X2="312" Y2="0" Stroke="Black" StrokeThickness="1"
+                                  StrokeDashArray="4 2" Margin="0,10,0,10" />
+
+                            <Grid Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="30" />
+                                    <ColumnDefinition Width="66" />
+                                    <ColumnDefinition Width="74" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="PreviewColArticle" Grid.Column="0" Text="Article" FontWeight="SemiBold" Foreground="Black" />
+                                <TextBlock x:Name="PreviewColQte" Grid.Column="1" Text="Qte" FontWeight="SemiBold" Foreground="Black" TextAlignment="Center" />
+                                <TextBlock x:Name="PreviewColPu" Grid.Column="2" Text="P.U" FontWeight="SemiBold" Foreground="Black" TextAlignment="Right" />
+                                <TextBlock x:Name="PreviewColTotal" Grid.Column="3" Text="Total" FontWeight="SemiBold" Foreground="Black" TextAlignment="Right" />
+                            </Grid>
+
+                            <ItemsControl x:Name="PreviewItems" />
+
+                            <Line X1="0" Y1="0" X2="312" Y2="0" Stroke="Black" StrokeThickness="1"
+                                  StrokeDashArray="4 2" Margin="0,10,0,10" />
+
+                            <Border Background="#F3F3F3" BorderBrush="Black" BorderThickness="1"
+                                    Padding="10,8" Margin="0,4,0,10">
+                                <Grid>
+                                    <TextBlock x:Name="PreviewTotalLabel" Text="TOTAL:" FontWeight="Bold" Foreground="Black" />
+                                    <TextBlock x:Name="PreviewTotal" FontWeight="Bold"
+                                               HorizontalAlignment="Right" Foreground="Black" />
+                                </Grid>
+                            </Border>
+
+                            <!-- Facture: the pay-at-till box -->
+                            <Grid x:Name="PreviewFactureNotice" Visibility="Collapsed" Margin="0,4,0,0">
+                                <Rectangle Stroke="Black" StrokeThickness="1" StrokeDashArray="3 2"
+                                           RadiusX="2" RadiusY="2" />
+                                <StackPanel Margin="10,8">
+                                    <TextBlock x:Name="PreviewFactureNoticeTitle" FontWeight="Bold"
+                                               HorizontalAlignment="Center" Foreground="Black"
+                                               TextAlignment="Center" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="PreviewFactureNoticeText" HorizontalAlignment="Center"
+                                               Foreground="#333" Margin="0,3,0,0"
+                                               TextWrapping="Wrap" TextAlignment="Center" />
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Reçu: the avoir box -->
+                            <Grid x:Name="PreviewAvoirNotice" Visibility="Collapsed" Margin="0,4,0,0">
+                                <Rectangle Stroke="Black" StrokeThickness="1" StrokeDashArray="3 2"
+                                           RadiusX="2" RadiusY="2" />
+                                <StackPanel Margin="10,8">
+                                    <TextBlock x:Name="PreviewAvoirNoticeTitle" FontWeight="Bold"
+                                               HorizontalAlignment="Center" Foreground="Black"
+                                               TextAlignment="Center" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="PreviewAvoirNoticeText" HorizontalAlignment="Center"
+                                               Foreground="#333" Margin="0,3,0,0"
+                                               TextWrapping="Wrap" TextAlignment="Center" />
+                                </StackPanel>
+                            </Grid>
+
+                            <TextBlock x:Name="PreviewFooter" FontWeight="SemiBold" Foreground="#4C3B9E"
+                                       HorizontalAlignment="Center" Margin="0,16,0,0"
+                                       TextAlignment="Center" TextWrapping="Wrap" />
+
+                            <StackPanel x:Name="PreviewQrPanel" Visibility="Collapsed" Margin="0,12,0,0">
+                                <Image x:Name="PreviewQr" MaxHeight="110" Stretch="Uniform"
+                                       HorizontalAlignment="Center" />
+                                <TextBlock x:Name="PreviewQrNote" HorizontalAlignment="Center" Foreground="#333"
+                                           Margin="0,5,0,0" TextAlignment="Center" TextWrapping="Wrap" />
+                            </StackPanel>
+
+                        </StackPanel>
+                    </Border>
+                </ScrollViewer>
+            </DockPanel>
+
+        </Grid>
+    </DockPanel>
+</Window>

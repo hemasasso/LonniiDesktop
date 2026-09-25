@@ -1,12 +1,46 @@
 namespace Lonnii.Data.Entities;
 
-/// <summary>Values stored in <see cref="Vente.StatutPaiement"/>.</summary>
+/// <summary>
+/// Values stored in <see cref="Vente.StatutPaiement"/>.
+///
+/// <para>
+/// Two vocabularies are in play. The desktop writes the French ones below. The live
+/// PostgreSQL <c>ventes.payment_status</c> holds English - <c>paid</c>, <c>partial</c>,
+/// <c>pending</c> - alongside a French <c>annule</c>, and its column DEFAULT is
+/// <c>completed</c>, a value that appears in no row and that Lonnii Business's own
+/// converter does not translate either. Anything reading that table must go through
+/// <see cref="Normalise"/> rather than comparing strings directly.
+/// </para>
+/// </summary>
 public static class StatutPaiement
 {
     public const string EnAttente = "en_attente";
     public const string Partiel = "partiel";
     public const string Paye = "paye";
     public const string Annule = "annule";
+
+    /// <summary>Spellings found in the live database, mapped onto the values above.</summary>
+    private static readonly Dictionary<string, string> Legacy = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["paid"] = Paye,
+        // The live column's DEFAULT. Nothing writes it deliberately, and no row currently
+        // holds it, but a row inserted without an explicit status would - and a sale that
+        // silently read as unpaid would be worse than one read as paid.
+        ["completed"] = Paye,
+        ["partial"] = Partiel,
+        ["pending"] = EnAttente,
+        ["cancelled"] = Annule,
+        ["canceled"] = Annule,
+    };
+
+    /// <summary>
+    /// Turns whatever is stored into one of the four values above. Unknown input is
+    /// returned unchanged rather than guessed at, so it surfaces instead of becoming "paid".
+    /// </summary>
+    public static string Normalise(string? statut) =>
+        statut is null ? EnAttente
+        : Legacy.TryGetValue(statut, out var known) ? known
+        : statut;
 }
 
 /// <summary>Values stored in <see cref="Vente.ModePaiement"/> and payment records.</summary>
@@ -39,8 +73,25 @@ public class Vente
     public string? ClientEmail { get; set; }
 
     public decimal MontantTotal { get; set; }
-    public decimal MontantPaye { get; set; }
-    public decimal MontantRestant { get; set; }
+
+    /// <summary>
+    /// What has been paid so far, summed from <see cref="Paiements"/> rather than stored.
+    ///
+    /// <para>
+    /// The live database has no such column - Lonnii Business computes it as
+    /// SUM(paiements_ventes.montant) on every read. Storing a copy here would give the same
+    /// number two sources of truth, and while the web app and the desktop both write to
+    /// that database a sale recorded by one would read back wrong in the other.
+    /// </para>
+    /// <para>
+    /// Not translatable to SQL: a query that needs this must either include
+    /// <see cref="Paiements"/> or project <c>v.Paiements.Sum(p =&gt; p.Montant)</c> itself.
+    /// </para>
+    /// </summary>
+    public decimal MontantPaye => Paiements.Sum(p => p.Montant);
+
+    /// <summary>What is still owed. Derived, for the same reason as <see cref="MontantPaye"/>.</summary>
+    public decimal MontantRestant => MontantTotal - MontantPaye;
 
     /// <summary>One of <see cref="Entities.StatutPaiement"/>.</summary>
     public string StatutPaiement { get; set; } = Entities.StatutPaiement.EnAttente;
@@ -57,6 +108,34 @@ public class Vente
     public bool IsAvoirSolded { get; set; }
 
     public DateTime? AvoirSoldedAt { get; set; }
+
+    /// <summary>Id of the user who settled the avoir, if any. Mirrors the live <c>avoir_solded_by</c> column.</summary>
+    public string? AvoirSoldedBy { get; set; }
+
+    /// <summary>
+    /// Credit owed to the client after an overpayment - set when a payment (or the sale
+    /// itself) exceeds <see cref="MontantTotal"/>. Mirrors the live <c>avoir_amount</c>
+    /// column, which has no CREATE TABLE in the repo (see lonnii-live-schema-drift memory);
+    /// its shape is inferred from backend/routes/ventes.js.
+    /// </summary>
+    public decimal AvoirAmount { get; set; }
+
+    /// <summary>True whenever <see cref="AvoirAmount"/> is positive. Stored separately,
+    /// same as the live column, rather than derived - Lonnii Business writes both together.</summary>
+    public bool IsAvoir { get; set; }
+
+    /// <summary>Reason given when the sale was cancelled through <c>PUT /annuler</c>.</summary>
+    public string? CancellationReason { get; set; }
+
+    public DateTime? CancelledAt { get; set; }
+
+    /// <summary>
+    /// Id of the user who cancelled the sale. Lonnii Business has no equivalent column -
+    /// its own <c>PUT /:id/annuler</c> never records who clicked cancel, only the motif -
+    /// so this is desktop-only, added by <c>db/postgres/002_desktop_columns.sql</c> for the
+    /// live database the same way <see cref="AvoirSoldedBy"/> already is.
+    /// </summary>
+    public string? CancelledBy { get; set; }
 
     /// <summary>
     /// Client-supplied key that makes retrying a sale safe. Mirrors
@@ -208,33 +287,76 @@ public class CaisseTransaction
 }
 
 /// <summary>
-/// Receipt and invoice configuration for one group. Ported from <c>ventes_parametres</c>
-/// plus the later facture/font/receipt-footer migrations.
+/// Receipt and invoice configuration for one group - what "Paramètre Reçu et Facture"
+/// edits, and what <c>VenteReceiptDialog</c> prints.
+///
+/// <para>
+/// Every property below is a column that exists in Lonnii Business's own
+/// <c>ventes_parametres</c>: <c>create_ventes_parametres_table.sql</c> for the first five,
+/// then <c>add_facture_text_columns.sql</c>, <c>add_receipt_footer_text.sql</c>,
+/// <c>add_avoir_notice_columns.sql</c> and <c>add_font_config_columns.sql</c>. Nothing is
+/// invented: the web app and the desktop write the same row, so a shop that configures its
+/// receipt in one sees it in the other.
+/// </para>
+/// <para>
+/// All the text columns are nullable with a database DEFAULT rather than NOT NULL, so a row
+/// written by an older client is still readable. Callers should not fall back on their own
+/// wording - <see cref="Lonnii.Shared.Contracts.ReceiptSettingsDefaults"/> holds the single
+/// set of defaults both sides use.
+/// </para>
+/// <para>
+/// Keyed on <see cref="GroupeId"/> even though the live table also carries a
+/// <c>SERIAL</c> <c>id</c>: <c>groupe_id</c> is UNIQUE there and is the only key anything
+/// looks a row up by. Leaving <c>id</c> off the model means an INSERT omits it and the
+/// sequence default fills it in.
+/// </para>
 /// </summary>
 public class VentesParametres
 {
     public string GroupeId { get; set; } = string.Empty;
+
+    /// <summary>Business name printed at the top, above the document title. Falls back to
+    /// the workspace name when unset, which is what the desktop showed before this existed.</summary>
     public string? CompanyName { get; set; }
+
+    /// <summary>Caption under the QR code, e.g. "Scannez pour payer".</summary>
     public string? NoteUnderQr { get; set; }
+
+    /// <summary>API-relative URL of the stored logo, e.g. <c>/api/images/receipt-logos/&lt;file&gt;</c>.
+    /// Named <c>logo_path</c> live, where Lonnii Business stores a static <c>/uploads/...</c>
+    /// path instead; both are a URL the same client resolves, so the column is shared.</summary>
     public string? LogoPath { get; set; }
+
+    /// <summary>API-relative URL of the stored payment QR code. See <see cref="LogoPath"/>.</summary>
     public string? QrCodePath { get; set; }
 
+    // --- Facture (an unpaid sale, settled at the till later) ----------------------
     public string? FactureTitle { get; set; }
-    public string? FactureHeaderText { get; set; }
+
+    /// <summary>Bold heading of the boxed notice, e.g. "À RÉGLER À LA CAISSE".</summary>
+    public string? FactureNoticeTitle { get; set; }
+
+    public string? FactureNoticeText { get; set; }
     public string? FactureFooterText { get; set; }
+    public int? FactureTitleFontSize { get; set; }
+
+    // --- Reçu (a settled sale) ----------------------------------------------------
+    public string? ReceiptTitle { get; set; }
     public string? ReceiptFooterText { get; set; }
+    public int? ReceiptTitleFontSize { get; set; }
 
-    /// <summary>Heading shown above the avoir notice on a receipt.</summary>
-    public string? AvoirNoticeTitle { get; set; } = "NOTE IMPORTANTE:";
+    /// <summary>Label printed before the seller's name. Configurable because the person who
+    /// rang the sale up is called something different per trade - "Vendeur", "Caissier",
+    /// "Préparateur" (see the lonnii-preparer-cashier-flow memory).</summary>
+    public string? SellerLabel { get; set; }
 
-    public string? AvoirNoticeText { get; set; } = "Le client peut présenter ce reçu pour récupérer un avoir de";
+    // --- Avoir notice (receipt only, when the client overpaid) --------------------
+    public string? AvoirNoticeTitle { get; set; }
+    public string? AvoirNoticeText { get; set; }
 
-    public string? FontFamily { get; set; }
-    public int? FontSize { get; set; }
-
-    public bool ShowDate { get; set; } = true;
-    public bool ShowDocumentSignatory { get; set; }
-    public string? DocumentSignatory { get; set; }
+    // --- Typeface, shared by both documents ---------------------------------------
+    public string? ReceiptFontFamily { get; set; }
+    public int? ReceiptFontSize { get; set; }
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

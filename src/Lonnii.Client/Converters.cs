@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Linq;
 using System.Windows.Data;
 using Lonnii.Shared.Security;
 
@@ -26,7 +27,14 @@ public static class Money
     /// editable fields (price, quantity) where a suffix would get in the way of typing.</summary>
     public static string FormatPlain(decimal amount)
     {
-        var format = new NumberFormatInfo { NumberGroupSeparator = " ", NumberDecimalDigits = DecimalDigits };
+        // NumberDecimalSeparator must be set explicitly - a bare NumberFormatInfo defaults to
+        // "." (invariant), which is wrong for French: whenever an amount does carry a decimal
+        // part (a manually-priced item, a percentage-derived line), it must read "1 500,50"
+        // Français, not "1 500.5".
+        var format = new NumberFormatInfo
+        {
+            NumberGroupSeparator = " ", NumberDecimalSeparator = ",", NumberDecimalDigits = DecimalDigits,
+        };
         return amount.ToString("#,0.##", format);
     }
 
@@ -49,6 +57,23 @@ public static class Money
         text.Replace(" ", "").Replace(" ", "").Trim();
 }
 
+/// <summary>
+/// Shortens a vendor/cashier name for a compact column - "Sassama Hema" becomes "S. Hema" -
+/// so a list of many sales stays easy to scan. The full name is never lost: every place this
+/// is used keeps it as the element's ToolTip, and "Détails" (<c>VenteDetailDialog</c>) shows
+/// it in full rather than abbreviating.
+/// </summary>
+public static class PersonName
+{
+    public static string Abbreviate(string? fullName)
+    {
+        if (string.IsNullOrWhiteSpace(fullName)) return fullName ?? string.Empty;
+
+        var parts = fullName.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length < 2 ? fullName : $"{char.ToUpper(parts[0][0])}. {string.Join(' ', parts.Skip(1))}";
+    }
+}
+
 /// <summary>Wraps <see cref="Money.Format"/> for use directly in a binding.</summary>
 public class CurrencyConverter : IValueConverter
 {
@@ -61,6 +86,25 @@ public class CurrencyConverter : IValueConverter
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
         throw new NotSupportedException("Amounts are display-only here.");
+}
+
+/// <summary>
+/// The letter shown in a workspace card's avatar circle, standing in for the logo the web
+/// app displays. Returns a single uppercase character, or a bullet when the name is empty,
+/// so the circle is never blank.
+/// </summary>
+public class InitialConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        var name = (value as string)?.TrimStart();
+        return string.IsNullOrEmpty(name)
+            ? "•"
+            : char.ToUpper(name[0], culture).ToString();
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException("Initials are display-only.");
 }
 
 /// <summary>

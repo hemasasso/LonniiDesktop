@@ -50,7 +50,6 @@ public partial class MainWindow : Window
 
     private void ApplyThemeButtonVisuals()
     {
-        DarkModeButton.Content = ThemeManager.IsDark ? "☀" : "🌙";
         DarkModeButton.ToolTip = ThemeManager.IsDark ? "Mode clair" : "Mode sombre";
     }
 
@@ -181,14 +180,23 @@ public partial class MainWindow : Window
     {
         var button = new Button
         {
-            Content = new TextBlock { Text = $"{Glyph(entry.Key)} {entry.Label}", FontSize = 13 },
+            // Foreground set here directly, not just on the Button: a plain-string or
+            // unstyled-TextBlock Content gets wrapped in / stays a TextBlock that takes the
+            // implicit TextBlock style's Foreground (dark TextPrimary) instead of inheriting
+            // the Button's - a Style setter beats inherited property value. Same bug BackButton
+            // had; ButtonContentText normally fixes it by binding back to the ancestor Button,
+            // but a flat White is simpler here since every pill wants the same colour anyway.
+            Content = new TextBlock { Text = $"{Glyph(entry.Key)} {entry.Label}", FontSize = 13, Foreground = Brushes.White },
             ToolTip = entry.Description,
             Cursor = Cursors.Hand,
             Padding = new Thickness(14, 7, 14, 7),
             Margin = new Thickness(4, 0, 4, 0),
             BorderThickness = new Thickness(0),
             FontWeight = isActive ? FontWeights.SemiBold : FontWeights.Normal,
-            Foreground = (Brush)new BrushConverter().ConvertFromString("#1B1F27")!,
+            // White throughout, active or not - this bar's background is a fixed purple
+            // gradient (and gold for the active pill), not DynamicResource, so its text
+            // stays fixed white too rather than following the light/dark app theme.
+            Foreground = Brushes.White,
             Background = isActive
                 ? (Brush)new BrushConverter().ConvertFromString("#D9A400")!
                 : (Brush)new BrushConverter().ConvertFromString("#33FFFFFF")!,
@@ -208,14 +216,14 @@ public partial class MainWindow : Window
 
         var button = new Button
         {
-            Content = new TextBlock { Text = $"{Glyph(entry.Key)} {entry.Label}  ▾", FontSize = 13 },
+            Content = new TextBlock { Text = $"{Glyph(entry.Key)} {entry.Label}  ▾", FontSize = 13, Foreground = Brushes.White },
             ToolTip = entry.Description,
             Cursor = Cursors.Hand,
             Padding = new Thickness(14, 7, 14, 7),
             Margin = new Thickness(4, 0, 4, 0),
             BorderThickness = new Thickness(0),
             FontWeight = isActive ? FontWeights.SemiBold : FontWeights.Normal,
-            Foreground = (Brush)new BrushConverter().ConvertFromString("#1B1F27")!,
+            Foreground = Brushes.White,
             Background = isActive
                 ? (Brush)new BrushConverter().ConvertFromString("#D9A400")!
                 : (Brush)new BrushConverter().ConvertFromString("#33FFFFFF")!,
@@ -267,10 +275,18 @@ public partial class MainWindow : Window
             Padding = new Thickness(9, 0, 9, 0),
             Margin = new Thickness(2, 1, 2, 1),
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Background = isCurrent ? (Brush)Application.Current.Resources["AccentLight"] : Brushes.Transparent,
             BorderThickness = new Thickness(0),
             Template = (ControlTemplate)Resources["DropdownRowTemplate"]!,
         };
+
+        // SetResourceReference rather than a one-time Application.Current.Resources[...]
+        // lookup: this popup is only rebuilt on navigation (BuildTopNav), not on every open,
+        // so a captured brush instance goes stale the moment ThemeManager swaps the palette
+        // dictionary - the current module's row would keep whatever theme was active when
+        // the menu was last built, e.g. light mode's near-white AccentLight showing as a
+        // blank pale box after switching to dark. Transparent has no theme to go stale on.
+        if (isCurrent) button.SetResourceReference(Control.BackgroundProperty, "AccentLight");
+        else button.Background = Brushes.Transparent;
 
         button.Click += (_, _) =>
         {

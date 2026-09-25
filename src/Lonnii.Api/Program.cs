@@ -8,6 +8,10 @@ using Lonnii.Data.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 
+// Note: issuing a customer's credentials file lives in tools/Lonnii.Setup, not here.
+// Local-mode customers receive this program, so a licence generator inside it would let a
+// shop grant itself any number of machines.
+
 var builder = WebApplication.CreateBuilder(args);
 
 // --- Where the data lives -------------------------------------------------
@@ -20,10 +24,20 @@ Directory.CreateDirectory(dataDirectory);
 
 var databasePath = Path.Combine(dataDirectory, "lonnii.db");
 
+// Local mode unless told otherwise, so an existing host laptop keeps working untouched.
+var databaseOptions = new DatabaseOptions();
+builder.Configuration.GetSection(DatabaseOptions.SectionName).Bind(databaseOptions);
+databaseOptions.Validate();
+
+builder.Services.AddSingleton(databaseOptions);
+
 builder.Services.AddDbContext<LonniiDbContext>(options =>
 {
-    // Foreign keys are off by default in SQLite; the schema relies on them.
-    options.UseSqlite($"Data Source={databasePath};Foreign Keys=True");
+    if (databaseOptions.IsPostgres)
+        options.UseNpgsql(databaseOptions.ConnectionString);
+    else
+        // Foreign keys are off by default in SQLite; the schema relies on them.
+        options.UseSqlite($"Data Source={databasePath};Foreign Keys=True");
 });
 
 // --- Authentication -------------------------------------------------------
@@ -44,6 +58,11 @@ builder.Services
 builder.Services.AddAuthorization();
 
 // --- Application services -------------------------------------------------
+// Reaches our licence server during first launch. Short timeout: a shop waiting on setup
+// needs an answer or a clear failure, not a two-minute hang.
+builder.Services.AddHttpClient<ILicenceServer, HttpLicenceServer>(
+    client => client.Timeout = TimeSpan.FromSeconds(20));
+
 builder.Services.AddScoped<PrivilegeResolver>();
 builder.Services.AddScoped<DatabaseSeeder>();
 builder.Services.AddScoped<GroupSessionService>();
@@ -72,7 +91,23 @@ var app = builder.Build();
 using (var startupScope = app.Services.CreateScope())
 {
     var seeder = startupScope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
-    await seeder.MigrateAndSeedAsync();
+
+    if (databaseOptions.AllowsAutomaticMigration)
+    {
+        await seeder.MigrateAndSeedAsync();
+    }
+    else
+    {
+        // Never migrate PostgreSQL from here - see DatabaseOptions.AllowsAutomaticMigration.
+        // Seeding still runs: it only upserts the privilege catalogues, which is additive
+        // and is how a new privilege reaches an existing workspace.
+        app.Logger.LogInformation(
+            "PostgreSQL : migrations non appliquées automatiquement. " +
+            "Le schéma se modifie par SQL additif écrit à la main, jamais par les migrations EF " +
+            "(elles sont générées pour SQLite).");
+
+        await seeder.SeedAsync();
+    }
 
     var sessions = startupScope.ServiceProvider.GetRequiredService<GroupSessionService>();
     await sessions.PurgeExpiredAsync();
@@ -85,10 +120,15 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapAuthEndpoints();
+app.MapActivationEndpoints();
+app.MapSetupEndpoints();
+app.MapLicenceEndpoints();
+app.MapDeviceEndpoints();
 app.MapGroupEndpoints();
 app.MapPrivilegeEndpoints();
 app.MapStockEndpoints();
 app.MapVentesEndpoints();
+app.MapParametresEndpoints();
 app.MapImageEndpoints();
 
 /// <summary>Lets a client confirm it is talking to a Lonnii host before signing in.</summary>
@@ -96,11 +136,19 @@ app.MapGet("/api/health", () => Results.Ok(new
 {
     Service = "Lonnii Desktop API",
     Status = "ok",
-    Database = Path.GetFileName(databasePath),
+    // Names the provider, not the connection string: health is unauthenticated, and a
+    // PostgreSQL connection string carries the server address and password.
+    Database = databaseOptions.IsPostgres
+        ? DatabaseOptions.Postgres
+        : Path.GetFileName(databasePath),
     Time = DateTime.UtcNow,
 })).WithTags("Health");
 
-app.Logger.LogInformation("Lonnii Desktop API listening on port {Port}; database at {Path}", port, databasePath);
+app.Logger.LogInformation(
+    "Lonnii Desktop API listening on port {Port}; provider {Provider}; {Location}",
+    port,
+    databaseOptions.IsPostgres ? DatabaseOptions.Postgres : DatabaseOptions.Sqlite,
+    databaseOptions.IsPostgres ? "base distante" : databasePath);
 
 try
 {

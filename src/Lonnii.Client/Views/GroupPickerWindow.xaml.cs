@@ -24,10 +24,10 @@ public partial class GroupPickerWindow : Window
         try
         {
             var groupes = await _session.Api.GetGroupesAsync();
-            GroupGrid.ItemsSource = groupes;
+            GroupList.ItemsSource = groupes;
 
             var hasAny = groupes.Count > 0;
-            GroupGrid.Visibility = hasAny ? Visibility.Visible : Visibility.Collapsed;
+            GroupList.Visibility = hasAny ? Visibility.Visible : Visibility.Collapsed;
             EmptyPanel.Visibility = hasAny ? Visibility.Collapsed : Visibility.Visible;
             OpenButton.IsEnabled = hasAny;
 
@@ -35,8 +35,8 @@ public partial class GroupPickerWindow : Window
 
             // Reopen whatever was last used, so a till lands where it left off.
             var remembered = groupes.FirstOrDefault(g => g.Id == App.Settings.LastGroupId);
-            GroupGrid.SelectedItem = remembered ?? groupes[0];
-            GroupGrid.Focus();
+            GroupList.SelectedItem = remembered ?? groupes[0];
+            GroupList.Focus();
         }
         catch (ApiException ex)
         {
@@ -46,11 +46,11 @@ public partial class GroupPickerWindow : Window
 
     private async void Open_Click(object sender, RoutedEventArgs e) => await OpenSelectedAsync();
 
-    private async void Grid_DoubleClick(object sender, MouseButtonEventArgs e) => await OpenSelectedAsync();
+    private async void List_DoubleClick(object sender, MouseButtonEventArgs e) => await OpenSelectedAsync();
 
     private async Task OpenSelectedAsync()
     {
-        if (GroupGrid.SelectedItem is not GroupeDto groupe) return;
+        if (GroupList.SelectedItem is not GroupeDto groupe) return;
 
         OpenButton.IsEnabled = false;
         Cursor = Cursors.Wait;
@@ -62,6 +62,22 @@ public partial class GroupPickerWindow : Window
             App.Settings.Save();
 
             DialogResult = true;
+        }
+        catch (ApiException ex) when (IsUnknownDevice(ex))
+        {
+            // A till being set up for the first time, or one that was replaced. Offer to
+            // authorise it rather than leaving the person at a refusal they cannot act on.
+            Cursor = null;
+
+            if (Dialogs.RegisterDeviceDialog.Show(this, App.Settings.LastIdentifier))
+            {
+                HideError();
+                await OpenSelectedAsync();
+                return;
+            }
+
+            ShowError(ex.Message);
+            OpenButton.IsEnabled = true;
         }
         catch (ApiException ex)
         {
@@ -91,6 +107,15 @@ public partial class GroupPickerWindow : Window
             ShowError(ex.Message);
         }
     }
+
+    /// <summary>
+    /// Whether the server refused because it does not recognise this machine, as opposed to
+    /// refusing the account. Matched on the message because the API returns 403 for both,
+    /// deliberately - distinguishing them in the status code would tell a copied
+    /// installation which of the two it had got wrong.
+    /// </summary>
+    private static bool IsUnknownDevice(ApiException ex) =>
+        ex.Message.Contains("poste n'est pas autorisé", StringComparison.OrdinalIgnoreCase);
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => DialogResult = false;
 

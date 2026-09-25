@@ -12,6 +12,7 @@
             </ResourceDictionary.MergedDictionaries>
 
             <local:RoleLabelConverter x:Key="RoleLabel" />
+            <local:InitialConverter x:Key="Initial" />
             <local:CurrencyConverter x:Key="Currency" />
             <BooleanToVisibilityConverter x:Key="BoolToVis" />
         </ResourceDictionary>

@@ -19,7 +19,7 @@ public partial class App : Application
     /// <summary>Remembered host address and last user, so a till does not retype them daily.</summary>
     public static ClientSettings Settings { get; private set; } = ClientSettings.Load();
 
-    protected override void OnStartup(StartupEventArgs e)
+    protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
@@ -49,11 +49,14 @@ public partial class App : Application
         // explicitly until the shell is up.
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
-        var login = new LoginWindow();
-        if (login.ShowDialog() != true)
+        if (!await TryRestoreSessionAsync())
         {
-            Shutdown();
-            return;
+            var login = new LoginWindow();
+            if (login.ShowDialog() != true)
+            {
+                Shutdown();
+                return;
+            }
         }
 
         try
@@ -72,6 +75,33 @@ public partial class App : Application
                 $"Détails enregistrés dans :\n{CrashLogPath}",
                 "Lonnii", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown();
+        }
+    }
+
+    /// <summary>
+    /// "Rester connecté": skips the sign-in form entirely by replaying a saved token
+    /// against the server and re-opening the last group worked in. Anything short of a
+    /// full success - no saved session, an expired or revoked token, the group gone - falls
+    /// back to the ordinary sign-in screen rather than leaving the app half signed in.
+    /// </summary>
+    private async Task<bool> TryRestoreSessionAsync()
+    {
+        var stored = SessionStore.Load();
+        if (stored is null) return false;
+
+        try
+        {
+            Session.Api.Connect(stored.Host);
+            await Session.RestoreAsync(stored.AccessToken, stored.ExpiresAt, Settings.LastGroupId);
+            if (Session.HasGroup) return true;
+
+            Session.SignOut();
+            return false;
+        }
+        catch (ApiException)
+        {
+            Session.SignOut();
+            return false;
         }
     }
 

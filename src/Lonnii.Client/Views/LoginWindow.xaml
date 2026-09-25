@@ -69,6 +69,10 @@
                 -->
                 <PasswordBox x:Name="PasswordBox" />
 
+                <CheckBox x:Name="RememberMeCheck" Content="Rester connecté sur ce poste"
+                          Margin="0,12,0,0"
+                          ToolTip="Ne cochez pas sur un poste partagé entre plusieurs personnes." />
+
                 <!-- Shown only when the host has no account yet. -->
                 <Border x:Name="SetupPanel" Visibility="Collapsed" Margin="0,16,0,0"
                         Background="{DynamicResource AccentLight}"
@@ -78,10 +82,19 @@
                         <TextBlock Text="Ce serveur n'a encore aucun compte"
                                    FontWeight="SemiBold" Foreground="{DynamicResource AccentDark}" />
                         <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap"
-                                   Text="Créez le compte administrateur pour commencer." />
-                        <Button Content="Créer le compte administrateur…"
-                                HorizontalAlignment="Left" Margin="0,10,0,0"
-                                Style="{StaticResource PrimaryButton}" Click="CreateAccount_Click" />
+                                   Text="Activez-le avec le fichier d'identifiants que Lonnii vous a remis." />
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <Button Content="Activer avec un fichier…"
+                                    Style="{StaticResource PrimaryButton}" Click="Activate_Click" />
+                            <!--
+                                Kept for a host someone builds themselves, and for
+                                development. A shop we supplied always takes the button
+                                above: the workspace and its administrator come from the
+                                file, already registered on our licence server.
+                            -->
+                            <Button Content="Créer un compte manuellement…" Margin="8,0,0,0"
+                                    Style="{StaticResource SecondaryButton}" Click="CreateAccount_Click" />
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 

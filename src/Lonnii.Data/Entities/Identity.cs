@@ -1,3 +1,5 @@
+using Lonnii.Shared.Security;
+
 namespace Lonnii.Data.Entities;
 
 /// <summary>
@@ -59,7 +61,11 @@ public class Groupe
     /// <summary>Mirrors <c>groupes.gestion_access</c>: hides the whole Gestion module when false.</summary>
     public bool GestionAccess { get; set; }
 
-    /// <summary>Feature toggle for the Prestations module.</summary>
+    /// <summary>
+    /// Feature toggle for the Prestations module. Maps to <c>prestations_access</c>, not the
+    /// <c>prestations_enabled</c> this name would otherwise produce - see the column map in
+    /// LonniiDbContext. Named for the live column, which is what an import has to match.
+    /// </summary>
     public bool PrestationsEnabled { get; set; }
 
     /// <summary>Where Prestations appears: <c>gestion</c>, <c>espace</c> or <c>both</c>.</summary>
@@ -74,6 +80,65 @@ public class Groupe
     public bool IsBlocked { get; set; }
     public string? BlockReason { get; set; }
     public DateTime? BlockedAt { get; set; }
+
+    /// <summary>
+    /// Soft delete, mirroring the live column. A deleted workspace is kept for a recovery
+    /// window rather than removed, so activation has to check this as well as
+    /// <see cref="IsBlocked"/> - the two are separate states and a deleted group is not
+    /// necessarily blocked.
+    /// </summary>
+    public bool IsDeleted { get; set; }
+
+    /// <summary>
+    /// How this workspace is deployed: one of <see cref="DeploymentModes"/>. Decides whether
+    /// a <see cref="DashboardSubscription"/> is checked at login and sync - local-mode
+    /// workspaces run on the company's own machine and are never billed.
+    ///
+    /// New to the desktop product; Lonnii Business has no equivalent, since every web
+    /// workspace is online by definition. It lives on <c>groupes</c> because that is where
+    /// the web app already keeps per-workspace facts (gestion_access, is_blocked, schema_name).
+    /// Defaults to local so an imported workspace is never locked out by a missing subscription.
+    /// </summary>
+    public string Mode { get; set; } = DeploymentModes.Local;
+
+    /// <summary>
+    /// How many machines this shop may bind at once - a pharmacy with five tills gets 5,
+    /// a small boutique 3. Counted against the <c>devices</c> table at login.
+    ///
+    /// Deliberately not settable through the API by the shop itself: a shop that can raise
+    /// its own limit has no limit. The authoritative value comes from the dashboard and
+    /// arrives with the first-launch licence sync, which is why this default is only a
+    /// placeholder for a workspace that has not synced yet.
+    /// </summary>
+    public int MaxDevices { get; set; } = 3;
+
+    /// <summary>
+    /// How many days this workspace may run without reaching the licence server before it
+    /// stops. The defence against an online-mode shop - bought cheaply, with a yearly fee -
+    /// simply unplugging the internet and using it for ever as if it were the far more
+    /// expensive offline licence.
+    ///
+    /// <para>
+    /// Per workspace rather than a constant for the same reason as <see cref="MaxDevices"/>:
+    /// a shop with genuinely poor connectivity needs a longer leash, and that must be
+    /// grantable without shipping a new build.
+    /// </para>
+    /// </summary>
+    public int MaxOfflineDays { get; set; } = 7;
+
+    /// <summary>
+    /// When this workspace last reached the licence server. Server time, never the client's,
+    /// so winding a till's clock back cannot buy more offline days.
+    /// </summary>
+    public DateTime? LastLicenceCheckAt { get; set; }
+
+    /// <summary>
+    /// Where this workspace's licence server lives, taken from the credentials file at
+    /// setup and kept because everything afterwards needs it: refreshing settings, and
+    /// registering a new till - which must be counted centrally, not locally, or a shop
+    /// could grant itself machines by adding rows on its own hardware.
+    /// </summary>
+    public string? LicenceServerUrl { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

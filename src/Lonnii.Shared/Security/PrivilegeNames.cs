@@ -96,6 +96,17 @@ public static class Priv
 
         // ventes (current sales module)
         public const string ViewVentes = "can_view_ventes";
+
+        /// <summary>
+        /// Lifts the own-sales-only filter: the holder sees every vente in the group.
+        /// Without it a user sees only what they created.
+        ///
+        /// New to the desktop port. Lonnii Business decides this by role - group creator,
+        /// admin or sub_admin see everything, everyone else sees their own (ventes.js:458)
+        /// - which leaves no way to let a cashier see the preparer's unpaid factures
+        /// without also handing them member and privilege management.
+        /// </summary>
+        public const string ViewAllVentes = "can_view_all_ventes";
         public const string CreateVente = "can_create_vente";
         public const string EditVente = "can_edit_vente";
         public const string DeleteVente = "can_delete_vente";

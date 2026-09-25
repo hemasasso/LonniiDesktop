@@ -11,7 +11,11 @@
                 BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
             <StackPanel Orientation="Horizontal">
                 <Border Width="42" Height="42" CornerRadius="10" Background="{DynamicResource Accent}">
-                    <TextBlock Text="📦" FontSize="19" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    <!-- Segoe MDL2 Assets, not the 📦 emoji: an emoji keeps its own built-in
+                         colours regardless of Foreground, reading dark/low-contrast on this
+                         Accent-coloured badge - same fix as the Ventes header. -->
+                    <TextBlock Text="&#xE7B8;" FontFamily="Segoe MDL2 Assets" FontSize="19"
+                               Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Border>
                 <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
                     <TextBlock Text="Gestion de Stock" FontSize="18" FontWeight="Bold"
@@ -33,10 +37,22 @@
                 <Button x:Name="AddButton" Content="＋ Ajouter Produit" Margin="0,0,16,6"
                         Style="{StaticResource SecondaryButton}" Click="Add_Click" />
 
-                <Button x:Name="StockTabButton" Content="📦 Stock" Margin="0,0,6,6"
-                        Style="{StaticResource ModuleTabButton}" Click="StockTab_Click" />
-                <Button x:Name="AnalyseTabButton" Content="📈 Analyse" Margin="0,0,20,6"
-                        Style="{StaticResource ModuleTabButton}" Click="AnalyseTab_Click" />
+                <Button x:Name="StockTabButton" Margin="0,0,6,6"
+                        Style="{StaticResource ModuleTabButton}" Click="StockTab_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE7B8;" FontFamily="Segoe MDL2 Assets"
+                                   Style="{StaticResource ButtonContentText}" Margin="0,0,6,0" />
+                        <TextBlock Text="Stock" Style="{StaticResource ButtonContentText}" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="AnalyseTabButton" Margin="0,0,20,6"
+                        Style="{StaticResource ModuleTabButton}" Click="AnalyseTab_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE9D2;" FontFamily="Segoe MDL2 Assets"
+                                   Style="{StaticResource ButtonContentText}" Margin="0,0,6,0" />
+                        <TextBlock Text="Analyse" Style="{StaticResource ButtonContentText}" />
+                    </StackPanel>
+                </Button>
 
                 <StackPanel x:Name="StockToolsPanel" Orientation="Horizontal">
                     <Grid Width="220" Margin="0,0,10,6">
@@ -80,12 +96,16 @@
                     <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
                             BorderThickness="1" CornerRadius="6" Padding="2" Margin="0,0,10,6">
                         <StackPanel Orientation="Horizontal">
-                            <Button x:Name="IconViewButton" Content="▦" Width="30" Padding="0"
+                            <Button x:Name="IconViewButton" Width="30" Padding="0"
                                     Style="{StaticResource PrimaryButton}" ToolTip="Vue en icônes"
-                                    Click="IconView_Click" />
-                            <Button x:Name="ListViewButton" Content="☰" Width="30" Padding="0" Margin="2,0,0,0"
+                                    Click="IconView_Click">
+                                <TextBlock Text="▦" Style="{StaticResource ButtonContentText}" />
+                            </Button>
+                            <Button x:Name="ListViewButton" Width="30" Padding="0" Margin="2,0,0,0"
                                     Style="{StaticResource SecondaryButton}" ToolTip="Vue en liste"
-                                    Click="ListView_Click" />
+                                    Click="ListView_Click">
+                                <TextBlock Text="☰" Style="{StaticResource ButtonContentText}" />
+                            </Button>
                         </StackPanel>
                     </Border>
 

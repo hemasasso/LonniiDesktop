@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The tool that issues a customer's credentials file. Kept out of src/ and referenced by
+    nothing that ships: handing a shop the program that mints its own licence would let it
+    grant itself any number of machines. Runs on our machine only.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>lonnii-setup</AssemblyName>
+    <RootNamespace>Lonnii.Setup</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Lonnii.Shared\Lonnii.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

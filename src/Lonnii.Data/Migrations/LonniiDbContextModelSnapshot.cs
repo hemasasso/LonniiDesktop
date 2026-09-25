@@ -308,6 +308,157 @@ namespace Lonnii.Data.Migrations
                     b.ToTable("clients");
                 });
 
+            modelBuilder.Entity("Lonnii.Data.Entities.DashboardSubscription", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AdminId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("admin_id");
+
+                    b.Property<string>("AdminName")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("admin_name");
+
+                    b.Property<DateTime?>("CancellationDate")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("cancellation_date");
+
+                    b.Property<string>("CancellationReason")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("cancellation_reason");
+
+                    b.Property<DateTime?>("ContractEndDate")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("contract_end_date");
+
+                    b.Property<string>("ContractPdfFilename")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("contract_pdf_filename");
+
+                    b.Property<string>("ContractPdfUrl")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("contract_pdf_url");
+
+                    b.Property<DateTime?>("ContractStartDate")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("contract_start_date");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTime?>("DateVente")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("date_vente");
+
+                    b.Property<string>("GroupId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("group_id");
+
+                    b.Property<string>("GroupName")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("group_name");
+
+                    b.Property<long>("Montant")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("montant");
+
+                    b.Property<long?>("MontantPreabonnement")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("montant_preabonnement");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("notes");
+
+                    b.Property<string>("Statut")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("statut");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Statut");
+
+                    b.HasIndex("GroupId", "ContractEndDate");
+
+                    b.ToTable("dashboard_subscriptions");
+                });
+
+            modelBuilder.Entity("Lonnii.Data.Entities.Device", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AppVersion")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("app_version");
+
+                    b.Property<string>("DeviceId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("device_id");
+
+                    b.Property<string>("DeviceName")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("device_name");
+
+                    b.Property<string>("GroupId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("group_id");
+
+                    b.Property<string>("LastIpAddress")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("last_ip_address");
+
+                    b.Property<DateTime>("LastSeenAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("last_seen_at");
+
+                    b.Property<string>("Platform")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("platform");
+
+                    b.Property<DateTime>("RegisteredAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("registered_at");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<string>("RevokedReason")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("revoked_reason");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GroupId");
+
+                    b.HasIndex("GroupId", "DeviceId")
+                        .IsUnique();
+
+                    b.ToTable("devices");
+                });
+
             modelBuilder.Entity("Lonnii.Data.Entities.GestionPrivilege", b =>
                 {
                     b.Property<int>("Id")
@@ -572,6 +723,31 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("is_blocked");
 
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("is_deleted");
+
+                    b.Property<DateTime?>("LastLicenceCheckAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("last_licence_check_at");
+
+                    b.Property<string>("LicenceServerUrl")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("licence_server_url");
+
+                    b.Property<int>("MaxDevices")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("max_devices");
+
+                    b.Property<int>("MaxOfflineDays")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("max_offline_days");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("mode");
+
                     b.Property<string>("Nom")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -579,7 +755,7 @@ namespace Lonnii.Data.Migrations
 
                     b.Property<bool>("PrestationsEnabled")
                         .HasColumnType("INTEGER")
-                        .HasColumnName("prestations_enabled");
+                        .HasColumnName("prestations_access");
 
                     b.Property<string>("PrestationsLocation")
                         .HasColumnType("TEXT")
@@ -1649,25 +1825,45 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("id");
 
+                    b.Property<long>("AvoirAmount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("avoir_amount");
+
                     b.Property<DateTime?>("AvoirSoldedAt")
                         .HasColumnType("TEXT")
                         .HasColumnName("avoir_solded_at");
+
+                    b.Property<string>("AvoirSoldedBy")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("avoir_solded_by");
 
                     b.Property<int?>("CaisseId")
                         .HasColumnType("INTEGER")
                         .HasColumnName("caisse_id");
 
+                    b.Property<string>("CancellationReason")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("cancellation_reason");
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("cancelled_at");
+
+                    b.Property<string>("CancelledBy")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("cancelled_by");
+
                     b.Property<string>("ClientEmail")
                         .HasColumnType("TEXT")
-                        .HasColumnName("client_email");
+                        .HasColumnName("customer_email");
 
                     b.Property<string>("ClientNom")
                         .HasColumnType("TEXT")
-                        .HasColumnName("client_nom");
+                        .HasColumnName("customer_name");
 
                     b.Property<string>("ClientTelephone")
                         .HasColumnType("TEXT")
-                        .HasColumnName("client_telephone");
+                        .HasColumnName("customer_phone");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT")
@@ -1675,11 +1871,11 @@ namespace Lonnii.Data.Migrations
 
                     b.Property<string>("CreatedBy")
                         .HasColumnType("TEXT")
-                        .HasColumnName("created_by");
+                        .HasColumnName("user_id");
 
                     b.Property<DateTime>("DateVente")
                         .HasColumnType("TEXT")
-                        .HasColumnName("date_vente");
+                        .HasColumnName("date");
 
                     b.Property<string>("GroupId")
                         .IsRequired()
@@ -1690,25 +1886,21 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("idempotency_key");
 
+                    b.Property<bool>("IsAvoir")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("is_avoir");
+
                     b.Property<bool>("IsAvoirSolded")
                         .HasColumnType("INTEGER")
                         .HasColumnName("is_avoir_solded");
 
                     b.Property<string>("ModePaiement")
                         .HasColumnType("TEXT")
-                        .HasColumnName("mode_paiement");
-
-                    b.Property<long>("MontantPaye")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("montant_paye");
-
-                    b.Property<long>("MontantRestant")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("montant_restant");
+                        .HasColumnName("payment_method");
 
                     b.Property<long>("MontantTotal")
                         .HasColumnType("INTEGER")
-                        .HasColumnName("montant_total");
+                        .HasColumnName("total_amount");
 
                     b.Property<string>("Notes")
                         .HasColumnType("TEXT")
@@ -1717,12 +1909,12 @@ namespace Lonnii.Data.Migrations
                     b.Property<string>("NumeroVente")
                         .IsRequired()
                         .HasColumnType("TEXT")
-                        .HasColumnName("numero_vente");
+                        .HasColumnName("sale_number");
 
                     b.Property<string>("StatutPaiement")
                         .IsRequired()
                         .HasColumnType("TEXT")
-                        .HasColumnName("statut_paiement");
+                        .HasColumnName("payment_status");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("TEXT")
@@ -1820,29 +2012,25 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("company_name");
 
-                    b.Property<string>("DocumentSignatory")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("document_signatory");
-
                     b.Property<string>("FactureFooterText")
                         .HasColumnType("TEXT")
                         .HasColumnName("facture_footer_text");
 
-                    b.Property<string>("FactureHeaderText")
+                    b.Property<string>("FactureNoticeText")
                         .HasColumnType("TEXT")
-                        .HasColumnName("facture_header_text");
+                        .HasColumnName("facture_notice_text");
+
+                    b.Property<string>("FactureNoticeTitle")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("facture_notice_title");
 
                     b.Property<string>("FactureTitle")
                         .HasColumnType("TEXT")
                         .HasColumnName("facture_title");
 
-                    b.Property<string>("FontFamily")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("font_family");
-
-                    b.Property<int?>("FontSize")
+                    b.Property<int?>("FactureTitleFontSize")
                         .HasColumnType("INTEGER")
-                        .HasColumnName("font_size");
+                        .HasColumnName("facture_title_font_size");
 
                     b.Property<string>("LogoPath")
                         .HasColumnType("TEXT")
@@ -1856,17 +2044,29 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("qr_code_path");
 
+                    b.Property<string>("ReceiptFontFamily")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("receipt_font_family");
+
+                    b.Property<int?>("ReceiptFontSize")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("receipt_font_size");
+
                     b.Property<string>("ReceiptFooterText")
                         .HasColumnType("TEXT")
                         .HasColumnName("receipt_footer_text");
 
-                    b.Property<bool>("ShowDate")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("show_date");
+                    b.Property<string>("ReceiptTitle")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("receipt_title");
 
-                    b.Property<bool>("ShowDocumentSignatory")
+                    b.Property<int?>("ReceiptTitleFontSize")
                         .HasColumnType("INTEGER")
-                        .HasColumnName("show_document_signatory");
+                        .HasColumnName("receipt_title_font_size");
+
+                    b.Property<string>("SellerLabel")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("seller_label");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("TEXT")
@@ -1935,6 +2135,17 @@ namespace Lonnii.Data.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Parent");
+                });
+
+            modelBuilder.Entity("Lonnii.Data.Entities.Device", b =>
+                {
+                    b.HasOne("Lonnii.Data.Entities.Groupe", "Groupe")
+                        .WithMany()
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Groupe");
                 });
 
             modelBuilder.Entity("Lonnii.Data.Entities.GestionUserPrivilege", b =>

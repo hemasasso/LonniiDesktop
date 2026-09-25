@@ -24,6 +24,17 @@ public class ImageStorageService
     {
         public const string Products = "products";
         public const string Categories = "categories";
+
+        /// <summary>A workspace's receipt logo. One file per group, named for the group id.</summary>
+        public const string ReceiptLogos = "receipt-logos";
+
+        /// <summary>A workspace's payment QR code. Separate from the logo rather than sharing
+        /// a folder so the stored filename can stay the bare group id, which is what lets
+        /// <c>ImageEndpoints</c> check ownership by comparing it to the caller's group.</summary>
+        public const string ReceiptQrCodes = "receipt-qrcodes";
+
+        /// <summary>Every folder this service will read from or write to.</summary>
+        public static readonly string[] All = [Products, Categories, ReceiptLogos, ReceiptQrCodes];
     }
 
     /// <summary>Longest edge a stored photo is allowed to have, in pixels.</summary>
@@ -37,38 +48,54 @@ public class ImageStorageService
     public ImageStorageService(string dataDirectory)
     {
         _root = Path.Combine(dataDirectory, "images");
-        Directory.CreateDirectory(Path.Combine(_root, Folders.Products));
-        Directory.CreateDirectory(Path.Combine(_root, Folders.Categories));
+        foreach (var folder in Folders.All) Directory.CreateDirectory(Path.Combine(_root, folder));
     }
 
     /// <summary>
-    /// Resizes and re-encodes an uploaded image as JPEG, replacing whatever the entity
-    /// previously pointed at. Returns the API-relative URL to store on the entity.
+    /// Resizes and re-encodes an uploaded image, replacing whatever the entity previously
+    /// pointed at. Returns the API-relative URL to store on the entity.
     /// </summary>
     /// <param name="folder">One of <see cref="Folders"/>.</param>
-    /// <param name="entityId">The product or category id the photo belongs to.</param>
+    /// <param name="entityId">The product, category or group id the image belongs to.</param>
     /// <param name="content">The uploaded file's bytes.</param>
     /// <param name="previousUrl">The entity's current <c>ImageUrl</c>, if any, to delete.</param>
+    /// <param name="lossless">
+    /// Stores PNG instead of JPEG. Set for anything whose meaning is in its hard edges -
+    /// a QR code above all: JPEG's ringing around the black/white boundaries survives the
+    /// shrink to a receipt's ~120px square badly enough to stop a phone reading it.
+    /// </param>
     /// <exception cref="InvalidImageException">The upload was not a decodable image.</exception>
-    public string Save(string folder, string entityId, Stream content, string? previousUrl)
+    public string Save(string folder, string entityId, Stream content, string? previousUrl, bool lossless = false)
     {
         using var original = DecodeOrThrow(content);
         using var resized = ResizeToFit(original, MaxDimension);
 
         // A fresh filename per upload, not a fixed one per entity, so a client that has
         // already loaded the old photo is never handed stale bytes under the same name.
-        var fileName = $"{entityId}_{DateTime.UtcNow.Ticks}.jpg";
+        var fileName = $"{entityId}_{DateTime.UtcNow.Ticks}{(lossless ? ".png" : ".jpg")}";
         var path = Path.Combine(_root, folder, fileName);
 
-        var encoder = ImageCodecInfo.GetImageEncoders().First(e => e.FormatID == ImageFormat.Jpeg.Guid);
-        using var parameters = new EncoderParameters(1);
-        parameters.Param[0] = new EncoderParameter(Encoder.Quality, 82L);
-        resized.Save(path, encoder, parameters);
+        if (lossless)
+        {
+            resized.Save(path, ImageFormat.Png);
+        }
+        else
+        {
+            var encoder = ImageCodecInfo.GetImageEncoders().First(e => e.FormatID == ImageFormat.Jpeg.Guid);
+            using var parameters = new EncoderParameters(1);
+            parameters.Param[0] = new EncoderParameter(Encoder.Quality, 82L);
+            resized.Save(path, encoder, parameters);
+        }
 
         DeleteIfOwned(previousUrl);
 
         return $"/api/images/{folder}/{fileName}";
     }
+
+    /// <summary>The media type a stored file should be served as, from its extension. Only
+    /// the two formats <see cref="Save"/> writes are possible.</summary>
+    public static string ContentTypeFor(string fileName) =>
+        fileName.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "image/jpeg";
 
     /// <summary>Removes the file behind an <c>ImageUrl</c>, if there is one and it is ours.</summary>
     public void DeleteIfOwned(string? imageUrl)
@@ -95,7 +122,7 @@ public class ImageStorageService
     /// </summary>
     public FileStream? OpenRead(string folder, string fileName)
     {
-        if (folder != Folders.Products && folder != Folders.Categories) return null;
+        if (!Folders.All.Contains(folder)) return null;
 
         // Path.GetFileName strips any directory component a caller might smuggle in
         // (".." segments, a rooted path), so the result can only ever name a file

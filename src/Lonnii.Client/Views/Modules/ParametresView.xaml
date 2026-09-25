@@ -75,6 +75,24 @@
                     </Border>
                 </StackPanel>
 
+                <!-- Ventes (admin only, same as the currency above: what these settings
+                     change is printed on customer-facing documents). -->
+                <StackPanel x:Name="VentesSettingsPanel" Visibility="Collapsed">
+                    <TextBlock Text="VENTES" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Configurer" VerticalAlignment="Center"
+                                    Style="{StaticResource SecondaryButton}" Click="OpenReceiptSettings_Click" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Paramètre Reçu et Facture" FontWeight="SemiBold" />
+                                <TextBlock Style="{StaticResource PageSubtitle}"
+                                           Text="Logo, QR Code, nom de l'entreprise, titre facture, notes." />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                </StackPanel>
+
                 <!-- Connection -->
                 <TextBlock Text="CONNEXION" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
                 <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"

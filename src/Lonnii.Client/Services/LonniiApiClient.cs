@@ -130,6 +130,36 @@ public class LonniiApiClient
     public Task<GroupSessionResponse> OpenGroupSessionAsync(string groupId, CancellationToken ct = default) =>
         PostAsync<GroupSessionResponse>($"api/groupes/{groupId}/session", new { }, ct);
 
+    /// <summary>
+    /// Brings a fresh installation to life from the credentials file. The file's bytes are
+    /// sent rather than a path: the person setting the shop up is usually at a till, and the
+    /// file is on their machine, not on the host running the API.
+    /// </summary>
+    public Task<ApplyCredentialsResponse> ApplyCredentialsAsync(
+        byte[] credentialsFile, string passphrase, CancellationToken ct = default) =>
+        PostAsync<ApplyCredentialsResponse>("api/setup/apply", new ApplyCredentialsRequest(
+            Convert.ToBase64String(credentialsFile),
+            passphrase,
+            DeviceIdentity.Current,
+            DeviceIdentity.FriendlyName,
+            AppVersion), ct);
+
+    /// <summary>Binds this machine to the workspace. Needs an administrator's credentials.</summary>
+    public Task<DeviceDto> RegisterThisDeviceAsync(
+        string email, string password, CancellationToken ct = default) =>
+        PostAsync<DeviceDto>("api/devices/register", new RegisterDeviceRequest(
+            email, password, DeviceIdentity.Current, DeviceIdentity.FriendlyName, AppVersion), ct);
+
+    public Task<DeviceListResponse> GetDevicesAsync(CancellationToken ct = default) =>
+        GetAsync<DeviceListResponse>("api/devices", ct);
+
+    public Task RevokeDeviceAsync(string id, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Delete, $"api/devices/{id}", null, ct);
+
+    /// <summary>What this build reports to the server, for the device list.</summary>
+    private static string AppVersion =>
+        typeof(LonniiApiClient).Assembly.GetName().Version?.ToString() ?? "1.0.0";
+
     public Task<List<GroupMemberDto>> GetMembersAsync(CancellationToken ct = default) =>
         GetAsync<List<GroupMemberDto>>("api/groupe/members", ct);
 
@@ -238,6 +268,90 @@ public class LonniiApiClient
     public Task<VenteDto> GetVenteAsync(string id, CancellationToken ct = default) =>
         GetAsync<VenteDto>($"api/ventes/{id}", ct);
 
+    /// <summary>"Liste des Ventes". <paramref name="statut"/> is one of "paid", "partial",
+    /// "pending", "avoir", "cancelled", or null/"all" for every status - same vocabulary as
+    /// the filter dropdown, mirroring Lonnii Business.</summary>
+    public Task<VentesListResponse> GetVentesAsync(
+        string? statut = null, string? search = null, string? searchType = null,
+        DateOnly? dateDebut = null, DateOnly? dateFin = null, CancellationToken ct = default)
+    {
+        var query = new List<string>();
+        if (!string.IsNullOrWhiteSpace(statut) && statut != "all") query.Add($"statut={Uri.EscapeDataString(statut)}");
+        if (!string.IsNullOrWhiteSpace(search)) query.Add($"search={Uri.EscapeDataString(search)}");
+        if (!string.IsNullOrWhiteSpace(searchType)) query.Add($"searchType={Uri.EscapeDataString(searchType)}");
+        if (dateDebut is { } debut) query.Add($"dateDebut={debut:yyyy-MM-dd}");
+        if (dateFin is { } fin) query.Add($"dateFin={fin:yyyy-MM-dd}");
+        if (dateDebut is not null || dateFin is not null) query.Add($"tzOffsetMinutes={LocalTzOffsetMinutes()}");
+
+        var url = "api/ventes" + (query.Count > 0 ? "?" + string.Join("&", query) : string.Empty);
+        return GetAsync<VentesListResponse>(url, ct);
+    }
+
+    public Task<VenteDto> AddPaiementAsync(string id, AddPaiementRequest request, CancellationToken ct = default) =>
+        PostAsync<VenteDto>($"api/ventes/{id}/paiement", request, ct);
+
+    public Task CancelVenteAsync(string id, CancelVenteRequest request, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Put, $"api/ventes/{id}/annuler", request, ct);
+
+    public Task SolderAvoirAsync(string id, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Put, $"api/ventes/{id}/solder-avoir", null, ct);
+
+    public Task EditVenteAsync(string id, EditVenteRequest request, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Put, $"api/ventes/{id}", request, ct);
+
+    /// <summary>"Statistiques" tab. <paramref name="categoryId"/> and <paramref name="productId"/>
+    /// narrow every figure to that category or product's sale lines - see
+    /// <see cref="VentesStatsResponse"/>.</summary>
+    public Task<VentesStatsResponse> GetVentesStatsAsync(
+        DateOnly? dateDebut = null, DateOnly? dateFin = null,
+        string? categoryId = null, string? productId = null, CancellationToken ct = default)
+    {
+        var query = new List<string>();
+        if (dateDebut is { } debut) query.Add($"dateDebut={debut:yyyy-MM-dd}");
+        if (dateFin is { } fin) query.Add($"dateFin={fin:yyyy-MM-dd}");
+        if (dateDebut is not null || dateFin is not null) query.Add($"tzOffsetMinutes={LocalTzOffsetMinutes()}");
+        if (!string.IsNullOrWhiteSpace(categoryId)) query.Add($"categoryId={Uri.EscapeDataString(categoryId)}");
+        if (!string.IsNullOrWhiteSpace(productId)) query.Add($"productId={Uri.EscapeDataString(productId)}");
+
+        var url = "api/ventes/stats" + (query.Count > 0 ? "?" + string.Join("&", query) : string.Empty);
+        return GetAsync<VentesStatsResponse>(url, ct);
+    }
+
+    /// <summary>This machine's local time minus UTC, in minutes - what a date-range filter
+    /// needs so the server can tell which UTC instants "today" (this machine's today) actually
+    /// covers. Same sign convention the server's <c>LocalRangeToUtc</c> expects: positive
+    /// east of UTC, negative west of it.</summary>
+    private static int LocalTzOffsetMinutes() =>
+        (int)TimeZoneInfo.Local.GetUtcOffset(DateTime.Now).TotalMinutes;
+
+    // --- Paramètres: reçu et facture ---
+
+    /// <summary>The workspace's receipt and invoice configuration, defaults already applied.
+    /// Prefer <c>AppSession.GetReceiptSettingsAsync</c>, which caches this for the printing
+    /// path; call it directly only when a fresh read is what is wanted.</summary>
+    public Task<ReceiptSettingsDto> GetReceiptSettingsAsync(CancellationToken ct = default) =>
+        GetAsync<ReceiptSettingsDto>("api/parametres/recu", ct);
+
+    /// <summary>Saves the wording. Admin-only server-side; the logo and QR code have their
+    /// own calls, so this does not re-send them.</summary>
+    public Task<ReceiptSettingsDto> UpdateReceiptSettingsAsync(
+        UpdateReceiptSettingsRequest request, CancellationToken ct = default) =>
+        SendAsync<ReceiptSettingsDto>(HttpMethod.Put, "api/parametres/recu", request, ct);
+
+    public Task<ImageUploadResponse> UploadReceiptLogoAsync(
+        byte[] content, string fileName, CancellationToken ct = default) =>
+        UploadImageAsync("api/parametres/recu/logo", content, fileName, ct);
+
+    public Task DeleteReceiptLogoAsync(CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Delete, "api/parametres/recu/logo", null, ct);
+
+    public Task<ImageUploadResponse> UploadReceiptQrCodeAsync(
+        byte[] content, string fileName, CancellationToken ct = default) =>
+        UploadImageAsync("api/parametres/recu/qrcode", content, fileName, ct);
+
+    public Task DeleteReceiptQrCodeAsync(CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Delete, "api/parametres/recu/qrcode", null, ct);
+
     // --- Images ---
 
     /// <summary>Uploads a product photo, replacing whatever was there before.</summary>
@@ -286,6 +400,7 @@ public class LonniiApiClient
             request.Headers.Authorization = new("Bearer", _accessToken);
         if (_groupSession is not null)
             request.Headers.Add("x-group-session", _groupSession);
+        request.Headers.Add("x-device-id", DeviceIdentity.Current);
 
         HttpResponseMessage response;
         try
@@ -368,6 +483,11 @@ public class LonniiApiClient
 
         if (_groupSession is not null)
             request.Headers.Add("x-group-session", _groupSession);
+
+        // Sent on every call, not only when opening a workspace: the server uses it to
+        // recognise the machine, and a request that arrives without it looks exactly like
+        // a copied installation trying to stay quiet.
+        request.Headers.Add("x-device-id", DeviceIdentity.Current);
 
         HttpResponseMessage response;
         try

@@ -199,6 +199,12 @@ public static class PrivilegeCatalog
 
         // --- setup_ventes_privileges.sql ---
         yield return new(Priv.Gestion.ViewVentes, "Voir les ventes", "Consulter la liste des ventes", ventes, false);
+
+        // Not from setup_ventes_privileges.sql: added for the preparer/cashier split, where
+        // the cashier must see factures somebody else created without becoming an admin.
+        yield return new(Priv.Gestion.ViewAllVentes, "Voir toutes les ventes",
+            "Consulter les ventes de tous les utilisateurs, pas seulement les siennes", ventes, false);
+
         yield return new(Priv.Gestion.CreateVente, "Créer une vente", "Enregistrer une nouvelle vente", ventes, false);
         yield return new(Priv.Gestion.EditVente, "Modifier une vente", "Modifier les informations d'une vente", ventes, false);
         yield return new(Priv.Gestion.DeleteVente, "Supprimer une vente", "Supprimer une vente (sans paiements)", ventes, true);

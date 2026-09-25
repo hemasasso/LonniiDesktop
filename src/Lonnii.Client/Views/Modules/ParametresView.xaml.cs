@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Lonnii.Client.Services;
+using Lonnii.Client.Views.Dialogs;
 using Lonnii.Shared.Security;
 
 namespace Lonnii.Client.Views.Modules;
@@ -49,8 +50,17 @@ public partial class ParametresView : UserControl
         CurrencyPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
         CurrencyBox.Text = groupe?.CurrencyLabel ?? Money.Label;
 
+        // Gated the same way, and for the same reason: the API refuses these writes to
+        // anyone but an admin, so showing the entry to a member only advertises a locked door.
+        VentesSettingsPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
+
         PopulatePrivileges();
     }
+
+    /// <summary>Opens the reçu/facture editor. Its own Enregistrer does the saving and
+    /// refreshes the session's cached settings, so there is nothing to do on return.</summary>
+    private void OpenReceiptSettings_Click(object sender, RoutedEventArgs e) =>
+        new ReceiptSettingsDialog(_session) { Owner = Window.GetWindow(this) }.ShowDialog();
 
     /// <summary>Saves the new currency label and applies it immediately across the app.</summary>
     private async void SaveCurrency_Click(object sender, RoutedEventArgs e)

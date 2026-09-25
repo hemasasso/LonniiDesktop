@@ -101,6 +101,7 @@ public static class GroupEndpoints
         LonniiDbContext db,
         GroupSessionService sessions,
         PrivilegeResolver privileges,
+        HttpContext http,
         CancellationToken ct)
     {
         var userId = principal.FindFirstValue(TokenService.UserIdClaim)!;
@@ -113,6 +114,37 @@ public static class GroupEndpoints
         if (groupe.IsBlocked)
             return Results.Json(new ApiError(groupe.BlockReason ?? "Ce groupe est bloqué."),
                 statusCode: StatusCodes.Status403Forbidden);
+
+        // --- Machine check ---------------------------------------------------------
+        // This is what stops a copied installation. A copy runs on different hardware, so
+        // its fingerprint is one nobody bound, and it is refused here until it registers -
+        // which reaches our server and is counted against the shop's allowance.
+        //
+        // Only enforced once the workspace has machines bound, which is the licensed state
+        // a setup creates. A workspace made through POST /api/groupes has none, and locking
+        // that out would break development and the first run of a self-built host.
+        var bound = await db.Devices.AnyAsync(d => d.GroupId == groupId && d.RevokedAt == null, ct);
+
+        if (bound)
+        {
+            var deviceId = http.Request.Headers["x-device-id"].ToString();
+
+            var device = string.IsNullOrWhiteSpace(deviceId)
+                ? null
+                : await db.Devices.FirstOrDefaultAsync(
+                    d => d.GroupId == groupId && d.DeviceId == deviceId && d.RevokedAt == null, ct);
+
+            if (device is null)
+            {
+                return Results.Json(
+                    new ApiError("Ce poste n'est pas autorisé pour cet espace. Enregistrez-le avec un compte administrateur."),
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            device.LastSeenAt = DateTime.UtcNow;
+            device.LastIpAddress = http.Connection.RemoteIpAddress?.ToString();
+            await db.SaveChangesAsync(ct);
+        }
 
         var memberCount = await db.GroupMembers.CountAsync(m => m.IdGroupe == groupId, ct);
         var role = await privileges.GetRoleAsync(userId, groupId, ct);

@@ -38,6 +38,11 @@ public static class ImageEndpoints
                 await db.Products.AnyAsync(p => p.Id == entityId && p.GroupId == scope.GroupId, ct),
             ImageStorageService.Folders.Categories =>
                 await db.Categories.AnyAsync(c => c.Id == entityId && c.GroupId == scope.GroupId, ct),
+            // A receipt logo and QR code are stored under the group's own id, so the
+            // ownership check needs no database round trip - and cannot be satisfied by any
+            // id but the caller's own group.
+            ImageStorageService.Folders.ReceiptLogos or ImageStorageService.Folders.ReceiptQrCodes =>
+                entityId == scope.GroupId,
             _ => false,
         };
 
@@ -48,6 +53,6 @@ public static class ImageEndpoints
         var stream = images.OpenRead(folder, fileName);
         if (stream is null) return Results.NotFound(new ApiError("Image introuvable"));
 
-        return Results.File(stream, "image/jpeg");
+        return Results.File(stream, ImageStorageService.ContentTypeFor(fileName));
     }
 }

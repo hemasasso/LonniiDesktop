@@ -5,7 +5,9 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Lonnii.Data;
 
 /// <summary>
-/// The Lonnii Desktop database. SQLite, living only on the host laptop.
+/// The Lonnii database, on either provider: SQLite on a shop's host laptop in local mode,
+/// PostgreSQL on the OCI server in online mode. One model serves both, which is what lets
+/// the same build run in both deployments.
 ///
 /// Money: SQLite has no decimal type. EF Core's default is to store decimal as TEXT,
 /// which makes SQL-side ORDER BY and SUM either wrong or lossy. Every decimal here is
@@ -27,6 +29,12 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
     private static readonly ValueConverter<decimal?, long?> NullableMoneyConverter =
         new(v => v == null ? null : (long)Math.Round(v.Value * MoneyScale, MidpointRounding.AwayFromZero),
             v => v == null ? null : v.Value / MoneyScale);
+
+    // Billing (rows are written by the web dashboard; the desktop app only reads them)
+    public DbSet<DashboardSubscription> DashboardSubscriptions => Set<DashboardSubscription>();
+
+    // Licensing
+    public DbSet<Device> Devices => Set<Device>();
 
     // Identity
     public DbSet<User> Users => Set<User>();
@@ -74,11 +82,18 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
 
     protected override void OnModelCreating(ModelBuilder b)
     {
+        ConfigureBilling(b);
         ConfigureIdentity(b);
         ConfigurePrivileges(b);
         ConfigureStock(b);
         ConfigureVentes(b);
-        ApplyMoneyConverter(b);
+
+        // SQLite only. PostgreSQL has a real decimal type, and Lonnii Business already
+        // stores these columns as DECIMAL(15,2) - applying the minor-units converter there
+        // would write 45 000 FCFA into a numeric column as 4 500 000, silently multiplying
+        // every amount in the database by a hundred.
+        if (Database.IsSqlite())
+            ApplyMoneyConverter(b);
 
         // Run last: index filters written above already use snake_case column names.
         ApplySnakeCaseNames(b);
@@ -90,6 +105,8 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
     /// </summary>
     private static readonly Dictionary<Type, string> TableNames = new()
     {
+        [typeof(DashboardSubscription)] = "dashboard_subscriptions",
+        [typeof(Device)] = "devices",
         [typeof(User)] = "users",
         [typeof(Groupe)] = "groupes",
         [typeof(GroupMember)] = "groupe_membres",
@@ -129,6 +146,29 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
     {
         [(typeof(User), nameof(User.IdUser))] = "iduser",
         [(typeof(Groupe), nameof(Groupe.IdUserAdmin))] = "iduser_admin",
+        // Live column is prestations_access; the property keeps the clearer name.
+        [(typeof(Groupe), nameof(Groupe.PrestationsEnabled))] = "prestations_access",
+
+        // --- ventes -----------------------------------------------------------------
+        // The live table is the older gestion_stock_schema.sql shape with English column
+        // names, not the French setup_ventes_tables.sql the entity was modelled from -
+        // that file was never applied to production. Lonnii Business hides the difference
+        // by aliasing in SQL ("v.sale_number as numero_vente"), which is why reading its
+        // routes did not reveal it. Verified against the live schema 2026-09-24.
+        //
+        // The names are mapped rather than the properties renamed, so the French domain
+        // vocabulary the rest of the desktop code uses survives, and so the SQLite file
+        // and the server hold identically named columns - which is what makes an import
+        // or a sync a straight copy.
+        [(typeof(Vente), nameof(Vente.NumeroVente))] = "sale_number",
+        [(typeof(Vente), nameof(Vente.DateVente))] = "date",
+        [(typeof(Vente), nameof(Vente.ClientNom))] = "customer_name",
+        [(typeof(Vente), nameof(Vente.ClientTelephone))] = "customer_phone",
+        [(typeof(Vente), nameof(Vente.ClientEmail))] = "customer_email",
+        [(typeof(Vente), nameof(Vente.MontantTotal))] = "total_amount",
+        [(typeof(Vente), nameof(Vente.StatutPaiement))] = "payment_status",
+        [(typeof(Vente), nameof(Vente.ModePaiement))] = "payment_method",
+        [(typeof(Vente), nameof(Vente.CreatedBy))] = "user_id",
         [(typeof(GroupMember), nameof(GroupMember.IdGroupe))] = "idgroupe",
         [(typeof(GroupMember), nameof(GroupMember.IdUser))] = "iduser",
         [(typeof(PasswordHistory), nameof(PasswordHistory.IdUser))] = "iduser",
@@ -174,6 +214,32 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
             }
         }
         return sb.ToString();
+    }
+
+    private static void ConfigureBilling(ModelBuilder b)
+    {
+        b.Entity<DashboardSubscription>(e =>
+        {
+            e.HasKey(x => x.Id);
+            // Finding a group's current contract is the only read path the desktop app has.
+            e.HasIndex(x => new { x.GroupId, x.ContractEndDate });
+            e.HasIndex(x => x.Statut);
+            // Deliberately no foreign key to groupes: in Lonnii Business these rows are
+            // written by the admin dashboard against a separate database, and a subscription
+            // is kept as billing history after a group is deleted.
+        });
+
+        b.Entity<Device>(e =>
+        {
+            e.HasKey(x => x.Id);
+            // One row per machine per shop. A machine coming back reuses its row instead of
+            // adding a second that would eat another slot.
+            e.HasIndex(x => new { x.GroupId, x.DeviceId }).IsUnique();
+            e.HasIndex(x => x.GroupId);
+            e.Property(x => x.DeviceId).IsRequired();
+            e.HasOne(x => x.Groupe).WithMany()
+                .HasForeignKey(x => x.GroupId).OnDelete(DeleteBehavior.Cascade);
+        });
     }
 
     private static void ConfigureIdentity(ModelBuilder b)

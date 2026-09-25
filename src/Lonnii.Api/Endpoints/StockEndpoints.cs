@@ -18,8 +18,16 @@ public static class StockEndpoints
     {
         var stock = app.MapGroup("/api/stock").WithTags("Stock");
 
+        // Any one of these three: the catalogue is also the Ventes till's product list, read
+        // by a cashier ringing up a sale (can_create_vente) or browsing stats by category/
+        // product (can_view_ventes_analytics), not only by someone managing Stock - a cashier
+        // with neither stock privilege must still be able to see what is for sale. Mirrors
+        // Lonnii Business's own /gestionStock/stock route, which carries no privilege check
+        // at all server-side (client-only gating there); this port keeps real server-side
+        // enforcement but widens who satisfies it.
         stock.MapGet("/products", ListProductsAsync)
-            .RequireGroupScope().RequirePrivilege(Priv.Gestion.ViewStock);
+            .RequireGroupScope().RequireAnyPrivilege(
+                Priv.Gestion.ViewStock, Priv.Gestion.CreateVente, Priv.Gestion.ViewVentesAnalytics);
         stock.MapGet("/products/{id}", GetProductAsync)
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.ViewStock);
         stock.MapPost("/products", CreateProductAsync)
@@ -43,7 +51,8 @@ public static class StockEndpoints
             .RequireGroupScope().DisableAntiforgery();
 
         stock.MapGet("/categories", ListCategoriesAsync)
-            .RequireGroupScope().RequirePrivilege(Priv.Gestion.ViewStock);
+            .RequireGroupScope().RequireAnyPrivilege(
+                Priv.Gestion.ViewStock, Priv.Gestion.CreateVente, Priv.Gestion.ViewVentesAnalytics);
         stock.MapPost("/categories", CreateCategoryAsync)
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageCategories);
         stock.MapPut("/categories/{id}", UpdateCategoryAsync)

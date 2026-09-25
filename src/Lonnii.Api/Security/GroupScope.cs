@@ -116,6 +116,23 @@ public class RequirePrivilegeFilter(GroupScope scope, string privilege) : IEndpo
     }
 }
 
+/// <summary>Requires at least one of several named privileges before the endpoint runs -
+/// for an endpoint two different roles both legitimately need (e.g. the product catalogue,
+/// read by Stock management and by a cashier ringing up a sale alike).</summary>
+public class RequireAnyPrivilegeFilter(GroupScope scope, string[] privileges) : IEndpointFilter
+{
+    public ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    {
+        var all = scope.Privileges.All();
+        if (privileges.Any(p => all.TryGetValue(p, out var granted) && granted))
+            return next(context);
+
+        return ValueTask.FromResult<object?>(Results.Json(
+            new ApiError("Privilège insuffisant", privileges[0]),
+            statusCode: StatusCodes.Status403Forbidden));
+    }
+}
+
 /// <summary>Requires an admin or sub_admin role before the endpoint runs.</summary>
 public class RequireAdminFilter(GroupScope scope) : IEndpointFilter
 {
@@ -156,6 +173,18 @@ public static class GroupScopeExtensions
         {
             var scope = invocation.HttpContext.RequestServices.GetRequiredService<GroupScope>();
             return await new RequirePrivilegeFilter(scope, privilege).InvokeAsync(invocation, next);
+        });
+        return builder;
+    }
+
+    /// <summary>Adds a privilege gate satisfied by holding any one of several privileges -
+    /// see <see cref="RequireAnyPrivilegeFilter"/>. Apply after <see cref="RequireGroupScope"/>.</summary>
+    public static RouteHandlerBuilder RequireAnyPrivilege(this RouteHandlerBuilder builder, params string[] privileges)
+    {
+        builder.AddEndpointFilter(async (invocation, next) =>
+        {
+            var scope = invocation.HttpContext.RequestServices.GetRequiredService<GroupScope>();
+            return await new RequireAnyPrivilegeFilter(scope, privileges).InvokeAsync(invocation, next);
         });
         return builder;
     }

@@ -10,6 +10,13 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.12" />
+
+    <!--
+      Online mode only: the API on OCI talks to PostgreSQL, a shop's host laptop talks to
+      SQLite. Both providers ship in the one binary so the same build serves both, which is
+      the point of the two deployment modes.
+    -->
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
   </ItemGroup>
 
   <PropertyGroup>

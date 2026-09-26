@@ -157,8 +157,21 @@ public partial class MembersView : UserControl
 
         try
         {
-            await _session.Api.SetRoleAsync(new SetRoleRequest(member.IdUser, dialog.SelectedRole!));
+            if (dialog.SelectedRole != member.Role)
+                await _session.Api.SetRoleAsync(new SetRoleRequest(member.IdUser, dialog.SelectedRole!));
+
+            var profile = dialog.SelectedProfile;
+            var changed = await PrivilegeProfiles.ApplyAsync(_session, member.IdUser, profile);
+
+            if (member.IdUser == _session.User?.IdUser) await _session.RefreshAsync();
             await LoadAsync();
+
+            if (!ReferenceEquals(profile, PrivilegeProfiles.None))
+            {
+                MessageBox.Show(Window.GetWindow(this),
+                    $"Profil « {profile.Name} » appliqué à {member.Email} : {changed} privilège(s) modifié(s).",
+                    "Profil appliqué", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
         }
         catch (ApiException ex)
         {
@@ -241,21 +254,25 @@ public partial class MembersView : UserControl
     private void HideMessage() => MessagePanel.Visibility = Visibility.Collapsed;
 }
 
-/// <summary>Picks a group role for a member.</summary>
+/// <summary>Picks a group role for a member, and optionally a job profile (Caissier, Vendeur,
+/// Stock...) that sets their Caisse/Ventes/Stock privileges - see <see cref="PrivilegeProfiles"/>.</summary>
 public class RoleDialog : Window
 {
     private readonly ComboBox _combo;
+    private readonly ComboBox _profileCombo;
 
     /// <summary>The role chosen, once the dialog has been accepted.</summary>
     public string? SelectedRole => (_combo.SelectedItem as RoleOption)?.Value;
+
+    public PrivilegeProfile SelectedProfile => _profileCombo.SelectedItem as PrivilegeProfile ?? PrivilegeProfiles.None;
 
     private sealed record RoleOption(string Value, string Label);
 
     public RoleDialog(GroupMemberDto member)
     {
         Title = "Changer le rôle";
-        Width = 420;
-        Height = 210;
+        Width = 480;
+        SizeToContent = SizeToContent.Height;
         ResizeMode = ResizeMode.NoResize;
         ShowInTaskbar = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -274,7 +291,14 @@ public class RoleDialog : Window
             ItemsSource = options,
             DisplayMemberPath = nameof(RoleOption.Label),
             SelectedItem = options.FirstOrDefault(o => o.Value == member.Role) ?? options[0],
-            Margin = new Thickness(0, 0, 0, 16),
+            Margin = new Thickness(0, 0, 0, 14),
+        };
+
+        _profileCombo = new ComboBox
+        {
+            ItemsSource = PrivilegeProfiles.All,
+            SelectedItem = PrivilegeProfiles.None,
+            Margin = new Thickness(0, 0, 0, 6),
         };
 
         var ok = new Button
@@ -308,6 +332,20 @@ public class RoleDialog : Window
             Style = (Style)Application.Current.Resources["FieldLabel"],
         });
         panel.Children.Add(_combo);
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Profil de tâches (optionnel)",
+            Style = (Style)Application.Current.Resources["FieldLabel"],
+        });
+        panel.Children.Add(_profileCombo);
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Coche les privilèges Caisse, Ventes et Stock correspondants et retire les autres de ces trois sections. " +
+                   "Les autres privilèges ne sont pas modifiés. Ajustez ensuite au besoin dans « Privilèges ».",
+            Style = (Style)Application.Current.Resources["PageSubtitle"],
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 16),
+        });
         panel.Children.Add(buttons);
 
         Content = panel;

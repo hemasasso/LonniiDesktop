@@ -61,14 +61,20 @@ public static class PrivilegeEndpoints
         // Gestion entries are only reachable at all when the group has gestion access.
         if (!groupe.GestionAccess) gestion = [];
 
-        var visibleKeys = gestion.Select(e => e.Key).ToHashSet(StringComparer.Ordinal);
-
         var sections = AppMenu.GestionSections
             .Select(s => new MenuSectionDto(
                 s.Id, s.Label, s.Description, s.Accent,
                 gestion.Where(e => s.Keys.Contains(e.Key)).Select(ToDto).ToList()))
             .Where(s => s.Entries.Count > 0)
             .ToList();
+
+        // The shell navigates entirely through these sections, so an entry that belongs to
+        // none of them would have no pill to open it. Rather than let it vanish silently,
+        // collect the strays into a section of their own.
+        var placed = AppMenu.GestionSections.SelectMany(s => s.Keys).ToHashSet(StringComparer.Ordinal);
+        var strays = gestion.Where(e => !placed.Contains(e.Key)).Select(ToDto).ToList();
+        if (strays.Count > 0)
+            sections.Add(new MenuSectionDto("autres", "Autres", "Autres modules", "#64748b", strays));
 
         return Results.Ok(new MenuResponse(
             espace.Select(ToDto).ToList(),

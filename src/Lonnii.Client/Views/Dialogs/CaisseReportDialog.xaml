@@ -1,0 +1,33 @@
+<Window x:Class="Lonnii.Client.Views.Dialogs.CaisseReportDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Rapport de caisse"
+        Width="520" Height="720"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{DynamicResource SurfaceAlt}">
+
+    <DockPanel>
+
+        <Border DockPanel.Dock="Bottom" Padding="18,12"
+                Background="{DynamicResource Surface}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Fermer" IsCancel="True" Margin="0,0,8,0"
+                        Style="{StaticResource SecondaryButton}" />
+                <Button Content="🖨 Imprimer" IsDefault="True"
+                        Style="{StaticResource PrimaryButton}" Click="Print_Click" />
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18">
+            <!-- The "paper": the exact visual PrintVisual prints, same approach as
+                 VenteReceiptDialog. Always black on white, whatever the app theme. -->
+            <Border x:Name="ReportPaper" Width="440" Padding="28"
+                    Background="White" BorderBrush="{DynamicResource Border}" BorderThickness="1">
+                <StackPanel x:Name="PaperContent" />
+            </Border>
+        </ScrollViewer>
+
+    </DockPanel>
+</Window>

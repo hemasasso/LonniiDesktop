@@ -193,16 +193,17 @@
                     </Button>
                 </StackPanel>
 
-                <!-- Sub-modules of Gestion (Stock, Ventes, Charges...). Opened by the
-                     "Gestion" pill; there is no sidebar left to list them permanently. -->
-                <Popup x:Name="GestionPopup" Grid.Column="2" StaysOpen="False" Placement="Bottom"
+                <!-- The modules of whichever section pill was last clicked (Opérations,
+                     Finance & Analyse, Administration). One popup serves all three: it is
+                     refilled and re-anchored on each click, since only one can be open. -->
+                <Popup x:Name="SectionPopup" Grid.Column="2" StaysOpen="False" Placement="Bottom"
                        AllowsTransparency="True" PopupAnimation="Fade">
                     <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Border}"
                             BorderThickness="1" CornerRadius="8" Padding="6" MinWidth="220">
                         <Border.Effect>
                             <DropShadowEffect BlurRadius="18" ShadowDepth="4" Opacity="0.22" Color="#1B1F27" />
                         </Border.Effect>
-                        <StackPanel x:Name="GestionPopupPanel" />
+                        <StackPanel x:Name="SectionPopupPanel" />
                     </Border>
                 </Popup>
             </Grid>

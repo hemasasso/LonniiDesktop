@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Data;
 using Lonnii.Shared.Security;
 
@@ -38,6 +40,19 @@ public static class Money
         return amount.ToString("#,0.##", format);
     }
 
+    /// <summary>
+    /// Groups the same way as <see cref="FormatPlain(decimal)"/> but with a fixed number of
+    /// decimal digits rather than trimming trailing zeros - for a margin or percentage figure
+    /// that should read the same width whether or not the amount happens to be a whole
+    /// number, e.g. <c>1 000,25</c> rather than <c>1 000</c> or <c>1 000,2</c>.
+    /// </summary>
+    public static string FormatPlain(decimal amount, int decimalDigits)
+    {
+        var format = new NumberFormatInfo { NumberGroupSeparator = " ", NumberDecimalSeparator = "," };
+        var pattern = decimalDigits > 0 ? "#,0." + new string('0', decimalDigits) : "#,0";
+        return amount.ToString(pattern, format);
+    }
+
     /// <summary>Groups a whole number the same way, for quantity and threshold fields.</summary>
     public static string FormatPlain(int amount) =>
         amount.ToString("#,0", new NumberFormatInfo { NumberGroupSeparator = " " });
@@ -72,6 +87,24 @@ public static class PersonName
         var parts = fullName.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
         return parts.Length < 2 ? fullName : $"{char.ToUpper(parts[0][0])}. {string.Join(' ', parts.Skip(1))}";
     }
+}
+
+/// <summary>
+/// Picks <c>ButtonBase</c>'s string-only content template only when a Button's <c>Content</c>
+/// is actually a plain string, and returns null (WPF's own default presentation) otherwise -
+/// in particular for a composite Content such as an icon+label StackPanel, which must render
+/// directly rather than being run through a DataTemplate whose <c>{Binding}</c> would just
+/// show that StackPanel's <c>ToString()</c>. An unconditional <c>ContentTemplate</c> Setter
+/// cannot express this: unlike WPF's own implicit-DataTemplate lookup, which is skipped
+/// entirely for UIElement content, an explicit ContentTemplate always applies regardless of
+/// the Content's runtime type.
+/// </summary>
+public class ButtonStringContentTemplateSelector : DataTemplateSelector
+{
+    public DataTemplate? StringTemplate { get; set; }
+
+    public override DataTemplate? SelectTemplate(object item, DependencyObject container) =>
+        item is string ? StringTemplate : null;
 }
 
 /// <summary>Wraps <see cref="Money.Format"/> for use directly in a binding.</summary>

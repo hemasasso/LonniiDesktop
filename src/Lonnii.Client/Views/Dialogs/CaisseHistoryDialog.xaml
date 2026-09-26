@@ -1,0 +1,90 @@
+<Window x:Class="Lonnii.Client.Views.Dialogs.CaisseHistoryDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Historique des caisses"
+        Height="560" Width="900"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{DynamicResource Surface}">
+
+    <DockPanel>
+
+        <Border DockPanel.Dock="Top" Padding="18,14"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
+            <StackPanel>
+                <TextBlock Text="Historique des caisses" Style="{StaticResource PageTitle}" />
+                <TextBlock x:Name="SubtitleText" Style="{StaticResource PageSubtitle}" />
+            </StackPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" Padding="18,12"
+                Background="{DynamicResource SurfaceAlt}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
+            <Grid>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                    <Button x:Name="ReportButton" Content="🖨 Rapport" Margin="0,0,8,0" IsEnabled="False"
+                            ToolTip="Afficher et imprimer le rapport de la session sélectionnée (double-clic sur une ligne)"
+                            Style="{StaticResource SecondaryButton}" Click="Report_Click" />
+                    <Button x:Name="ResolveButton" Content="Résoudre l'écart"
+                            Style="{StaticResource SecondaryButton}" Click="Resolve_Click" IsEnabled="False" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="ExportButton" Content="Exporter CSV" Margin="0,0,8,0"
+                            Style="{StaticResource SecondaryButton}" Click="Export_Click" />
+                    <Button Content="Fermer" IsCancel="True"
+                            Style="{StaticResource SecondaryButton}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Border DockPanel.Dock="Top" Style="{StaticResource ToolbarPanel}">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Du" VerticalAlignment="Center" Margin="0,0,6,0" />
+                <DatePicker x:Name="DateDebutPicker" Width="120" Margin="0,0,12,0"
+                            SelectedDateChanged="Filter_Changed" />
+                <TextBlock Text="Au" VerticalAlignment="Center" Margin="0,0,6,0" />
+                <DatePicker x:Name="DateFinPicker" Width="120" Margin="0,0,12,0"
+                            SelectedDateChanged="Filter_Changed" />
+                <ComboBox x:Name="VendeurBox" Width="180" Margin="0,0,12,0"
+                          SelectionChanged="Filter_Changed" SelectedValuePath="UserId"
+                          DisplayMemberPath="UserName" />
+            </StackPanel>
+        </Border>
+
+        <Grid>
+            <DataGrid x:Name="HistoryGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                      SelectionChanged="HistoryGrid_SelectionChanged"
+                      MouseDoubleClick="HistoryGrid_DoubleClick">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Ouverture" Width="130"
+                                        Binding="{Binding DateOuverture, StringFormat={}{0:dd/MM/yyyy HH:mm}}" />
+                    <DataGridTextColumn Header="Fermeture" Width="130"
+                                        Binding="{Binding DateFermeture, StringFormat={}{0:dd/MM/yyyy HH:mm}}" />
+                    <DataGridTextColumn Header="Vendeur" Binding="{Binding UserName}" Width="130" />
+                    <DataGridTextColumn Header="Ventes" Binding="{Binding TotalVentes}" Width="60" />
+                    <DataGridTextColumn Header="Chiffre d'affaires" Binding="{Binding ChiffreAffairesDisplay}" Width="120" />
+                    <DataGridTextColumn Header="Encaissé" Binding="{Binding EncaisseDisplay}" Width="110" />
+                    <DataGridTextColumn Header="Retraits" Binding="{Binding RetraitsDisplay}" Width="100">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="ToolTip" Value="{Binding RetraitsTooltip}" />
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+                    <DataGridTextColumn Header="Écart" Binding="{Binding EcartDisplay}" Width="100" />
+                    <DataGridTextColumn Header="Statut" Binding="{Binding StatusDisplay}" Width="*" />
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <Border x:Name="EmptyPanel" Visibility="Collapsed" Background="{DynamicResource Surface}">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <TextBlock Text="Aucune session" FontSize="15" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Style="{StaticResource PageSubtitle}" Margin="0,6,0,0"
+                               Text="Aucune caisse n'a été ouverte pour cette période." />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+    </DockPanel>
+</Window>

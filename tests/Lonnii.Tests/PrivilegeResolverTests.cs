@@ -272,12 +272,17 @@ public class PrivilegeResolverTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Menu_HidesTheGestionEntryWhenTheGroupHasNoGestionAccess()
+    public async Task Menu_LeavesNoGestionShortcutInTheWorkspaceBar()
     {
+        // The Gestion door moved out of Espace and into one pill per section, and the
+        // sections are gated on the group's gestion access in PrivilegeEndpoints. Nothing
+        // in Espace may quietly become a second way in, bypassing that gate - Prestations
+        // excepted, which is a module of its own gated on the prestations toggle.
         var result = await _resolver.ResolveAsync(CreatorId, GroupId);
         var visible = AppMenu.Visible(AppMenu.Espace, result.All(), gestionAccess: false, prestationsEnabled: false);
 
-        Assert.DoesNotContain(visible, e => e.Key == "espace/gestion");
+        var gestionKeys = AppMenu.Gestion.Select(e => e.Key).ToHashSet();
+        Assert.DoesNotContain(visible, e => gestionKeys.Contains(e.Key));
     }
 
     // --- Default grants on joining ---

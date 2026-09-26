@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using Lonnii.Client.Services;
 using Lonnii.Shared.Contracts;
+using Lonnii.Shared.Security;
 
 namespace Lonnii.Client.Views.Dialogs;
 
@@ -29,11 +30,14 @@ public partial class PrivilegeDialog : Window
     /// </summary>
     private bool _suppressSave;
 
-    /// <summary>French labels for the module keys, so the tabs read like the web app's sections.</summary>
+    /// <summary>French labels for the module keys, so the tabs read like the web app's sections.
+    /// No "sales" entry: every privilege stored under that legacy module either has an alias
+    /// in <see cref="PrivilegeAliases"/> (so <see cref="BuildTab"/> deduplicates it into its
+    /// Caisse/Ventes/Stock row below) or is <c>can_process_returns</c>, resectioned into Ventes
+    /// by <see cref="PrivilegeSections"/> - so no row is ever left under "sales".</summary>
     private static readonly Dictionary<string, string> ModuleLabels = new(StringComparer.Ordinal)
     {
         ["stock"] = "Stock",
-        ["sales"] = "Ventes (caisse)",
         ["ventes"] = "Ventes",
         ["charges"] = "Charges",
         ["marges"] = "Marges",
@@ -46,7 +50,18 @@ public partial class PrivilegeDialog : Window
         ["programme"] = "Programme",
         ["formulaire"] = "Formulaire",
         ["chat"] = "Chat",
+        [PrivilegeSections.Caisse] = "Caisse",
     };
+
+    /// <summary>Section order for the Gestion tab: the day-to-day till tasks first.
+    /// Anything unlisted follows, alphabetically.</summary>
+    private static readonly string[] SectionOrder =
+        [PrivilegeSections.Caisse, PrivilegeSections.Ventes, PrivilegeSections.Stock];
+
+    private static string SectionOf(PrivilegeDto privilege) => PrivilegeSections.Of(privilege);
+
+    private static int SectionRank(string section) =>
+        Array.IndexOf(SectionOrder, section) is var i and >= 0 ? i : SectionOrder.Length;
 
     public PrivilegeDialog(AppSession session, GroupMemberDto member)
     {
@@ -88,12 +103,17 @@ public partial class PrivilegeDialog : Window
         }
     }
 
-    /// <summary>Builds one tab, with a section per module.</summary>
+    /// <summary>Builds one tab, with a section per module. Where a privilege has an alias
+    /// (<see cref="PrivilegeAliases"/>) only its canonical name gets a row - the server already
+    /// resolves a grant of either name the same way, and <see cref="SaveAsync"/> writes both
+    /// when it is toggled, so showing two boxes that must always agree would only be confusing.</summary>
     private TabItem BuildTab(string header, IReadOnlyList<PrivilegeDto> privileges, bool isGestion)
     {
         var panel = new StackPanel { Margin = new Thickness(14, 10, 14, 14) };
+        var canonicalOnly = privileges.Where(p => PrivilegeAliases.Canonical(p.Name) == p.Name).ToList();
 
-        foreach (var module in privileges.GroupBy(p => p.Module).OrderBy(g => g.Key))
+        foreach (var module in canonicalOnly.GroupBy(SectionOf)
+                     .OrderBy(g => SectionRank(g.Key)).ThenBy(g => g.Key))
         {
             panel.Children.Add(new TextBlock
             {
@@ -136,6 +156,9 @@ public partial class PrivilegeDialog : Window
             return check;
         }
 
+        if (isGestion && privilege.Name == Priv.Gestion.ProcessReturns)
+            check.ToolTip = $"{privilege.Description}\n\nAucun effet sur l'application de bureau actuellement.";
+
         check.Checked += async (_, _) => await SaveAsync(check, privilege, true, isGestion);
         check.Unchecked += async (_, _) => await SaveAsync(check, privilege, false, isGestion);
         return check;
@@ -148,10 +171,15 @@ public partial class PrivilegeDialog : Window
         check.IsEnabled = false;
         try
         {
-            var request = new SetPrivilegeRequest(_member.IdUser, privilege.Name, granted);
-
-            if (isGestion) await _session.Api.SetGestionPrivilegeAsync(request);
-            else await _session.Api.SetOptionPrivilegeAsync(request);
+            // Every alias, not just this one name: leaving a legacy alias granted underneath
+            // an unchecked canonical box would mean unchecking it here does not actually take
+            // the capability away, since the resolver still sees the other name granted.
+            foreach (var name in PrivilegeAliases.GroupOf(privilege.Name))
+            {
+                var request = new SetPrivilegeRequest(_member.IdUser, name, granted);
+                if (isGestion) await _session.Api.SetGestionPrivilegeAsync(request);
+                else await _session.Api.SetOptionPrivilegeAsync(request);
+            }
 
             StatusText.Foreground = (Brush)Application.Current.Resources["TextSecondary"];
             StatusText.Text = granted

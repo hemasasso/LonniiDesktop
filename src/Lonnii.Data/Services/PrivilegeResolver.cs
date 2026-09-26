@@ -149,7 +149,10 @@ public class PrivilegeResolver(LonniiDbContext db)
         var result = new Dictionary<string, bool>(StringComparer.Ordinal);
         foreach (var p in PrivilegeCatalog.Gestion)
         {
-            result[p.Name] = !p.IsAdminOnly && grantedSet.Contains(p.Name);
+            // A privilege with a legacy alias (see PrivilegeAliases) resolves to granted if
+            // either name was granted - matching backend/routes/ventes.js's own
+            // privilegeMapping check, which treats them as one capability under two names.
+            result[p.Name] = !p.IsAdminOnly && PrivilegeAliases.GroupOf(p.Name).Any(grantedSet.Contains);
         }
 
         // Virtual privileges: any admin role sees Audit and Paramètres, whatever the toggles say.

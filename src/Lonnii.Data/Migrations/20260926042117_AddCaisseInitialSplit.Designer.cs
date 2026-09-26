@@ -3,6 +3,7 @@ using System;
 using Lonnii.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Lonnii.Data.Migrations
 {
     [DbContext(typeof(LonniiDbContext))]
-    partial class LonniiDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260926042117_AddCaisseInitialSplit")]
+    partial class AddCaisseInitialSplit
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
@@ -259,126 +262,6 @@ namespace Lonnii.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("categories");
-                });
-
-            modelBuilder.Entity("Lonnii.Data.Entities.Charge", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("id");
-
-                    b.Property<string>("Categorie")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("categorie");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("CreatedBy")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("created_by");
-
-                    b.Property<DateTime>("Date")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("date");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("description");
-
-                    b.Property<string>("GroupId")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("groupe_id");
-
-                    b.Property<bool>("IsRecurring")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("is_recurring");
-
-                    b.Property<long>("Montant")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("montant");
-
-                    b.Property<bool>("RecurringActive")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("recurring_active");
-
-                    b.Property<string>("RecurringDay")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("recurring_day");
-
-                    b.Property<DateTime?>("RecurringEndDate")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("recurring_end_date");
-
-                    b.Property<int?>("RecurringSourceId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("recurring_source_id");
-
-                    b.Property<string>("TypeCharge")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("type_charge");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("GroupId");
-
-                    b.HasIndex("RecurringSourceId");
-
-                    b.HasIndex("GroupId", "Categorie");
-
-                    b.HasIndex("GroupId", "Date");
-
-                    b.HasIndex("IsRecurring", "RecurringActive");
-
-                    b.ToTable("charges");
-                });
-
-            modelBuilder.Entity("Lonnii.Data.Entities.ChargeCategory", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("id");
-
-                    b.Property<string>("Color")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("color");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("description");
-
-                    b.Property<string>("GroupId")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("groupe_id");
-
-                    b.Property<string>("Nom")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("nom");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("GroupId", "Nom")
-                        .IsUnique();
-
-                    b.ToTable("charges_categories");
                 });
 
             modelBuilder.Entity("Lonnii.Data.Entities.Client", b =>
@@ -2263,16 +2146,6 @@ namespace Lonnii.Data.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Parent");
-                });
-
-            modelBuilder.Entity("Lonnii.Data.Entities.Charge", b =>
-                {
-                    b.HasOne("Lonnii.Data.Entities.Charge", "RecurringSource")
-                        .WithMany()
-                        .HasForeignKey("RecurringSourceId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("RecurringSource");
                 });
 
             modelBuilder.Entity("Lonnii.Data.Entities.Device", b =>

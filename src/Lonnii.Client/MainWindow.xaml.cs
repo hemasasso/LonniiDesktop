@@ -100,10 +100,13 @@ public partial class MainWindow : Window
 
         BuildTopNav(menu);
 
-        // Land on the first thing the user is allowed to open.
+        // Land where the user last was, if they may still open it; otherwise on the first
+        // thing they are allowed to open.
         if (_currentKey is null)
         {
-            var first = menu?.Gestion.FirstOrDefault() ?? menu?.Espace.FirstOrDefault();
+            var saved = UiState.For(_session).LastModule;
+            var first = menu?.Gestion.Concat(menu.Espace).FirstOrDefault(e => e.Key == saved)
+                        ?? menu?.Gestion.FirstOrDefault() ?? menu?.Espace.FirstOrDefault();
             if (first is not null) Navigate(first.Key, first.Label);
             else ShowPlaceholder("Aucun module disponible",
                 "Aucun privilège ne vous a encore été accordé dans cet espace. " +
@@ -131,47 +134,25 @@ public partial class MainWindow : Window
         };
     }
 
+    /// <summary>
+    /// Fills the top bar: the workspace entries (Programme, Options...) followed by one
+    /// pill per Gestion section. The sections used to live inside a single "Gestion"
+    /// dropdown; they are pulled up here so the three of them - Opérations, Finance &amp;
+    /// Analyse, Administration - are one click away instead of two.
+    /// </summary>
     private void BuildTopNav(MenuResponse? menu)
     {
         NavPillPanel.Children.Clear();
-        GestionPopup.IsOpen = false;
-        GestionPopupPanel.Children.Clear();
+        SectionPopup.IsOpen = false;
+        SectionPopupPanel.Children.Clear();
         if (menu is null) return;
 
         foreach (var entry in menu.Espace)
-        {
-            if (entry.Key == "espace/gestion")
-            {
-                NavPillPanel.Children.Add(GestionPill(entry, menu));
-                continue;
-            }
-
             NavPillPanel.Children.Add(NavPill(entry, entry.Key == _currentKey));
-        }
 
-        BuildGestionPopup(menu);
+        foreach (var section in menu.GestionSections)
+            NavPillPanel.Children.Add(SectionPill(section));
     }
-
-    /// <summary>Fills the Gestion dropdown - the admin grouping when the user is an admin,
-    /// same as the web app's Gestion page, or a flat list otherwise.</summary>
-    private void BuildGestionPopup(MenuResponse menu)
-    {
-        if (_session.IsAdmin && menu.GestionSections.Count > 0)
-        {
-            foreach (var section in menu.GestionSections)
-            {
-                GestionPopupPanel.Children.Add(SectionHeader(section.Label.ToUpperInvariant()));
-                foreach (var entry in section.Entries) GestionPopupPanel.Children.Add(DropdownRow(entry));
-            }
-        }
-        else
-        {
-            foreach (var entry in menu.Gestion) GestionPopupPanel.Children.Add(DropdownRow(entry));
-        }
-    }
-
-    private static TextBlock SectionHeader(string text) =>
-        new() { Text = text, Style = (Style)Application.Current.Resources["SectionHeader"] };
 
     /// <summary>A pill in the top bar that opens directly into a module (Chat, Programme,
     /// Options...). The active module's pill is filled yellow; every other one is a
@@ -207,17 +188,18 @@ public partial class MainWindow : Window
         return button;
     }
 
-    /// <summary>The "Gestion" pill. It never navigates on its own - there is no single
-    /// screen behind it - it opens <see cref="GestionPopup"/> to list its sub-modules
-    /// instead. It stays highlighted for as long as the open module belongs to Gestion.</summary>
-    private Button GestionPill(MenuEntryDto entry, MenuResponse menu)
+    /// <summary>A section pill (Opérations, Finance &amp; Analyse, Administration). It never
+    /// navigates on its own - there is no single screen behind a section - it opens
+    /// <see cref="SectionPopup"/> on its own modules instead, and stays highlighted for as
+    /// long as the open module is one of them.</summary>
+    private Button SectionPill(MenuSectionDto section)
     {
-        var isActive = menu.Gestion.Any(g => g.Key == _currentKey);
+        var isActive = section.Entries.Any(e => e.Key == _currentKey);
 
         var button = new Button
         {
-            Content = new TextBlock { Text = $"{Glyph(entry.Key)} {entry.Label}  ▾", FontSize = 13, Foreground = Brushes.White },
-            ToolTip = entry.Description,
+            Content = new TextBlock { Text = $"{SectionGlyph(section.Id)} {section.Label}  ▾", FontSize = 13, Foreground = Brushes.White },
+            ToolTip = section.Description,
             Cursor = Cursors.Hand,
             Padding = new Thickness(14, 7, 14, 7),
             Margin = new Thickness(4, 0, 4, 0),
@@ -232,8 +214,17 @@ public partial class MainWindow : Window
 
         button.Click += (_, _) =>
         {
-            GestionPopup.PlacementTarget = button;
-            GestionPopup.IsOpen = !GestionPopup.IsOpen;
+            // Clicking the pill whose menu is already showing closes it; clicking a
+            // different one swaps the contents over rather than leaving the old list up.
+            var reopening = SectionPopup.IsOpen && ReferenceEquals(SectionPopup.PlacementTarget, button);
+            SectionPopup.IsOpen = false;
+            if (reopening) return;
+
+            SectionPopupPanel.Children.Clear();
+            foreach (var entry in section.Entries) SectionPopupPanel.Children.Add(DropdownRow(entry));
+
+            SectionPopup.PlacementTarget = button;
+            SectionPopup.IsOpen = true;
         };
         return button;
     }
@@ -280,32 +271,39 @@ public partial class MainWindow : Window
         };
 
         // SetResourceReference rather than a one-time Application.Current.Resources[...]
-        // lookup: this popup is only rebuilt on navigation (BuildTopNav), not on every open,
-        // so a captured brush instance goes stale the moment ThemeManager swaps the palette
-        // dictionary - the current module's row would keep whatever theme was active when
-        // the menu was last built, e.g. light mode's near-white AccentLight showing as a
-        // blank pale box after switching to dark. Transparent has no theme to go stale on.
+        // lookup: a captured brush instance goes stale the moment ThemeManager swaps the
+        // palette dictionary, and a row outlives that swap whenever its popup is still
+        // open - the current module's row would keep whatever theme was active when the
+        // menu was built, e.g. light mode's near-white AccentLight showing as a blank pale
+        // box after switching to dark. Transparent has no theme to go stale on.
         if (isCurrent) button.SetResourceReference(Control.BackgroundProperty, "AccentLight");
         else button.Background = Brushes.Transparent;
 
         button.Click += (_, _) =>
         {
-            GestionPopup.IsOpen = false;
+            SectionPopup.IsOpen = false;
             Navigate(entry.Key, entry.Label);
         };
         return button;
     }
 
-    /// <summary>Small glyph per module, matching the icon each pill shows in the web app
-    /// closely enough to tell them apart at a glance.</summary>
+    /// <summary>Small glyph per workspace module, matching the icon each pill shows in the
+    /// web app closely enough to tell them apart at a glance.</summary>
     private static string Glyph(string key) => key switch
     {
-        "chat" => "💬",
         "program" => "🗓",
-        "formulaire" => "📄",
         "prestations" => "🧾",
         "options" => "⚙",
-        "espace/gestion" => "📊",
+        _ => "•",
+    };
+
+    /// <summary>Glyph for a Gestion section pill: goods moving, money measured, the place
+    /// the rules are set.</summary>
+    private static string SectionGlyph(string id) => id switch
+    {
+        "operations" => "📦",
+        "finance" => "📈",
+        "administration" => "🛡",
         _ => "•",
     };
 
@@ -321,6 +319,9 @@ public partial class MainWindow : Window
         _currentKey = key;
         _currentLabel = label;
         StatusText.Text = label;
+
+        UiState.For(_session).LastModule = key;
+        UiState.Save();
         BackButton.IsEnabled = _backStack.Count > 0;
 
         if (!_openModules.TryGetValue(key, out var view))
@@ -337,6 +338,7 @@ public partial class MainWindow : Window
     {
         "gestion-de-stock" => new StockView(_session),
         "ventes" => new VentesView(_session),
+        "charges" => new ChargesView(_session),
         "options" => new MembersView(_session),
         "parametres" => new ParametresView(_session),
         _ => PlaceholderView.For(label, key),

@@ -80,6 +80,10 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
     public DbSet<Client> Clients => Set<Client>();
     public DbSet<VentesUserActivity> VentesUserActivities => Set<VentesUserActivity>();
 
+    // Charges
+    public DbSet<Charge> Charges => Set<Charge>();
+    public DbSet<ChargeCategory> ChargeCategories => Set<ChargeCategory>();
+
     protected override void OnModelCreating(ModelBuilder b)
     {
         ConfigureBilling(b);
@@ -87,6 +91,7 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         ConfigurePrivileges(b);
         ConfigureStock(b);
         ConfigureVentes(b);
+        ConfigureCharges(b);
 
         // SQLite only. PostgreSQL has a real decimal type, and Lonnii Business already
         // stores these columns as DECIMAL(15,2) - applying the minor-units converter there
@@ -139,6 +144,8 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         [typeof(VentesParametres)] = "ventes_parametres",
         [typeof(Client)] = "clients",
         [typeof(VentesUserActivity)] = "ventes_user_activity",
+        [typeof(Charge)] = "charges",
+        [typeof(ChargeCategory)] = "charges_categories",
     };
 
     /// <summary>Columns whose Lonnii Business name is not the snake_case of the property name.</summary>
@@ -172,6 +179,13 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         [(typeof(GroupMember), nameof(GroupMember.IdGroupe))] = "idgroupe",
         [(typeof(GroupMember), nameof(GroupMember.IdUser))] = "iduser",
         [(typeof(PasswordHistory), nameof(PasswordHistory.IdUser))] = "iduser",
+
+        // --- charges ------------------------------------------------------------------
+        // Unlike every other module's table, the source's own charges/charges_categories
+        // schema (create_charges_system.sql) never renamed this column from "groupe_id" to
+        // "group_id" - kept as-is so the column name matches the live table exactly.
+        [(typeof(Charge), nameof(Charge.GroupId))] = "groupe_id",
+        [(typeof(ChargeCategory), nameof(ChargeCategory.GroupId))] = "groupe_id",
     };
 
     private static void ApplySnakeCaseNames(ModelBuilder b)
@@ -491,6 +505,30 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         {
             e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.GroupId, x.CreatedAt });
+        });
+    }
+
+    private static void ConfigureCharges(ModelBuilder b)
+    {
+        b.Entity<Charge>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.GroupId);
+            e.HasIndex(x => new { x.GroupId, x.Date });
+            e.HasIndex(x => new { x.GroupId, x.Categorie });
+            // Finds active recurring sources needing this month's occurrence created -
+            // mirrors idx_charges_recurring in add_recurring_charges.sql.
+            e.HasIndex(x => new { x.IsRecurring, x.RecurringActive });
+            e.HasIndex(x => x.RecurringSourceId);
+            e.HasOne(x => x.RecurringSource).WithMany()
+                .HasForeignKey(x => x.RecurringSourceId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        b.Entity<ChargeCategory>(e =>
+        {
+            e.HasKey(x => x.Id);
+            // Unique per group, same as the source's own UNIQUE(groupe_id, nom).
+            e.HasIndex(x => new { x.GroupId, x.Nom }).IsUnique();
         });
     }
 

@@ -40,6 +40,8 @@ public static class StockEndpoints
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.AdjustStock);
         stock.MapGet("/products/{id}/history", ProductHistoryAsync)
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.ViewStockHistory);
+        stock.MapGet("/movements/stats", MovementStatsAsync)
+            .RequireGroupScope().RequirePrivilege(Priv.Gestion.ViewStockHistory);
 
         // Gated on either privilege: attaching a photo while creating a product is part
         // of adding it, and replacing one later is part of editing it. Lonnii Business
@@ -81,7 +83,14 @@ public static class StockEndpoints
         bool lowStockOnly = false,
         bool includeInactive = false)
     {
+        // Category/Supplier are never eager-loaded by default, and ToDto's method call
+        // below is not something EF Core can decompose into a JOIN on its own - the
+        // projection actually runs client-side, against whatever the entity already has
+        // attached, so without these two Includes CategoryName/SupplierName come back null
+        // on every product regardless of whether a category or supplier is actually set.
         var query = db.Products
+            .Include(p => p.Category)
+            .Include(p => p.Supplier)
             .Where(p => p.GroupId == scope.GroupId && p.DeletedAt == null);
 
         if (!includeInactive) query = query.Where(p => p.IsActive);
@@ -109,6 +118,8 @@ public static class StockEndpoints
         string id, GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
         var product = await db.Products
+            .Include(p => p.Category)
+            .Include(p => p.Supplier)
             .Where(p => p.Id == id && p.GroupId == scope.GroupId && p.DeletedAt == null)
             .Select(p => ToDto(p))
             .FirstOrDefaultAsync(ct);
@@ -178,6 +189,11 @@ public static class StockEndpoints
         await db.SaveChangesAsync(ct);
         await LogActivityAsync(db, scope, "product.create", product.Id, product.Name, ct);
 
+        // Only CategoryId/SupplierId were set above - the navigations themselves are still
+        // unloaded on this freshly-added entity, so ToDto would otherwise report no
+        // category/supplier even when one was picked.
+        await LoadCategoryAndSupplierAsync(db, product, ct);
+
         return Results.Created($"/api/stock/products/{product.Id}", ToDto(product));
     }
 
@@ -222,6 +238,11 @@ public static class StockEndpoints
         await db.SaveChangesAsync(ct);
         await LogActivityAsync(db, scope, "product.update", product.Id, product.Name, ct);
 
+        // CategoryId/SupplierId may just have changed above, and the navigations were never
+        // loaded on the entity fetched at the top of this method - load whichever they now
+        // point to before ToDto reads them.
+        await LoadCategoryAndSupplierAsync(db, product, ct);
+
         return Results.Ok(ToDto(product));
     }
 
@@ -255,6 +276,8 @@ public static class StockEndpoints
             return Results.BadRequest(new ApiError("La quantité doit être différente de zéro"));
 
         var product = await db.Products
+            .Include(p => p.Category)
+            .Include(p => p.Supplier)
             .FirstOrDefaultAsync(p => p.Id == id && p.GroupId == scope.GroupId && p.DeletedAt == null, ct);
 
         if (product is null) return Results.NotFound(new ApiError("Produit introuvable"));
@@ -317,6 +340,38 @@ public static class StockEndpoints
             .ToListAsync(ct);
 
         return Results.Ok(history);
+    }
+
+    /// <summary>
+    /// "Mouvements de stock" on the Analyse tab: every movement in the group grouped by type,
+    /// with how many movements, how much quantity, and how much cost each type accounts for -
+    /// the breakdown <see cref="ProductHistoryAsync"/> cannot give since it is scoped to one
+    /// product. <paramref name="categoryId"/> matches Analyse's own category filter, so the
+    /// two stay in sync when narrowed to one category.
+    /// </summary>
+    private static async Task<IResult> MovementStatsAsync(
+        DateOnly? dateDebut, DateOnly? dateFin, string? categoryId,
+        GroupScope scope, LonniiDbContext db, CancellationToken ct)
+    {
+        var query = db.StockHistories.AsNoTracking().Where(h => h.GroupId == scope.GroupId);
+
+        if (dateDebut is { } start)
+            query = query.Where(h => h.CreatedAt >= start.ToDateTime(TimeOnly.MinValue));
+        if (dateFin is { } end)
+            query = query.Where(h => h.CreatedAt < end.ToDateTime(TimeOnly.MinValue).AddDays(1));
+        if (!string.IsNullOrWhiteSpace(categoryId))
+            query = query.Where(h => h.Product!.CategoryId == categoryId);
+
+        var movements = await query
+            .GroupBy(h => h.MovementType)
+            .Select(g => new StockMovementStatDto(
+                g.Key,
+                g.Count(),
+                g.Sum(h => Math.Abs(h.QuantityChanged)),
+                g.Sum(h => h.TotalCost ?? 0)))
+            .ToListAsync(ct);
+
+        return Results.Ok(new StockMovementStatsResponse(movements));
     }
 
     /// <summary>
@@ -614,6 +669,21 @@ public static class StockEndpoints
             return Results.BadRequest(new ApiError("Le fichier doit être une image"));
 
         return null;
+    }
+
+    /// <summary>
+    /// Loads a tracked product's Category/Supplier navigations if they are not already
+    /// loaded - EF Core does not populate these on an entity that was just added or fetched
+    /// without an explicit Include, and <see cref="ToDto(Product)"/> needs them to name
+    /// either one.
+    /// </summary>
+    private static async Task LoadCategoryAndSupplierAsync(LonniiDbContext db, Product product, CancellationToken ct)
+    {
+        var entry = db.Entry(product);
+        if (product.CategoryId is not null && !entry.Reference(p => p.Category).IsLoaded)
+            await entry.Reference(p => p.Category).LoadAsync(ct);
+        if (product.SupplierId is not null && !entry.Reference(p => p.Supplier).IsLoaded)
+            await entry.Reference(p => p.Supplier).LoadAsync(ct);
     }
 
     private static CategoryDto ToDto(Category c, int productCount) => new(

@@ -373,9 +373,46 @@ public static class VentesEndpoints
             Details = $"{vente.NumeroVente}: +{request.Montant:0.##}",
         });
 
+        // A facture created before the till opened - typically an earlier shift's - is not
+        // one of the sales CaisseEndpoints.ComputeLiveStatsAsync counts by date range, so
+        // settling it now would otherwise vanish from this session's reconciliation even
+        // though the cash lands in this drawer. Recorded as an explicit transaction instead,
+        // same as add_caisse_transactions_table.sql's "facture_anterieure" category.
+        var openCaisse = await FindOpenCaisseAsync(db, scope.GroupId, scope.UserId, ct);
+        if (openCaisse is not null && vente.DateVente < openCaisse.DateOuverture)
+        {
+            db.CaisseTransactions.Add(new CaisseTransaction
+            {
+                CaisseId = openCaisse.Id,
+                GroupId = scope.GroupId,
+                Type = "entree",
+                Montant = request.Montant,
+                Description = $"Paiement facture antérieure {vente.NumeroVente}",
+                Category = "facture_anterieure",
+                ModePaiement = request.ModePaiement,
+                CreatedBy = scope.UserId,
+            });
+        }
+
         await db.SaveChangesAsync(ct);
 
         return Results.Ok(await ToDtoAsync(db, vente, ct));
+    }
+
+    /// <summary>The till a payment or refund should be recorded against: the caller's own
+    /// open session, or, failing that, any other open session in the group - mirrors
+    /// backend/routes/ventes.js falling back the same way, since a single-till shop still
+    /// wants old-facture payments tracked even when a manager takes them instead of the
+    /// cashier who is normally at the register.</summary>
+    private static async Task<Caisse?> FindOpenCaisseAsync(
+        LonniiDbContext db, string groupId, string userId, CancellationToken ct)
+    {
+        var own = await db.Caisses.FirstOrDefaultAsync(
+            c => c.GroupId == groupId && c.UserId == userId && c.Status == CaisseStatus.Open, ct);
+        if (own is not null) return own;
+
+        return await db.Caisses.FirstOrDefaultAsync(
+            c => c.GroupId == groupId && c.Status == CaisseStatus.Open, ct);
     }
 
     /// <summary>
@@ -438,8 +475,9 @@ public static class VentesEndpoints
 
     /// <summary>Settles an avoir: marks it paid out, keeping the amount for traceability
     /// (the money is now the client's, not owed by the till). Mirrors <c>PUT
-    /// /:id/solder-avoir</c>; the caisse "sortie" transaction it also records there has no
-    /// equivalent yet - the caisse module itself is not built on this port.</summary>
+    /// /:id/solder-avoir</c>, including the caisse "sortie" transaction it records when a
+    /// register is open - refunding cash the till's own totals would not otherwise account
+    /// for.</summary>
     private static async Task<IResult> SolderAvoirAsync(
         string id, GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
@@ -452,6 +490,21 @@ public static class VentesEndpoints
         vente.IsAvoirSolded = true;
         vente.AvoirSoldedAt = DateTime.UtcNow;
         vente.AvoirSoldedBy = scope.UserId;
+
+        var openCaisse = await FindOpenCaisseAsync(db, scope.GroupId, scope.UserId, ct);
+        if (openCaisse is not null)
+        {
+            db.CaisseTransactions.Add(new CaisseTransaction
+            {
+                CaisseId = openCaisse.Id,
+                GroupId = scope.GroupId,
+                Type = "sortie",
+                Montant = vente.AvoirAmount,
+                Description = $"Remboursement avoir - Vente {vente.NumeroVente}",
+                Category = "avoir_solde",
+                CreatedBy = scope.UserId,
+            });
+        }
 
         await db.SaveChangesAsync(ct);
 
@@ -584,6 +637,16 @@ public static class VentesEndpoints
             });
         }
 
+        // Hiding the remise boxes on the client (VentesView's per-line discount column and
+        // RemiseGlobalePanel) is not enforcement either - same reasoning as the AddPayment
+        // check below. HasGestion already resolves can_apply_discount's legacy alias
+        // can_apply_discounts (PrivilegeAliases), so either grant satisfies this.
+        var hasAnyDiscount = request.RemiseGlobale > 0 || request.Items.Any(i => i.Discount > 0);
+        if (hasAnyDiscount && !scope.Privileges.HasGestion(Priv.Gestion.ApplyDiscount))
+            return Results.Json(
+                new ApiError("Privilège insuffisant pour appliquer une remise", Priv.Gestion.ApplyDiscount),
+                statusCode: StatusCodes.Status403Forbidden);
+
         var remiseGlobale = Math.Clamp(request.RemiseGlobale, 0, total);
         total -= remiseGlobale;
 
@@ -601,6 +664,14 @@ public static class VentesEndpoints
         vente.StatutPaiement = total - montantPaye <= 0
             ? StatutPaiement.Paye
             : montantPaye > 0 ? StatutPaiement.Partiel : StatutPaiement.EnAttente;
+
+        // Ties this sale to the till it was rung up at, if the seller has one open - see
+        // CaisseEndpoints.ComputeLiveStatsAsync, which sums sales by CreatedBy and date rather
+        // than by this column, but the receipt and history still want to show which session a
+        // sale belongs to.
+        vente.CaisseId = await db.Caisses
+            .Where(c => c.GroupId == scope.GroupId && c.UserId == scope.UserId && c.Status == CaisseStatus.Open)
+            .Select(c => (int?)c.Id).FirstOrDefaultAsync(ct);
 
         db.Ventes.Add(vente);
 

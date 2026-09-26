@@ -57,9 +57,8 @@ either:
   shown once, after the account is created, for you to pass on.
 - *Ajouter un compte existant* — for someone who already has an account on this server.
 
-Either way the new member lands with the role `member` and the baseline access
-(Programme, Chat, Formulaire), and nothing in Gestion until you grant it from
-**Gérer les privilèges…**.
+Either way the new member lands with the role `member` and the baseline option
+privileges, and nothing in Gestion until you grant it from **Gérer les privilèges…**.
 
 Lonnii Business lets anyone register because it sits on the public internet behind email
 verification. Here every machine on the office network can reach the API and there is no
@@ -186,7 +185,8 @@ behind them are the remaining work.
 ## Still to do
 
 - Ventes and Caisse, Charges, Marges, Amortissement, Bilan, Prestations, Audit
-- Programme (calendar), Chat, Formulaire (form builder)
+- Programme (calendar). Chat and Formulaire are not being ported: they are off the
+  navigation bar, though their privileges are still granted and revoked as before.
 - The PostgreSQL-to-SQLite importer for existing Lonnii Business data
 - Backups
 - Machine-locked licensing with RSA-signed keys

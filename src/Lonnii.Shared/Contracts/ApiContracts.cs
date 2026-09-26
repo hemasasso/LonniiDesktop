@@ -187,10 +187,12 @@ public sealed record ProductDto(
     /// without stock tracking or with unlimited stock is never low.</summary>
     public bool IsLowStock => !VenteLibre && !StockIllimite && Quantity <= MinimumThreshold;
 
-    /// <summary>"∞" for a product with no stock tracking, otherwise the quantity with its
-    /// display unit (e.g. "12 page") when one is set.</summary>
+    /// <summary>"∞" for a product with no quantity concept at all, otherwise the quantity with
+    /// its display unit (e.g. "12 page") when one is set. A Vente Libre product without Stock
+    /// indéfini still carries a real reference quantity - only Stock indéfini itself (which
+    /// can only be set alongside Vente Libre) means there is no number to show.</summary>
     public string QuantityDisplay =>
-        VenteLibre || StockIllimite
+        StockIllimite
             ? "∞"
             : string.IsNullOrEmpty(UniteAffichage) ? Quantity.ToString() : $"{Quantity} {UniteAffichage}";
 }
@@ -229,6 +231,19 @@ public sealed record StockHistoryDto(
     string? Reason,
     string? UserName,
     DateTime CreatedAt);
+
+/// <summary>
+/// One movement type's totals for the Stock module's Analyse tab - "how many transfers, how
+/// much did they cost" rather than the per-product list <see cref="StockHistoryDto"/> gives.
+/// <paramref name="MovementType"/> is one of the constants in
+/// <c>Lonnii.Data.Entities.StockMovementTypes</c> (ajout, vente, retour, adjustment, transfer,
+/// damaged, expired); the client owns the French label the same way it already does for
+/// <see cref="AdjustStockRequest.MovementType"/> in StockAdjustDialog.
+/// </summary>
+public sealed record StockMovementStatDto(string MovementType, int Count, int TotalQuantity, decimal TotalCost);
+
+/// <summary>Response of <c>GET /api/stock/movements/stats</c>.</summary>
+public sealed record StockMovementStatsResponse(IReadOnlyList<StockMovementStatDto> Movements);
 
 /// <summary>A product category.</summary>
 public sealed record CategoryDto(
@@ -408,6 +423,93 @@ public sealed record VentesStatsResponse(
     IReadOnlyList<CategorySalesDto> CategorySales,
     IReadOnlyList<TopProductDto> TopProducts,
     IReadOnlyList<VenteStatsPointDto> Serie);
+
+// --- Caisse ---
+
+/// <summary>
+/// A cash register session, open or closed. Totals are live-computed for an open session
+/// (see <c>CaisseEndpoints.ComputeLiveStatsAsync</c>) and stored as-of closing time for a
+/// closed one, same as Lonnii Business's own <c>GET /caisse/status</c> and
+/// <c>GET /caisse/historique</c>.
+/// </summary>
+public sealed record CaisseDto(
+    int Id,
+    string UserId,
+    string UserName,
+    DateTime DateOuverture,
+    decimal MontantInitial,
+    decimal MontantInitialCash,
+    decimal MontantInitialMobile,
+    DateTime? DateFermeture,
+    decimal? MontantFinal,
+    int TotalVentes,
+    decimal TotalChiffreAffaires,
+    decimal TotalEncaisse,
+    decimal TotalAvoir,
+    decimal PaiementCash,
+    decimal PaiementMobile,
+    decimal PaiementCarte,
+    decimal PaiementAutres,
+    decimal Ecart,
+    bool EcartResolved,
+    string? EcartResolutionNote,
+    string Status,
+    string? Notes,
+    IReadOnlyList<CaisseRetraitDto>? Retraits = null)
+{
+    public decimal TotalRetraits => Retraits?.Sum(r => r.Montant) ?? 0;
+}
+
+/// <summary>One manual cash withdrawal ("Retirer de la caisse") from a session.</summary>
+public sealed record CaisseRetraitDto(decimal Montant, string Motif, DateTime Date);
+
+/// <summary>Response of <c>GET /api/caisse/status</c> - null when the caller has no open
+/// session right now.</summary>
+public sealed record CaisseStatusResponse(CaisseDto? Caisse);
+
+/// <summary>Opens a new session; the float is split by how it will be counted back at
+/// closing - <paramref name="MontantInitialCash"/> is what a shop actually reconciles
+/// (<see cref="CaisseDto.Ecart"/>), while <paramref name="MontantInitialMobile"/> just
+/// records the mobile-money balance the till starts with, e.g. to give change on a mobile
+/// payment.</summary>
+public sealed record OpenCaisseRequest(
+    decimal MontantInitialCash, decimal MontantInitialMobile = 0, string? Notes = null);
+
+/// <summary>Closes the caller's open session; <paramref name="MontantFinal"/> is the cash
+/// actually counted in the drawer, compared against what the session's sales expect.</summary>
+public sealed record CloseCaisseRequest(decimal MontantFinal, string? Notes = null);
+
+/// <summary>Response of <c>GET /api/caisse/historique</c>.</summary>
+public sealed record CaisseHistoryResponse(IReadOnlyList<CaisseDto> Caisses, int Total);
+
+/// <summary>One entry of the vendeur filter dropdown on the caisse history screen.</summary>
+public sealed record CaisseVendeurDto(string UserId, string UserName);
+
+/// <summary>Values <see cref="ResolveEcartRequest.ResolutionType"/> accepts.</summary>
+public static class EcartResolutionTypes
+{
+    /// <summary>The écart is explained (e.g. a rounding difference) and left as recorded.</summary>
+    public const string Justified = "justified";
+
+    /// <summary>The écart is accepted as an unrecovered loss (or gain) and left as recorded.</summary>
+    public const string WrittenOff = "written_off";
+
+    /// <summary>The counted amount was mistaken; corrects <c>MontantFinal</c> to the expected
+    /// cash figure so the écart becomes zero.</summary>
+    public const string Adjusted = "adjusted";
+}
+
+/// <summary>Resolves a non-zero écart on a closed session. <paramref name="ResolutionType"/>
+/// is one of <see cref="EcartResolutionTypes"/>.</summary>
+public sealed record ResolveEcartRequest(string ResolutionType, string? Notes = null);
+
+/// <summary>Takes cash out of the caller's open session's drawer for something other than a
+/// sale refund - buying supplies, paying a delivery, etc. Recorded as a <c>sortie</c>
+/// <c>CaisseTransaction</c>, so it folds into <see cref="CaisseDto.PaiementCash"/> and
+/// <see cref="CaisseDto.TotalEncaisse"/> the same way an avoir refund already does.
+/// <paramref name="Motif"/> is required - it is what the till's history shows for the
+/// withdrawal, since "cash left the drawer" alone explains nothing.</summary>
+public sealed record WithdrawCaisseRequest(decimal Montant, string Motif);
 
 // --- Paramètres: reçu et facture ---
 
@@ -657,6 +759,71 @@ public sealed record ApplyCredentialsResponse(
     string Mode,
     int MaxDevices,
     int DevicesUsed);
+
+// --- Charges ---
+
+/// <summary>One expense. Ported from Lonnii Business's <c>charges</c> table.</summary>
+public sealed record ChargeDto(
+    int Id,
+    string Description,
+    decimal Montant,
+    string TypeCharge,
+    string Categorie,
+    DateTime Date,
+    string? CreatedByName,
+    bool IsRecurring,
+    DateTime? RecurringEndDate,
+    bool RecurringActive,
+    int? RecurringSourceId,
+    string? RecurringDay);
+
+/// <summary>A charge category - name, description and colour, customisable per group.</summary>
+public sealed record ChargeCategoryDto(int Id, string Nom, string? Description, string Color);
+
+public sealed record ChargesListResponse(IReadOnlyList<ChargeDto> Charges);
+
+/// <summary>Creates or edits a charge. <paramref name="IsRecurring"/> is only honoured when
+/// <paramref name="TypeCharge"/> is <c>fixe</c> and the charge is not itself one already
+/// generated from a recurring source (see <c>Charge.RecurringSourceId</c>); in every other
+/// case the server silently treats it as false, matching backend/routes/gestionCharges.js's
+/// own <c>shouldRecur</c> computation. <paramref name="RecurringEndDate"/> is required
+/// whenever <paramref name="IsRecurring"/> is true and must cover at least the month after
+/// <paramref name="Date"/>.</summary>
+public sealed record SaveChargeRequest(
+    string Description,
+    decimal Montant,
+    string TypeCharge,
+    string Categorie,
+    DateTime Date,
+    bool IsRecurring = false,
+    DateTime? RecurringEndDate = null,
+    string? RecurringDay = null);
+
+/// <summary>Response of <c>GET /api/charges/{id}</c> - the charge itself, its recurring
+/// source when it was auto-created from one, every occurrence that source has generated so
+/// far, and (for an active recurring source) when its next occurrence is due.</summary>
+public sealed record ChargeDetailsResponse(
+    ChargeDto Charge,
+    ChargeDto SourceCharge,
+    string ScheduleDescription,
+    DateTime? NextScheduledDate,
+    IReadOnlyList<ChargeDto> GeneratedCharges);
+
+public sealed record SaveChargeCategoryRequest(string Nom, string? Description, string? Color);
+
+/// <summary>Restarts a recurring charge stopped with <c>PUT /{id}/stop-recurring</c>,
+/// optionally moving its end date - e.g. after negotiating a new lease term.</summary>
+public sealed record ReactivateRecurringRequest(DateTime? RecurringEndDate = null);
+
+/// <summary>Response of <c>GET /api/charges/stats</c> for one calendar year -
+/// "Analyses" tab.</summary>
+public sealed record ChargesStatsResponse(
+    decimal Total,
+    decimal MoyenneMensuelle,
+    string CategoriePrincipale,
+    IReadOnlyDictionary<int, decimal> ParMois,
+    IReadOnlyDictionary<int, decimal> ParTrimestre,
+    IReadOnlyDictionary<string, decimal> ParCategorie);
 
 // --- Errors ---
 

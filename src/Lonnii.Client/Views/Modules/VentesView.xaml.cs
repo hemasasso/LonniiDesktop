@@ -95,6 +95,24 @@ public partial class VentesView : UserControl
     private readonly bool _canViewVentesListTab;
     private readonly bool _canViewStatistiquesTab;
 
+    // --- Caisse ---
+    // Visibility of the button itself is gated on can_add_payment (see _canAddPayment above),
+    // not the dedicated caisse privileges below: a preparer never touches cash at all
+    // (lonnii-preparer-cashier-flow memory, point 4), so the button that leads to any of it -
+    // opening, closing, or even just viewing a session - has no reason to be visible to them.
+    // Someone who does touch cash then sees only the actions the more specific privileges
+    // actually grant once the button is open.
+    private readonly bool _canOpenCaisse;
+    private readonly bool _canCloseCaisse;
+    private readonly bool _canViewCaisseHistory;
+    private readonly bool _canResolveCaisseEcart;
+
+    /// <summary>The caller's own open session, refreshed whenever the Caisse button is shown
+    /// again - null when nothing is open. Not kept live otherwise: this view is created once
+    /// and reused for the rest of the session (see MainWindow.Navigate), so a stale copy would
+    /// otherwise sit unrefreshed for as long as the user stays on this screen.</summary>
+    private CaisseDto? _caisseStatus;
+
     /// <summary>True once the catalogue (categories + products) has been fetched at least
     /// once - "Nouvelle Vente" may not be the initial tab any more (see
     /// <see cref="_canCreateVenteTab"/>), so its data is now loaded lazily on first visit
@@ -160,11 +178,19 @@ public partial class VentesView : UserControl
         _canCreateVenteTab = _session.Can(Priv.Gestion.CreateVente);
         _canViewVentesListTab = _session.Can(Priv.Gestion.ViewVentes);
         _canViewStatistiquesTab = _session.Can(Priv.Gestion.ViewVentesAnalytics);
+        _canOpenCaisse = _session.Can(Priv.Gestion.OpenCaisse);
+        _canCloseCaisse = _session.Can(Priv.Gestion.CloseCaisse);
+        _canViewCaisseHistory = _session.Can(Priv.Gestion.ViewCaisseHistory);
+        _canResolveCaisseEcart = _session.Can(Priv.Gestion.ResolveCaisseEcart);
         InitializeComponent();
 
         SubtitleText.Text = _session.Groupe?.Nom;
         RemiseCurrencyText.Text = _session.Groupe?.CurrencyLabel ?? Money.Label;
         ExportVentesButton.Visibility = _canExportVentes ? Visibility.Visible : Visibility.Collapsed;
+        RemiseGlobalePanel.Visibility = _canApplyDiscount ? Visibility.Visible : Visibility.Collapsed;
+
+        OpenCaisseButton.Visibility = _canAddPayment ? Visibility.Visible : Visibility.Collapsed;
+        CaisseHistoryButton.Visibility = _canAddPayment && _canViewCaisseHistory ? Visibility.Visible : Visibility.Collapsed;
 
         NouvelleVenteTabButton.Visibility = _canCreateVenteTab ? Visibility.Visible : Visibility.Collapsed;
         ListeVentesTabButton.Visibility = _canViewVentesListTab ? Visibility.Visible : Visibility.Collapsed;
@@ -243,8 +269,115 @@ public partial class VentesView : UserControl
                 : _canViewVentesListTab ? "liste"
                 : _canViewStatistiquesTab ? "statistiques"
                 : "nouvelle";
+
+            // Back to the tab the user was on before an "Actualiser" or a restart - as long
+            // as they still hold the privilege for it.
+            if (UiState.For(_session).Tabs.GetValueOrDefault(ModuleKey) is { } savedTab && CanOpenTab(savedTab))
+                initialTab = savedTab;
+
             await SetActiveTabAsync(initialTab);
+
+            if (_canAddPayment) await RefreshCaisseStatusAsync();
         };
+    }
+
+    // --- Caisse ---
+
+    /// <summary>Re-fetches the caller's own session and repaints the button. Called on load
+    /// and every time the button might otherwise show a session someone closed - or opened -
+    /// from elsewhere while this view sat cached (see the <see cref="_caisseStatus"/> doc
+    /// comment).</summary>
+    private async Task RefreshCaisseStatusAsync()
+    {
+        try
+        {
+            var response = await _session.Api.GetCaisseStatusAsync();
+            _caisseStatus = response.Caisse;
+        }
+        catch (ApiException)
+        {
+            // The button falls back to "closed" rather than blocking the till over it - a
+            // failed status check should not stop someone from ringing up a sale.
+            _caisseStatus = null;
+        }
+
+        ApplyCaisseVisuals();
+    }
+
+    private void ApplyCaisseVisuals()
+    {
+        // "Statut / Fermer" rather than "Fermer la caisse": the same dialog is also where cash
+        // is withdrawn, and a button that only promises closing hid that.
+        OpenCaisseButton.Content = _caisseStatus is null ? "🏦 Ouvrir Caisse" : "🏦 Statut / Fermer";
+
+        CaisseAmountPanel.Visibility = _caisseStatus is null ? Visibility.Collapsed : Visibility.Visible;
+        if (_caisseStatus is { } open)
+        {
+            var venteLabel = open.TotalVentes > 1 ? "ventes" : "vente";
+            CaisseAmountText.Text = $"{Money.Format(open.TotalEncaisse)} · {open.TotalVentes} {venteLabel}";
+        }
+    }
+
+    private async void OpenCaisse_Click(object sender, RoutedEventArgs e)
+    {
+        await RefreshCaisseStatusAsync();
+
+        if (_caisseStatus is { } open)
+        {
+            var statusDialog = new CaisseStatusDialog(_session, open, _canCloseCaisse) { Owner = Window.GetWindow(this) };
+            var closed = statusDialog.ShowDialog() == true && statusDialog.CloseResult is not null;
+
+            if (!closed)
+            {
+                // A withdrawal made inside the (still-open) status dialog changes the
+                // encaissé figure this header shows, even though the caisse itself stayed
+                // open - so this refreshes regardless of why the dialog closed.
+                await RefreshCaisseStatusAsync();
+                return;
+            }
+
+            try
+            {
+                await _session.Api.CloseCaisseAsync(statusDialog.CloseResult!);
+                await RefreshCaisseStatusAsync();
+            }
+            catch (ApiException ex)
+            {
+                MessageBox.Show(Window.GetWindow(this), ex.Message, "Fermer la caisse",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            return;
+        }
+
+        if (!_canOpenCaisse)
+        {
+            MessageBox.Show(Window.GetWindow(this), "Vous n'êtes pas autorisé à ouvrir la caisse.",
+                "Ouvrir Caisse", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var openDialog = new OpenCaisseDialog { Owner = Window.GetWindow(this) };
+        if (openDialog.ShowDialog() != true || openDialog.Result is not { } openRequest) return;
+
+        try
+        {
+            await _session.Api.OpenCaisseAsync(openRequest);
+            await RefreshCaisseStatusAsync();
+        }
+        catch (ApiException ex)
+        {
+            MessageBox.Show(Window.GetWindow(this), ex.Message, "Ouvrir Caisse",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void CaisseHistory_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new CaisseHistoryDialog(_session, _session.IsAdmin || _session.IsAdminGeneral, _canResolveCaisseEcart)
+        {
+            Owner = Window.GetWindow(this),
+        };
+        dialog.ShowDialog();
     }
 
     // --- Loading ---
@@ -262,6 +395,7 @@ public partial class VentesView : UserControl
 
             _products = await _session.Api.GetProductsAsync(search: SearchBox.Text, categoryId: _selectedCategoryId);
             await LoadCatalogueAsync();
+            if (!_catalogueLoaded) RestoreCart();
 
             EmptyPanel.Visibility = _products.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             HideMessage();
@@ -379,16 +513,33 @@ public partial class VentesView : UserControl
     private async void OtherTab_Click(object sender, RoutedEventArgs e) =>
         await SetActiveTabAsync(((Button)sender).Tag as string ?? "nouvelle");
 
+    private const string ModuleKey = "ventes";
+
+    private bool CanOpenTab(string tab) => tab switch
+    {
+        "nouvelle" => _canCreateVenteTab,
+        "liste" => _canViewVentesListTab,
+        "statistiques" => _canViewStatistiquesTab,
+        _ => false,
+    };
+
     private async Task SetActiveTabAsync(string tab)
     {
         _activeTab = tab;
         ApplyTabVisuals();
 
+        UiState.For(_session).Tabs[ModuleKey] = tab;
+        UiState.Save();
+
         NouvelleVentePanel.Visibility = tab == "nouvelle" ? Visibility.Visible : Visibility.Collapsed;
         ListeVentesPanel.Visibility = tab == "liste" ? Visibility.Visible : Visibility.Collapsed;
         StatistiquesPanel.Visibility = tab == "statistiques" ? Visibility.Visible : Visibility.Collapsed;
 
-        if (tab == "nouvelle" && !_catalogueLoaded) await LoadAsync();
+        if (tab == "nouvelle")
+        {
+            if (!_catalogueLoaded) await LoadAsync();
+            if (_canAddPayment) await RefreshCaisseStatusAsync();
+        }
         if (tab == "liste") await LoadVentesAsync();
         if (tab == "statistiques") await OpenStatistiquesAsync();
     }
@@ -410,10 +561,6 @@ public partial class VentesView : UserControl
         Apply(ListeVentesTabButton, _activeTab == "liste");
         Apply(StatistiquesTabButton, _activeTab == "statistiques");
     }
-
-    private void OpenCaisse_Click(object sender, RoutedEventArgs e) =>
-        MessageBox.Show(Window.GetWindow(this), "La gestion de caisse arrive bientôt.",
-            "Ouvrir Caisse", MessageBoxButton.OK, MessageBoxImage.Information);
 
     // --- Cart ---
 
@@ -543,6 +690,50 @@ public partial class VentesView : UserControl
         // nothing Validate_Click could actually do, so it must not be clickable.
         var hasCheckoutMode = VenteRapideCheck.IsChecked == true || AvecFactureCheck.IsChecked == true;
         ValidateButton.IsEnabled = _cart.Count > 0 && hasCheckoutMode && _session.Can(Priv.Gestion.CreateVente);
+
+        if (_cartRestored) SaveCart();
+    }
+
+    /// <summary>False until <see cref="RestoreCart"/> has run: the constructor renders the
+    /// (still empty) cart before the catalogue exists, and saving then would overwrite the
+    /// cart this view is about to restore.</summary>
+    private bool _cartRestored;
+
+    private void SaveCart()
+    {
+        var state = UiState.For(_session);
+        state.Cart = _cart
+            .Select(c => new SavedCartLine(c.Product.Id, c.Quantity, c.UnitPrice, c.Discount, c.DiscountType))
+            .ToList();
+        state.RemiseGlobale = RemiseGlobaleBox.Text;
+        UiState.Save();
+    }
+
+    /// <summary>Rebuilds the cart saved before an "Actualiser" or a restart, against the
+    /// catalogue just loaded: a deleted product is dropped, a fixed price takes today's
+    /// value, and a tracked quantity is capped at what is now in stock.</summary>
+    private void RestoreCart()
+    {
+        var state = UiState.For(_session);
+        foreach (var saved in state.Cart)
+        {
+            var product = _products.FirstOrDefault(p => p.Id == saved.ProductId);
+            if (product is null) continue;
+
+            var tracked = !(product.VenteLibre || product.StockIllimite);
+            var quantity = tracked ? Math.Min(saved.Quantity, product.Quantity) : saved.Quantity;
+            if (quantity <= 0) continue;
+
+            var price = product.PrixFixe ? product.Price : saved.UnitPrice;
+            _cart.Add(new CartLine(product, quantity, price, saved.Discount, saved.DiscountType));
+        }
+
+        // Not restored without the privilege: the box would stay hidden while still quietly
+        // discounting the total, which is worse than the discount simply being forgotten.
+        if (_canApplyDiscount && state.RemiseGlobale is { Length: > 0 } remise) RemiseGlobaleBox.Text = remise;
+
+        _cartRestored = true;
+        RenderCart();
     }
 
     /// <summary>One compact line per cart row: thumbnail, name/price, quantity stepper,
@@ -893,6 +1084,7 @@ public partial class VentesView : UserControl
             await VenteReceiptDialog.ShowForAsync(vente, _session, Window.GetWindow(this));
 
             await LoadAsync();
+            if (_caisseStatus is not null) await RefreshCaisseStatusAsync();
         }
         catch (ApiException ex)
         {
@@ -1410,6 +1602,7 @@ public partial class VentesView : UserControl
         {
             await _session.Api.AddPaiementAsync(vente.Id, new AddPaiementRequest(dialog.Montant, dialog.ModePaiement));
             await LoadVentesAsync();
+            if (_caisseStatus is not null) await RefreshCaisseStatusAsync();
         }
         catch (ApiException ex)
         {
@@ -1651,6 +1844,12 @@ public partial class VentesView : UserControl
         }).ToArray();
         RenderPieLegend(CategoryLegendPanel, categorySlices);
 
+        // Category -> colour, so a product's bar in "Produits les Plus Vendus" below reads as
+        // the same category the pie above shows it as - same technique StockView's Analyse
+        // tab uses to match its own "Produits Immobilisant le Plus de Valeur" bars to its
+        // category pie.
+        var categoryColors = categorySlices.ToDictionary(c => c.Label, c => c.Color, StringComparer.Ordinal);
+
         // Répartition des Paiements
         var paymentSlices = new (string Label, decimal Value, SKColor Color)[]
         {
@@ -1667,7 +1866,10 @@ public partial class VentesView : UserControl
         }).ToArray();
         RenderPieLegend(PaymentLegendPanel, paymentSlices);
 
-        // Évolution du Chiffre d'Affaires
+        // Évolution du Chiffre d'Affaires - the currency lives in the title, not repeated
+        // at every gridline: it only crowds the axis once several thousand-CFA amounts are
+        // each carrying "F CFA" of their own.
+        RevenueChartTitle.Text = $"Évolution du Chiffre d'Affaires ({Money.Label})";
         RevenueEmptyText.Visibility = stats.Serie.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         RevenueChart.Series =
         [
@@ -1676,9 +1878,8 @@ public partial class VentesView : UserControl
                 Values = stats.Serie.Select(p => (double)p.MontantTotal).ToArray(),
                 Fill = new SolidColorPaint(CategoryPalette[0]),
                 Name = "Chiffre d'Affaires",
-                // Otherwise LiveCharts prints the raw double with its own culture-invariant
-                // "." decimal point and no currency - Money.Format is the one place this app
-                // decides both (French "," and the group's own currency label).
+                // The tooltip still spells out the full amount with its currency - Money.Format
+                // is the one place this app decides both (French "," and the group's own label).
                 YToolTipLabelFormatter = point => Money.Format((decimal)point.Coordinate.PrimaryValue),
             },
         ];
@@ -1696,23 +1897,39 @@ public partial class VentesView : UserControl
             new Axis
             {
                 LabelsPaint = axisPaint, SeparatorsPaint = separatorPaint,
-                Labeler = v => Money.Format((decimal)v),
+                Labeler = v => Money.FormatPlain((decimal)v),
             },
         ];
 
         // Produits les Plus Vendus (horizontal bars, highest first at the top)
-        var topProducts = stats.TopProducts.AsEnumerable().Reverse().ToList();
+        TopProductsChartTitle.Text = $"Produits les Plus Vendus ({Money.Label})";
+        var topProducts = stats.TopProducts.AsEnumerable().Reverse()
+            .Select(p => (p.Nom, p.MontantTotal,
+                Category: _statsProducts.FirstOrDefault(sp => sp.Id == p.ProductId)?.CategoryName ?? "Sans catégorie"))
+            .ToList();
         TopProductsEmptyText.Visibility = topProducts.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        TopProductsChart.Series =
-        [
-            new RowSeries<double>
+
+        // One series per bar rather than one series for all of them, coloured by the same
+        // categoryColors map as "Ventes par Catégorie" above - see StockView.RenderAnalyseCharts
+        // for why this needs its own series per bar (IgnoresBarPosition, NaN placeholders) to
+        // give each bar its own colour at all.
+        TopProductsChart.Series = topProducts.Select((p, i) =>
+        {
+            var values = new double[topProducts.Count];
+            Array.Fill(values, double.NaN);
+            values[i] = (double)p.MontantTotal;
+
+            return (ISeries)new RowSeries<double>
             {
-                Values = topProducts.Select(p => (double)p.MontantTotal).ToArray(),
-                Fill = new SolidColorPaint(CategoryPalette[1]),
-                Name = "Montant vendu",
-                YToolTipLabelFormatter = point => Money.Format((decimal)point.Coordinate.PrimaryValue),
-            },
-        ];
+                Values = values,
+                IgnoresBarPosition = true,
+                Fill = new SolidColorPaint(categoryColors.GetValueOrDefault(p.Category, SKColors.Gray)),
+                Name = p.Nom,
+                YToolTipLabelFormatter = point => double.IsFinite(point.Coordinate.PrimaryValue)
+                    ? Money.Format((decimal)point.Coordinate.PrimaryValue)
+                    : string.Empty,
+            };
+        }).ToArray();
         TopProductsChart.YAxes =
         [
             new Axis
@@ -1728,7 +1945,7 @@ public partial class VentesView : UserControl
             new Axis
             {
                 LabelsPaint = axisPaint, SeparatorsPaint = separatorPaint,
-                Labeler = v => Money.Format((decimal)v),
+                Labeler = v => double.IsFinite(v) ? Money.FormatPlain((decimal)v) : string.Empty,
             },
         ];
     }

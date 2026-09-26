@@ -144,22 +144,14 @@
                               Content="Prix négociable (modifiable au moment de la vente)" />
                 </StackPanel>
 
-                <!--
-                  A product sold without stock tracking (e.g. a service) never moves
-                  quantity, so Stock indéfini only makes sense once Vente Libre is on -
-                  it is indented under it and disabled until then (see code-behind).
-                -->
+                <!-- A product sold without stock tracking (e.g. a service) always has an
+                     unlimited quantity - there is no separate choice to make about it. -->
                 <StackPanel Grid.Row="7" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,10,0,0">
                     <CheckBox x:Name="VenteLibreCheck" Content="Vente Libre (sans suivi de stock - ex: services)"
                               Checked="VenteLibre_Changed" Unchecked="VenteLibre_Changed" />
-                </StackPanel>
-
-                <StackPanel Grid.Row="8" Grid.Column="0" Grid.ColumnSpan="3" Margin="20,8,0,0">
-                    <CheckBox x:Name="StockIllimiteCheck" Content="Stock indéfini (illimité)"
-                              Checked="StockIllimite_Changed" Unchecked="StockIllimite_Changed" />
-                    <TextBlock x:Name="StockIllimiteHint" Margin="0,4,0,0" FontSize="12"
-                               Foreground="{DynamicResource Warning}" Visibility="Collapsed"
-                               Text="ℹ Stock illimité - Parfait pour les services." />
+                    <TextBlock x:Name="VenteLibreHint" Margin="20,4,0,0" FontSize="12"
+                               Foreground="{DynamicResource TextMuted}" Visibility="Collapsed"
+                               Text="ℹ Quantité illimitée - aucun suivi de stock pour ce produit." />
                 </StackPanel>
 
                 <StackPanel Grid.Row="9" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,12,0,0">

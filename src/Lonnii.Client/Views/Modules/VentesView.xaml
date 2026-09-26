@@ -26,8 +26,22 @@
                         <TextBlock x:Name="SubtitleText" Style="{StaticResource PageSubtitle}" />
                     </StackPanel>
                 </StackPanel>
-                <Button x:Name="OpenCaisseButton" Content="🏦 Ouvrir Caisse" HorizontalAlignment="Right"
-                        Style="{StaticResource SecondaryButton}" Click="OpenCaisse_Click" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <!-- Live encaissé for the caller's own open session - visible at a glance
+                         so the cashier does not have to open the caisse dialog just to see
+                         where they stand. Collapsed while nothing is open. -->
+                    <StackPanel x:Name="CaisseAmountPanel" Visibility="Collapsed"
+                                VerticalAlignment="Center" Margin="0,0,14,0">
+                        <TextBlock Text="Caisse (Encaissé)" Style="{StaticResource PageSubtitle}"
+                                   HorizontalAlignment="Right" />
+                        <TextBlock x:Name="CaisseAmountText" FontWeight="Bold" FontSize="15"
+                                   Foreground="{DynamicResource Success}" HorizontalAlignment="Right" />
+                    </StackPanel>
+                    <Button x:Name="CaisseHistoryButton" Content="🕘 Historique Caisse" Margin="0,0,8,0"
+                            Style="{StaticResource SecondaryButton}" Click="CaisseHistory_Click" />
+                    <Button x:Name="OpenCaisseButton" Content="🏦 Ouvrir Caisse"
+                            Style="{StaticResource SecondaryButton}" Click="OpenCaisse_Click" />
+                </StackPanel>
             </Grid>
         </Border>
 
@@ -179,7 +193,8 @@
                             <Border Padding="14" Margin="0,0,0,10" CornerRadius="8" BorderThickness="1"
                                     Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Border}">
                                 <StackPanel>
-                                    <TextBlock Text="Évolution du Chiffre d'Affaires" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock x:Name="RevenueChartTitle" Text="Évolution du Chiffre d'Affaires"
+                                               FontWeight="SemiBold" Margin="0,0,0,8" />
                                     <Grid Height="240">
                                         <lvc:CartesianChart x:Name="RevenueChart" Background="Transparent" />
                                         <TextBlock x:Name="RevenueEmptyText" Text="Aucune donnée disponible."
@@ -193,7 +208,8 @@
                             <Border Padding="14" CornerRadius="8" BorderThickness="1"
                                     Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Border}">
                                 <StackPanel>
-                                    <TextBlock Text="Produits les Plus Vendus" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <TextBlock x:Name="TopProductsChartTitle" Text="Produits les Plus Vendus"
+                                               FontWeight="SemiBold" Margin="0,0,0,8" />
                                     <Grid Height="260">
                                         <lvc:CartesianChart x:Name="TopProductsChart" Background="Transparent" />
                                         <TextBlock x:Name="TopProductsEmptyText" Text="Aucun produit vendu."
@@ -366,25 +382,46 @@
                             </ListBox.ItemContainerStyle>
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Width="150" Height="150"
-                                            Background="{DynamicResource Surface}"
-                                            BorderBrush="{DynamicResource Border}" BorderThickness="1"
-                                            CornerRadius="6">
-                                        <StackPanel>
-                                            <Border Width="150" Height="80"
-                                                    Background="{DynamicResource SurfaceAlt}"
-                                                    CornerRadius="6,6,0,0" ClipToBounds="True">
-                                                <Grid>
-                                                    <TextBlock Text="🛒" FontSize="28" HorizontalAlignment="Center"
-                                                               VerticalAlignment="Center"
-                                                               Visibility="{Binding HasNoThumbnail, Converter={StaticResource BoolToVis}}" />
-                                                    <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
-                                                </Grid>
-                                            </Border>
-                                            <StackPanel Margin="8,6">
-                                                <TextBlock Text="{Binding Product.Name}" FontWeight="SemiBold"
-                                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding Product.Name}" />
-                                                <TextBlock Margin="0,2,0,0">
+                                    <!-- The box is the photo only: its own border and rounded
+                                         corners on all four sides. Name, price and stock sit
+                                         beneath it, on the transparent tile background, not
+                                         sharing the photo's box. -->
+                                    <StackPanel Width="150">
+                                        <Border Width="150" Height="80"
+                                                BorderBrush="{DynamicResource Border}" BorderThickness="1"
+                                                CornerRadius="8" ClipToBounds="True">
+                                            <!-- SurfaceAlt only behind the placeholder icon. A
+                                                 real photo's own background is white, and Uniform
+                                                 stretch can letterbox a non-matching aspect ratio,
+                                                 so a grey SurfaceAlt fill would show as bands down
+                                                 the sides; white makes the letterbox invisible. -->
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Background" Value="White" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding HasNoThumbnail}" Value="True">
+                                                            <Setter Property="Background" Value="{DynamicResource SurfaceAlt}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <Grid>
+                                                <TextBlock Text="🛒" FontSize="28" HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center"
+                                                           Visibility="{Binding HasNoThumbnail, Converter={StaticResource BoolToVis}}" />
+                                                <!-- Uniform, not UniformToFill: a fill crops to
+                                                     the box, and product photos often carry a lot
+                                                     of empty margin around the product, so a crop
+                                                     can slice through the product itself instead of
+                                                     the margin. Uniform always shows the whole photo. -->
+                                                <Image Source="{Binding Thumbnail}" Stretch="Uniform" />
+                                            </Grid>
+                                        </Border>
+                                        <StackPanel Margin="2,8,2,0">
+                                            <TextBlock Text="{Binding Product.Name}" FontWeight="SemiBold"
+                                                       TextTrimming="CharacterEllipsis" ToolTip="{Binding Product.Name}" />
+                                            <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                                                <TextBlock>
                                                     <TextBlock.Style>
                                                         <Style TargetType="TextBlock">
                                                             <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
@@ -398,14 +435,14 @@
                                                         </Style>
                                                     </TextBlock.Style>
                                                 </TextBlock>
-                                                <TextBlock Margin="0,2,0,0" FontSize="11"
-                                                           Foreground="{DynamicResource TextMuted}">
-                                                    <Run Text="Stock : " />
+                                                <TextBlock FontSize="11" Foreground="{DynamicResource TextMuted}"
+                                                           Margin="6,0,0,0" VerticalAlignment="Center">
+                                                    <Run Text="Qté : " />
                                                     <Run Text="{Binding Product.QuantityDisplay, Mode=OneWay}" />
                                                 </TextBlock>
                                             </StackPanel>
                                         </StackPanel>
-                                    </Border>
+                                    </StackPanel>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
@@ -446,7 +483,11 @@
 
                     <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
 
-                        <Border Background="{DynamicResource Surface}"
+                        <!-- Visibility gated on can_apply_discount in code-behind - without
+                             this, a vendeur who cannot apply a per-line discount (BuildCartRow)
+                             could still zero out the whole sale here regardless. -->
+                        <Border x:Name="RemiseGlobalePanel"
+                                Background="{DynamicResource Surface}"
                                 BorderBrush="{DynamicResource Warning}" BorderThickness="1"
                                 CornerRadius="6" Padding="10,8" Margin="0,0,0,10">
                             <DockPanel>

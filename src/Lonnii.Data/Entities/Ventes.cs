@@ -224,8 +224,20 @@ public class Caisse
 
     public DateTime DateOuverture { get; set; } = DateTime.UtcNow;
 
-    /// <summary>Float placed in the drawer at opening.</summary>
+    /// <summary>Sum of <see cref="MontantInitialCash"/> and <see cref="MontantInitialMobile"/>,
+    /// kept as its own column (rather than computed) because the live database already
+    /// stores it that way - backend/routes/ventes.js's own <c>INSERT INTO caisses</c> writes
+    /// all three columns itself instead of deriving one from the other two.</summary>
     public decimal MontantInitial { get; set; }
+
+    /// <summary>The float's cash portion, counted into the physical drawer - the only part
+    /// that matters for <see cref="Ecart"/>, since a mobile-money float is not something
+    /// anyone can miscount at closing time.</summary>
+    public decimal MontantInitialCash { get; set; }
+
+    /// <summary>The float's mobile-money portion, if the till also opens with a mobile-money
+    /// balance to work from (e.g. giving change on a mobile payment).</summary>
+    public decimal MontantInitialMobile { get; set; }
 
     public DateTime? DateFermeture { get; set; }
 

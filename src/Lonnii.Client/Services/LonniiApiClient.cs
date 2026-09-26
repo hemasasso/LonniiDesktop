@@ -245,6 +245,20 @@ public class LonniiApiClient
     public Task<List<StockHistoryDto>> GetProductHistoryAsync(string id, CancellationToken ct = default) =>
         GetAsync<List<StockHistoryDto>>($"api/stock/products/{id}/history", ct);
 
+    /// <summary>"Mouvements de stock" on the Analyse tab - every movement in the group, grouped
+    /// by type. <paramref name="categoryId"/> mirrors Analyse's own category filter.</summary>
+    public Task<StockMovementStatsResponse> GetStockMovementStatsAsync(
+        DateOnly? dateDebut = null, DateOnly? dateFin = null, string? categoryId = null, CancellationToken ct = default)
+    {
+        var query = new List<string>();
+        if (dateDebut is { } debut) query.Add($"dateDebut={debut:yyyy-MM-dd}");
+        if (dateFin is { } fin) query.Add($"dateFin={fin:yyyy-MM-dd}");
+        if (!string.IsNullOrWhiteSpace(categoryId)) query.Add($"categoryId={Uri.EscapeDataString(categoryId)}");
+
+        var url = "api/stock/movements/stats" + (query.Count > 0 ? "?" + string.Join("&", query) : string.Empty);
+        return GetAsync<StockMovementStatsResponse>(url, ct);
+    }
+
     public Task<List<CategoryDto>> GetCategoriesAsync(CancellationToken ct = default) =>
         GetAsync<List<CategoryDto>>("api/stock/categories", ct);
 
@@ -316,6 +330,87 @@ public class LonniiApiClient
         var url = "api/ventes/stats" + (query.Count > 0 ? "?" + string.Join("&", query) : string.Empty);
         return GetAsync<VentesStatsResponse>(url, ct);
     }
+
+    // --- Caisse ---
+
+    /// <summary>The caller's own open session, or null when nothing is open right now.</summary>
+    public Task<CaisseStatusResponse> GetCaisseStatusAsync(CancellationToken ct = default) =>
+        GetAsync<CaisseStatusResponse>("api/caisse/status", ct);
+
+    public Task<CaisseDto> OpenCaisseAsync(OpenCaisseRequest request, CancellationToken ct = default) =>
+        PostAsync<CaisseDto>("api/caisse/ouvrir", request, ct);
+
+    public Task<CaisseDto> CloseCaisseAsync(CloseCaisseRequest request, CancellationToken ct = default) =>
+        PostAsync<CaisseDto>("api/caisse/fermer", request, ct);
+
+    public Task<CaisseHistoryResponse> GetCaisseHistoryAsync(
+        DateOnly? dateDebut = null, DateOnly? dateFin = null, string? userId = null,
+        int page = 1, int pageSize = 50, CancellationToken ct = default)
+    {
+        var query = new List<string> { $"page={page}", $"pageSize={pageSize}" };
+        if (dateDebut is { } debut) query.Add($"dateDebut={debut:yyyy-MM-dd}");
+        if (dateFin is { } fin) query.Add($"dateFin={fin:yyyy-MM-dd}");
+        if (!string.IsNullOrWhiteSpace(userId)) query.Add($"userId={Uri.EscapeDataString(userId)}");
+
+        return GetAsync<CaisseHistoryResponse>("api/caisse/historique?" + string.Join("&", query), ct);
+    }
+
+    public Task<List<CaisseVendeurDto>> GetCaisseVendeursAsync(CancellationToken ct = default) =>
+        GetAsync<List<CaisseVendeurDto>>("api/caisse/vendeurs", ct);
+
+    public Task<CaisseDto> ResolveCaisseEcartAsync(int id, ResolveEcartRequest request, CancellationToken ct = default) =>
+        PostAsync<CaisseDto>($"api/caisse/{id}/resolve-ecart", request, ct);
+
+    public Task<CaisseDto> WithdrawCaisseAsync(WithdrawCaisseRequest request, CancellationToken ct = default) =>
+        PostAsync<CaisseDto>("api/caisse/retrait", request, ct);
+
+    // --- Charges ---
+
+    public Task<ChargesListResponse> GetChargesAsync(
+        DateOnly? dateDebut = null, DateOnly? dateFin = null, string? categorie = null, CancellationToken ct = default)
+    {
+        var query = new List<string>();
+        if (dateDebut is { } debut) query.Add($"dateDebut={debut:yyyy-MM-dd}");
+        if (dateFin is { } fin) query.Add($"dateFin={fin:yyyy-MM-dd}");
+        if (!string.IsNullOrWhiteSpace(categorie)) query.Add($"categorie={Uri.EscapeDataString(categorie)}");
+
+        var url = "api/charges" + (query.Count > 0 ? "?" + string.Join("&", query) : string.Empty);
+        return GetAsync<ChargesListResponse>(url, ct);
+    }
+
+    public Task<ChargeDetailsResponse> GetChargeDetailsAsync(int id, CancellationToken ct = default) =>
+        GetAsync<ChargeDetailsResponse>($"api/charges/{id}", ct);
+
+    public Task<ChargeDto> CreateChargeAsync(SaveChargeRequest request, CancellationToken ct = default) =>
+        PostAsync<ChargeDto>("api/charges", request, ct);
+
+    public Task<ChargeDto> UpdateChargeAsync(int id, SaveChargeRequest request, CancellationToken ct = default) =>
+        SendAsync<ChargeDto>(HttpMethod.Put, $"api/charges/{id}", request, ct);
+
+    public Task DeleteChargeAsync(int id, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Delete, $"api/charges/{id}", null, ct);
+
+    public Task<List<ChargeCategoryDto>> GetChargeCategoriesAsync(CancellationToken ct = default) =>
+        GetAsync<List<ChargeCategoryDto>>("api/charges/categories", ct);
+
+    public Task<ChargeCategoryDto> SaveChargeCategoryAsync(SaveChargeCategoryRequest request, CancellationToken ct = default) =>
+        PostAsync<ChargeCategoryDto>("api/charges/categories", request, ct);
+
+    public Task DeleteChargeCategoryAsync(int id, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Delete, $"api/charges/categories/{id}", null, ct);
+
+    public Task<ChargesListResponse> GetRecurringChargesAsync(CancellationToken ct = default) =>
+        GetAsync<ChargesListResponse>("api/charges/recurring", ct);
+
+    public Task<ChargeDto> StopRecurringChargeAsync(int id, CancellationToken ct = default) =>
+        SendAsync<ChargeDto>(HttpMethod.Put, $"api/charges/{id}/stop-recurring", null, ct);
+
+    public Task<ChargeDto> ReactivateRecurringChargeAsync(
+        int id, ReactivateRecurringRequest request, CancellationToken ct = default) =>
+        SendAsync<ChargeDto>(HttpMethod.Put, $"api/charges/{id}/reactivate-recurring", request, ct);
+
+    public Task<ChargesStatsResponse> GetChargesStatsAsync(int? annee = null, CancellationToken ct = default) =>
+        GetAsync<ChargesStatsResponse>("api/charges/stats" + (annee is { } y ? $"?annee={y}" : string.Empty), ct);
 
     /// <summary>This machine's local time minus UTC, in minutes - what a date-range filter
     /// needs so the server can tell which UTC instants "today" (this machine's today) actually

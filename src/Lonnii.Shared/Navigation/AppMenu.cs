@@ -36,19 +36,20 @@ public static class AppMenu
 {
     /// <summary>
     /// Top-level group navigation. Source: GroupePage.jsx.
-    /// Réunion and Suggestion are commented out in the web app and are listed here
-    /// as disabled so the desktop shell keeps the same order if they are re-enabled.
+    ///
+    /// The desktop shell diverges from the web app here. Chat and Formulaire are not
+    /// ported, so they are not advertised. Gestion is gone as a single entry too: the
+    /// shell puts one pill per <see cref="GestionSections"/> entry in the bar instead of
+    /// burying nine modules behind one dropdown. The privileges behind all three still
+    /// exist and are still granted and revoked from Paramètres.
     /// </summary>
     public static readonly IReadOnlyList<MenuEntry> Espace =
     [
         new("program", "Programme", "Gérez le calendrier et les événements", "#3b82f6", Priv.Option.ViewProgramme),
-        new("chat", "Chat", "Discutez avec les membres du groupe", "#10b981", Priv.Option.ViewChat),
         // Admin-only, unlike the web app. Options is where members and privileges are
         // managed; an ordinary member could only look at it, so showing it to them just
         // advertises a door they cannot open.
         new("options", "Options", "Gérez les membres et les privilèges", "#8b5cf6", RequiresAdmin: true),
-        new("espace/gestion", "Gestion", "Accédez aux outils de gestion", "#f59e0b", RequiresGestionAccess: true),
-        new("formulaire", "Formulaire", "Créez et remplissez des formulaires", "#ec4899", Priv.Option.ViewFormulaires),
         new("prestations", "Prestations", "Devis, factures et rentabilité", "#e11d48",
             Priv.Gestion.ViewPrestations, RequiresPrestationsEnabled: true),
     ];
@@ -70,6 +71,9 @@ public static class AppMenu
 
     /// <summary>
     /// How the web app groups Gestion entries for admins. Source: adminSections in Gestion.jsx.
+    /// The desktop shell shows one top-bar pill per section, to everyone rather than only to
+    /// admins, so every key in <see cref="Gestion"/> must appear in exactly one section here
+    /// or it becomes unreachable. <c>PrivilegeEndpoints</c> guards that with a catch-all.
     /// </summary>
     public static readonly IReadOnlyList<MenuSection> GestionSections =
     [

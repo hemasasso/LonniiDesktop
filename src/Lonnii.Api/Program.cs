@@ -128,6 +128,8 @@ app.MapGroupEndpoints();
 app.MapPrivilegeEndpoints();
 app.MapStockEndpoints();
 app.MapVentesEndpoints();
+app.MapCaisseEndpoints();
+app.MapChargesEndpoints();
 app.MapParametresEndpoints();
 app.MapImageEndpoints();
 

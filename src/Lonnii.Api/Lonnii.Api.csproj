@@ -4,14 +4,6 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-
-    <!--
-      System.Drawing.Common only works on Windows, which CA1416 flags on every call site
-      since the project targets plain net10.0 rather than net10.0-windows. That mismatch
-      is intentional: only Lonnii.Api's image handling is Windows-only, not the whole
-      project, and the API itself only ever runs on the Windows host laptop anyway.
-    -->
-    <NoWarn>$(NoWarn);CA1416</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -22,7 +14,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="System.Drawing.Common" Version="10.0.12" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="4.1.2" />
   </ItemGroup>
 
   <ItemGroup>

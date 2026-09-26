@@ -45,8 +45,19 @@ public class MenuVisibilityTests
 
         // Hiding Options must not take the rest of the workspace with it.
         Assert.Contains(visible, e => e.Key == "program");
-        Assert.Contains(visible, e => e.Key == "chat");
-        Assert.Contains(visible, e => e.Key == "formulaire");
+        Assert.Contains(visible, e => e.Key == "prestations");
+    }
+
+    [Fact]
+    public void EveryGestionEntry_BelongsToExactlyOneSection()
+    {
+        // The shell navigates Gestion only through its section pills, so a key in no
+        // section - or in two - is either unreachable or listed twice.
+        foreach (var entry in AppMenu.Gestion)
+        {
+            var sections = AppMenu.GestionSections.Count(s => s.Keys.Contains(entry.Key));
+            Assert.True(sections == 1, $"'{entry.Key}' belongs to {sections} sections, expected 1.");
+        }
     }
 
     [Fact]

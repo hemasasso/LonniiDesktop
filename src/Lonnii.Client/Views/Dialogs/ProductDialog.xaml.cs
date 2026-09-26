@@ -80,7 +80,6 @@ public partial class ProductDialog : Window
             ThresholdBox.Text = Money.FormatPlain(existing.MinimumThreshold);
             PrixNegociableCheck.IsChecked = !existing.PrixFixe;
             VenteLibreCheck.IsChecked = existing.VenteLibre;
-            StockIllimiteCheck.IsChecked = existing.StockIllimite;
             UnitBox.Text = existing.UniteAffichage ?? string.Empty;
 
             CategoryBox.SelectedValue = existing.CategoryId ?? string.Empty;
@@ -167,32 +166,27 @@ public partial class ProductDialog : Window
     }
 
     /// <summary>
-    /// Stock indéfini only makes sense once Vente Libre is on - unchecking Vente Libre
-    /// turns it back off. Either one means quantity is never tracked, so the quantity
-    /// (new products only - it stays read-only on edit regardless) and threshold fields
-    /// are disabled while it applies. Vente Libre also has no purchase cost to track
-    /// (it is a service, not a stocked good), so Prix d'achat is disabled and cleared.
+    /// Vente Libre alone means unlimited quantity - no separate "Stock indéfini" choice to
+    /// make about it (an earlier version of this dialog had one, mirrored from Lonnii
+    /// Business's GestionDeStock.jsx; the user decided that nested option was unnecessary
+    /// noise here and asked for a plain "Vente Libre implies infinite quantity" rule instead).
+    /// Quantity (new products only - it stays read-only on edit regardless) and the low-stock
+    /// threshold are disabled while it applies, and there is no purchase cost to track either
+    /// (it is a service, not a stocked good), so Prix d'achat is disabled and cleared too.
     /// </summary>
     private void ApplySalesModeVisuals()
     {
         var venteLibre = VenteLibreCheck.IsChecked == true;
-        StockIllimiteCheck.IsEnabled = venteLibre;
-        if (!venteLibre) StockIllimiteCheck.IsChecked = false;
+        VenteLibreHint.Visibility = venteLibre ? Visibility.Visible : Visibility.Collapsed;
 
-        var noStockTracking = venteLibre || StockIllimiteCheck.IsChecked == true;
-        StockIllimiteHint.Visibility = StockIllimiteCheck.IsChecked == true
-            ? Visibility.Visible : Visibility.Collapsed;
-
-        if (_existing is null) QuantityBox.IsEnabled = !noStockTracking;
-        ThresholdBox.IsEnabled = !noStockTracking;
+        if (_existing is null) QuantityBox.IsEnabled = !venteLibre;
+        ThresholdBox.IsEnabled = !venteLibre;
 
         CostBox.IsEnabled = !venteLibre;
         if (venteLibre) CostBox.Text = string.Empty;
     }
 
     private void VenteLibre_Changed(object sender, RoutedEventArgs e) => ApplySalesModeVisuals();
-
-    private void StockIllimite_Changed(object sender, RoutedEventArgs e) => ApplySalesModeVisuals();
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
@@ -220,17 +214,17 @@ public partial class ProductDialog : Window
             cost = parsedCost;
         }
 
-        var noStockTracking = VenteLibreCheck.IsChecked == true || StockIllimiteCheck.IsChecked == true;
+        var venteLibre = VenteLibreCheck.IsChecked == true;
 
         var threshold = 0;
-        if (!noStockTracking && (!Money.TryParse(ThresholdBox.Text, out threshold) || threshold < 0))
+        if (!venteLibre && (!Money.TryParse(ThresholdBox.Text, out threshold) || threshold < 0))
         {
             Fail("Le seuil d'alerte doit être un entier positif.", ThresholdBox);
             return;
         }
 
         var quantity = _existing?.Quantity ?? 0;
-        if (_existing is null && !noStockTracking)
+        if (_existing is null && !venteLibre)
         {
             if (!Money.TryParse(QuantityBox.Text, out quantity) || quantity < 0)
             {
@@ -264,8 +258,11 @@ public partial class ProductDialog : Window
             MinimumThreshold: threshold,
             CostPrice: cost,
             PrixFixe: PrixNegociableCheck.IsChecked != true,
-            VenteLibre: VenteLibreCheck.IsChecked == true,
-            StockIllimite: StockIllimiteCheck.IsChecked == true,
+            VenteLibre: venteLibre,
+            // No separate UI choice any more - Vente Libre alone always means unlimited
+            // quantity, so the two flags are kept in lockstep here rather than exposing a
+            // second checkbox for what is now a single decision.
+            StockIllimite: venteLibre,
             UniteAffichage: Blank(UnitBox.Text),
             StorageLocation: Blank(LocationBox.Text),
             ExpiryDate: _existing?.ExpiryDate);

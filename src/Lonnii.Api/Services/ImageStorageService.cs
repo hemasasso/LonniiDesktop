@@ -1,7 +1,6 @@
-using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
-using System.Runtime.InteropServices;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Processing;
 
 namespace Lonnii.Api.Services;
 
@@ -14,8 +13,12 @@ namespace Lonnii.Api.Services;
 /// role (photos live only on the host, never on a client), but goes through this service
 /// so every read is checked against the caller's group before the bytes are returned.
 ///
-/// Uses System.Drawing.Common, which only works on Windows. That is not a new constraint
-/// for this project: the API already only ever runs on the Windows host laptop.
+/// Decodes with ImageSharp, not System.Drawing.Common: GDI+ - the native library behind
+/// System.Drawing - rejects a real slice of ordinary real-world JPEGs (CMYK ones out of
+/// Photoshop above all) with a bare "Parameter is not valid", which showed up here as a
+/// perfectly good .jpg being told it was not a valid image. ImageSharp is a pure managed
+/// decoder with none of GDI+'s format gaps, and works the same on every OS the API might
+/// one day run on.
 /// </summary>
 public class ImageStorageService
 {
@@ -67,8 +70,8 @@ public class ImageStorageService
     /// <exception cref="InvalidImageException">The upload was not a decodable image.</exception>
     public string Save(string folder, string entityId, Stream content, string? previousUrl, bool lossless = false)
     {
-        using var original = DecodeOrThrow(content);
-        using var resized = ResizeToFit(original, MaxDimension);
+        using var image = DecodeOrThrow(content);
+        ResizeToFit(image, MaxDimension);
 
         // A fresh filename per upload, not a fixed one per entity, so a client that has
         // already loaded the old photo is never handed stale bytes under the same name.
@@ -77,14 +80,17 @@ public class ImageStorageService
 
         if (lossless)
         {
-            resized.Save(path, ImageFormat.Png);
+            image.SaveAsPng(path);
         }
         else
         {
-            var encoder = ImageCodecInfo.GetImageEncoders().First(e => e.FormatID == ImageFormat.Jpeg.Guid);
-            using var parameters = new EncoderParameters(1);
-            parameters.Param[0] = new EncoderParameter(Encoder.Quality, 82L);
-            resized.Save(path, encoder, parameters);
+            // JPEG has no alpha channel. Without compositing onto an opaque backdrop
+            // first, encoding a transparent PNG straight to JPEG keeps whatever RGB
+            // values sat under the discarded alpha - commonly black, since many editors
+            // leave fully-transparent pixels at RGB (0,0,0) - so a product cut out on a
+            // transparent background came out with a black backdrop instead of white.
+            image.Mutate(x => x.BackgroundColor(Color.White));
+            image.SaveAsJpeg(path, new JpegEncoder { Quality = 82 });
         }
 
         DeleteIfOwned(previousUrl);
@@ -170,43 +176,33 @@ public class ImageStorageService
         return Path.Combine(_root, parts[0], safeName);
     }
 
-    private static Bitmap DecodeOrThrow(Stream content)
+    private static Image DecodeOrThrow(Stream content)
     {
         try
         {
-            // Copied to a MemoryStream first: Bitmap keeps the source stream open and
-            // reads from it lazily, which would break once the caller's request stream
-            // is disposed.
+            // Copied to a MemoryStream first: Image.Load keeps the source stream open and
+            // reads from it lazily, which would break once the caller's request stream is
+            // disposed.
             var buffer = new MemoryStream();
             content.CopyTo(buffer);
             buffer.Position = 0;
-            return new Bitmap(buffer);
+            return Image.Load(buffer);
         }
-        catch (Exception e) when (e is ArgumentException or ExternalException)
+        catch (Exception e) when (e is ImageFormatException or NotSupportedException)
         {
             throw new InvalidImageException();
         }
     }
 
-    private static Bitmap ResizeToFit(Bitmap source, int maxDimension)
+    private static void ResizeToFit(Image image, int maxDimension)
     {
-        if (source.Width <= maxDimension && source.Height <= maxDimension)
-        {
-            // Still re-encoded as JPEG below even when no resize is needed, so a huge
-            // lossless PNG does not end up stored uncompressed.
-            return new Bitmap(source);
-        }
+        if (image.Width <= maxDimension && image.Height <= maxDimension) return;
 
-        var scale = Math.Min((double)maxDimension / source.Width, (double)maxDimension / source.Height);
-        var width = Math.Max(1, (int)Math.Round(source.Width * scale));
-        var height = Math.Max(1, (int)Math.Round(source.Height * scale));
+        var scale = Math.Min((double)maxDimension / image.Width, (double)maxDimension / image.Height);
+        var width = Math.Max(1, (int)Math.Round(image.Width * scale));
+        var height = Math.Max(1, (int)Math.Round(image.Height * scale));
 
-        var resized = new Bitmap(width, height);
-        using var g = Graphics.FromImage(resized);
-        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-        g.CompositingQuality = CompositingQuality.HighQuality;
-        g.DrawImage(source, 0, 0, width, height);
-        return resized;
+        image.Mutate(x => x.Resize(width, height, KnownResamplers.Bicubic));
     }
 }
 

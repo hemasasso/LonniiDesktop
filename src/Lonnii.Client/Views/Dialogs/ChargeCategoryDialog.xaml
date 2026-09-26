@@ -1,0 +1,51 @@
+<Window x:Class="Lonnii.Client.Views.Dialogs.ChargeCategoryDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Catégorie de charge"
+        Width="420"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="{DynamicResource Surface}">
+
+    <DockPanel>
+
+        <Border DockPanel.Dock="Top" Padding="18,14"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
+            <StackPanel>
+                <TextBlock x:Name="HeaderText" Style="{StaticResource PageTitle}" />
+                <TextBlock x:Name="HeaderHint" Style="{StaticResource PageSubtitle}" />
+            </StackPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" Padding="18,12"
+                Background="{DynamicResource SurfaceAlt}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
+            <Grid>
+                <TextBlock x:Name="ErrorText" Foreground="{DynamicResource Danger}"
+                           VerticalAlignment="Center" TextWrapping="Wrap"
+                           MaxWidth="220" HorizontalAlignment="Left" FontSize="12" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Annuler" IsCancel="True" Margin="0,0,8,0"
+                            Style="{StaticResource SecondaryButton}" />
+                    <Button Content="Enregistrer" IsDefault="True"
+                            Style="{StaticResource PrimaryButton}" Click="Save_Click" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <StackPanel Margin="18,16">
+            <TextBlock Text="Nom" Style="{StaticResource FieldLabel}" />
+            <TextBox x:Name="NomBox" />
+
+            <TextBlock Text="Description (optionnel)" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
+            <TextBox x:Name="DescriptionBox" Height="56" TextWrapping="Wrap" AcceptsReturn="True"
+                     VerticalContentAlignment="Top" />
+
+            <TextBlock Text="Couleur" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
+            <WrapPanel x:Name="ColorPanel" Orientation="Horizontal" />
+        </StackPanel>
+
+    </DockPanel>
+</Window>

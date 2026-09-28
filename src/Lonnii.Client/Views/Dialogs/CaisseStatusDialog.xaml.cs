@@ -26,10 +26,10 @@ public partial class CaisseStatusDialog : Window
 
     /// <summary>Cash the drawer should hold - <see cref="CaisseDto.MontantInitialCash"/> (not
     /// <see cref="CaisseDto.MontantInitial"/>, which also carries the mobile-money float)
-    /// plus the session's cash sale payments, same formula as
+    /// plus the session's cash sale payments, minus what has been withdrawn, same formula as
     /// CaisseEndpoints.LiveStats.ExpectedCash. Reads <see cref="_caisse"/> live, so it stays
     /// correct across a withdrawal without needing its own refresh call.</summary>
-    private decimal ExpectedCash => _caisse.MontantInitialCash + _caisse.PaiementCash;
+    private decimal ExpectedCash => _caisse.MontantInitialCash + _caisse.PaiementCash - _caisse.TotalRetraits;
 
     /// <summary>Set once <see cref="CloseCaisse_Click"/> accepts the input.</summary>
     public CloseCaisseRequest? CloseResult { get; private set; }

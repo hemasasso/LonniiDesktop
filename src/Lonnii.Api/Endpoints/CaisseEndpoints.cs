@@ -275,15 +275,16 @@ public static class CaisseEndpoints
     private readonly record struct LiveStats(
         int TotalVentes, decimal ChiffreAffaires, decimal TotalAvoir,
         decimal PaiementCash, decimal PaiementMobile, decimal PaiementCarte, decimal PaiementAutres,
-        decimal TotalEncaisse)
+        decimal TotalEncaisse, decimal TotalRetraits)
     {
         /// <summary>Cash the drawer should hold: the float's cash portion (not
         /// <see cref="Caisse.MontantInitial"/>, which also carries the mobile-money float -
-        /// nobody miscounts a mobile balance), plus cash sale payments, plus cash
-        /// <see cref="CaisseTransaction"/> movements (old-facture payments in, avoir refunds
-        /// out) - see add_caisse_transactions_table.sql, which scopes that table to exactly
-        /// these cash movements.</summary>
-        public decimal ExpectedCash(Caisse caisse) => caisse.MontantInitialCash + PaiementCash;
+        /// nobody miscounts a mobile balance), plus cash sale payments and the facture/avoir
+        /// <see cref="CaisseTransaction"/> movements already folded into <see cref="PaiementCash"/>
+        /// (see <see cref="ComputeLiveStatsAsync"/>), minus manual retraits - kept out of
+        /// <see cref="PaiementCash"/> itself so a withdrawal for something unrelated to a sale
+        /// never makes "encaissements" read short of the sale that was actually paid in full.</summary>
+        public decimal ExpectedCash(Caisse caisse) => caisse.MontantInitialCash + PaiementCash - TotalRetraits;
     }
 
     /// <summary>
@@ -327,16 +328,21 @@ public static class CaisseEndpoints
 
         var transactions = await db.CaisseTransactions.AsNoTracking()
             .Where(t => t.CaisseId == caisse.Id).ToListAsync(ct);
-        var transactionsIn = transactions.Where(t => t.Type == "entree").Sum(t => t.Montant);
-        var transactionsOut = transactions.Where(t => t.Type == "sortie").Sum(t => t.Montant);
 
-        // Transactions are cash-drawer movements (see the LiveStats.ExpectedCash doc comment),
-        // so they fold into PaiementCash rather than a separate figure.
+        // Facture-anterieure settlements and avoir refunds are cash movements tied to a sale,
+        // so they fold into PaiementCash like any other payment. A manual retrait (RetraitAsync)
+        // is the cashier pulling cash for something unrelated to a sale - it still has to come
+        // out of the drawer (LiveStats.ExpectedCash), but counting it here made an otherwise
+        // fully-paid sale's "Total encaissé" read short of its own chiffre d'affaires.
+        var transactionsIn = transactions.Where(t => t.Type == "entree").Sum(t => t.Montant);
+        var transactionsOut = transactions.Where(t => t.Type == "sortie" && t.Category != RetraitCategory).Sum(t => t.Montant);
+        var totalRetraits = transactions.Where(t => t.Type == "sortie" && t.Category == RetraitCategory).Sum(t => t.Montant);
+
         cash += transactionsIn - transactionsOut;
 
         var totalEncaisse = cash + mobile + carte + autres;
 
-        return new LiveStats(totalVentes, chiffreAffaires, totalAvoir, cash, mobile, carte, autres, totalEncaisse);
+        return new LiveStats(totalVentes, chiffreAffaires, totalAvoir, cash, mobile, carte, autres, totalEncaisse, totalRetraits);
     }
 
     /// <param name="retraits">Already-loaded withdrawals for this session, when the caller

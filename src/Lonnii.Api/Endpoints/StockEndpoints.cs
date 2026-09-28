@@ -42,6 +42,8 @@ public static class StockEndpoints
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.ViewStockHistory);
         stock.MapGet("/movements/stats", MovementStatsAsync)
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.ViewStockHistory);
+        stock.MapGet("/movements/detail", MovementDetailsAsync)
+            .RequireGroupScope().RequirePrivilege(Priv.Gestion.ViewStockHistory);
 
         // Gated on either privilege: attaching a photo while creating a product is part
         // of adding it, and replacing one later is part of editing it. Lonnii Business
@@ -372,6 +374,36 @@ public static class StockEndpoints
             .ToListAsync(ct);
 
         return Results.Ok(new StockMovementStatsResponse(movements));
+    }
+
+    /// <summary>
+    /// The individual movements <see cref="MovementStatsAsync"/> only totals up - same filters,
+    /// newest first, each one naming its product and that product's category, for the "Détail
+    /// des Mouvements" table right below the per-type summary.
+    /// </summary>
+    private static async Task<IResult> MovementDetailsAsync(
+        DateOnly? dateDebut, DateOnly? dateFin, string? categoryId,
+        GroupScope scope, LonniiDbContext db, CancellationToken ct, int limit = 100)
+    {
+        var query = db.StockHistories.AsNoTracking()
+            .Where(h => h.GroupId == scope.GroupId);
+
+        if (dateDebut is { } start)
+            query = query.Where(h => h.CreatedAt >= start.ToDateTime(TimeOnly.MinValue));
+        if (dateFin is { } end)
+            query = query.Where(h => h.CreatedAt < end.ToDateTime(TimeOnly.MinValue).AddDays(1));
+        if (!string.IsNullOrWhiteSpace(categoryId))
+            query = query.Where(h => h.Product!.CategoryId == categoryId);
+
+        var movements = await query
+            .OrderByDescending(h => h.CreatedAt)
+            .Take(Math.Clamp(limit, 1, 500))
+            .Select(h => new StockMovementDetailDto(
+                h.Id, h.ProductId, h.Product!.Name, h.Product.Category != null ? h.Product.Category.Name : null,
+                h.MovementType, h.QuantityChanged, h.TotalCost, h.Reason, h.CreatedAt))
+            .ToListAsync(ct);
+
+        return Results.Ok(new StockMovementDetailsResponse(movements));
     }
 
     /// <summary>

@@ -245,6 +245,18 @@ public sealed record StockMovementStatDto(string MovementType, int Count, int To
 /// <summary>Response of <c>GET /api/stock/movements/stats</c>.</summary>
 public sealed record StockMovementStatsResponse(IReadOnlyList<StockMovementStatDto> Movements);
 
+/// <summary>
+/// One stock movement, newest first, for the Analyse tab's movement log - unlike
+/// <see cref="StockMovementStatDto"/>'s per-type totals, this says which product (and its
+/// category) each movement actually happened to.
+/// </summary>
+public sealed record StockMovementDetailDto(
+    string Id, string ProductId, string ProductName, string? CategoryName,
+    string MovementType, int QuantityChanged, decimal? TotalCost, string? Reason, DateTime CreatedAt);
+
+/// <summary>Response of <c>GET /api/stock/movements/detail</c>.</summary>
+public sealed record StockMovementDetailsResponse(IReadOnlyList<StockMovementDetailDto> Movements);
+
 /// <summary>A product category.</summary>
 public sealed record CategoryDto(
     string Id,
@@ -505,8 +517,10 @@ public sealed record ResolveEcartRequest(string ResolutionType, string? Notes = 
 
 /// <summary>Takes cash out of the caller's open session's drawer for something other than a
 /// sale refund - buying supplies, paying a delivery, etc. Recorded as a <c>sortie</c>
-/// <c>CaisseTransaction</c>, so it folds into <see cref="CaisseDto.PaiementCash"/> and
-/// <see cref="CaisseDto.TotalEncaisse"/> the same way an avoir refund already does.
+/// <c>CaisseTransaction</c>, but - unlike an avoir refund - kept out of
+/// <see cref="CaisseDto.PaiementCash"/> and <see cref="CaisseDto.TotalEncaisse"/>: it has
+/// nothing to do with what a customer paid, so it only reduces the cash the drawer is
+/// expected to hold, via <see cref="CaisseDto.TotalRetraits"/>.
 /// <paramref name="Motif"/> is required - it is what the till's history shows for the
 /// withdrawal, since "cash left the drawer" alone explains nothing.</summary>
 public sealed record WithdrawCaisseRequest(decimal Montant, string Motif);
@@ -817,13 +831,115 @@ public sealed record ReactivateRecurringRequest(DateTime? RecurringEndDate = nul
 
 /// <summary>Response of <c>GET /api/charges/stats</c> for one calendar year -
 /// "Analyses" tab.</summary>
+/// <param name="FixesAnnee">The year's <c>fixe</c> charges.</param>
+/// <param name="VariablesAnnee">The year's <c>variable</c> charges.</param>
+/// <param name="FixesParMois">Month (1-12) → fixe charges; the variable part is
+/// <paramref name="ParMois"/> minus this.</param>
 public sealed record ChargesStatsResponse(
     decimal Total,
     decimal MoyenneMensuelle,
     string CategoriePrincipale,
     IReadOnlyDictionary<int, decimal> ParMois,
     IReadOnlyDictionary<int, decimal> ParTrimestre,
-    IReadOnlyDictionary<string, decimal> ParCategorie);
+    IReadOnlyDictionary<string, decimal> ParCategorie,
+    decimal FixesAnnee,
+    decimal VariablesAnnee,
+    IReadOnlyDictionary<int, decimal> FixesParMois);
+
+// --- Marges ---
+
+/// <summary>Where a sale line's cost came from - see <see cref="MargeLineDto.CostSource"/>.</summary>
+public static class MargeCostSources
+{
+    /// <summary>A recorded purchase price: the one in force when the sale was made (from
+    /// the sale's stock history row) or, failing that, the product's current one.</summary>
+    public const string Reel = "reel";
+
+    /// <summary>No purchase price known - none recorded, or the product was deleted or
+    /// renamed/reused since the sale: estimated as the line's own sale total less a 30%
+    /// markup, the fallback rate Lonnii Business's gestionMarges.js applies.</summary>
+    public const string Estime = "estime";
+
+    /// <summary>Counted at zero cost - a vente-libre product (a service), same as the
+    /// source app.</summary>
+    public const string Aucun = "aucun";
+}
+
+/// <summary>One product's margin over the filtered period. <paramref name="Margin"/> is the
+/// margin rate on revenue (taux de marque), in percent.</summary>
+public sealed record MargeLineDto(
+    string? ProductId,
+    string Nom,
+    string? CategoryId,
+    string Categorie,
+    int QuantiteVendue,
+    decimal Revenue,
+    decimal Cost,
+    decimal Profit,
+    decimal Margin,
+    string CostSource);
+
+public sealed record MargeCategoryDto(
+    string? CategoryId,
+    string Categorie,
+    int QuantiteVendue,
+    decimal Revenue,
+    decimal Cost,
+    decimal Profit,
+    decimal Margin);
+
+/// <summary>One calendar month (client-local) of the trailing-twelve-months chart.
+/// <paramref name="Charges"/> is every charge; <paramref name="ChargesFixes"/> the fixe part of it.</summary>
+public sealed record MargeMonthDto(DateOnly Mois, decimal Revenue, decimal Cost, decimal Charges, decimal ChargesFixes);
+
+public sealed record MargeCategoryOptionDto(string Id, string Nom);
+
+/// <summary>
+/// Response of <c>GET /api/marges</c> - Lonnii Business's gestionMarges.js figures
+/// (revenue, cost of sales, gross and net profit and their rates, per-product, per-category
+/// and monthly breakdowns), plus the ratios derived from them and a comparison with the
+/// preceding period of the same length.
+/// </summary>
+/// <param name="TotalCharges">Every charge in the period - never narrowed by a category
+/// filter, since a charge has no product category. Same as the source app.</param>
+/// <param name="ChargesFixes">The <c>fixe</c> charges - rent, salaries: owed whatever is sold.</param>
+/// <param name="ChargesVariables">The <c>variable</c> charges - they move with activity, so
+/// the break-even analysis counts them with the cost of sales.</param>
+/// <param name="MargeCoutsVariables">MCV = revenue − cost of sales − variable charges.</param>
+/// <param name="TauxMcv">MCV as a percentage of revenue.</param>
+/// <param name="SeuilRentabilite">Charges fixes ÷ taux de MCV: the revenue at which the MCV
+/// exactly pays the fixed charges. Null when the rate is not positive, since no amount of
+/// revenue would then break even.</param>
+/// <param name="PointMortDate">The day that revenue was reached, assuming sales spread
+/// evenly over the period; null when it was not reached within it, or the period is unbounded.</param>
+/// <param name="PreviousRevenue">Revenue of the preceding period of the same length; null
+/// when the filter has no bounded date range to compare against.</param>
+/// <param name="EstimatedLines">Sale lines whose cost is <see cref="MargeCostSources.Estime"/>.</param>
+/// <param name="EstimatedRevenue">Revenue carried by those lines.</param>
+/// <param name="CategoryOptions">Every product category in the group, for the filter.</param>
+public sealed record MargesResponse(
+    decimal TotalRevenue,
+    decimal TotalCosts,
+    decimal TotalCharges,
+    decimal ChargesFixes,
+    decimal ChargesVariables,
+    decimal GrossProfit,
+    decimal NetProfit,
+    decimal GrossMargin,
+    decimal NetMargin,
+    int NombreVentes,
+    decimal MargeCoutsVariables,
+    decimal TauxMcv,
+    decimal? SeuilRentabilite,
+    DateOnly? PointMortDate,
+    decimal? PreviousRevenue,
+    decimal? PreviousGrossProfit,
+    int EstimatedLines,
+    decimal EstimatedRevenue,
+    IReadOnlyList<MargeLineDto> Products,
+    IReadOnlyList<MargeCategoryDto> Categories,
+    IReadOnlyList<MargeMonthDto> Monthly,
+    IReadOnlyList<MargeCategoryOptionDto> CategoryOptions);
 
 // --- Errors ---
 

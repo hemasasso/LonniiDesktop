@@ -339,6 +339,7 @@ public partial class MainWindow : Window
         "gestion-de-stock" => new StockView(_session),
         "ventes" => new VentesView(_session),
         "charges" => new ChargesView(_session),
+        "marges" => new MargesView(_session),
         "options" => new MembersView(_session),
         "parametres" => new ParametresView(_session),
         _ => PlaceholderView.For(label, key),

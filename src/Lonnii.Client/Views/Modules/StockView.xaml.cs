@@ -91,6 +91,19 @@ public partial class StockView : UserControl
         public string CostDisplay => Money.Format(Stat.TotalCost);
     }
 
+    /// <summary>One row of the "Détail des Mouvements" table - the per-type summary above says
+    /// how many and how much; this says which product and category each one actually was.</summary>
+    private sealed record MovementDetailRow(StockMovementDetailDto Movement)
+    {
+        public string DateDisplay => Movement.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm");
+        public string ProductName => Movement.ProductName;
+        public string CategoryName => Movement.CategoryName ?? "Sans catégorie";
+        public string Label => MovementTypeLabels.GetValueOrDefault(Movement.MovementType, Movement.MovementType);
+        public string QuantityDisplay => (Movement.QuantityChanged > 0 ? "+" : string.Empty) + Money.FormatPlain(Movement.QuantityChanged);
+        public string CostDisplay => Movement.TotalCost is { } cost ? Money.Format(cost) : "—";
+        public string ReasonDisplay => string.IsNullOrWhiteSpace(Movement.Reason) ? "—" : Movement.Reason;
+    }
+
     /// <summary>
     /// The whole catalogue, unfiltered by the Stock tab - Analyse looks at everything by
     /// default, through its own filter below the charts, not whatever the Stock list
@@ -134,6 +147,13 @@ public partial class StockView : UserControl
         public bool HasNoThumbnail => Thumbnail is null;
     }
 
+    /// <summary>Same pairing for the list view's DataGrid - binding the photo column straight
+    /// to <see cref="Thumbnail"/> avoids a converter that would need the instance-level
+    /// <see cref="_thumbnailCache"/> handed to it (a runtime-registered resource, rather than
+    /// one declared in XAML, that a DataGridTemplateColumn's deferred CellTemplate turned out
+    /// not to resolve reliably once the grid actually generated rows).</summary>
+    private sealed record ListRow(ProductDto Product, BitmapImage? Thumbnail);
+
     public StockView(AppSession session)
     {
         _session = session;
@@ -144,6 +164,7 @@ public partial class StockView : UserControl
 
         MovementFilterPanel.Visibility = _canViewStockHistory ? Visibility.Visible : Visibility.Collapsed;
         MovementStatsPanel.Visibility = _canViewStockHistory ? Visibility.Visible : Visibility.Collapsed;
+        MovementDetailPanel.Visibility = _canViewStockHistory ? Visibility.Visible : Visibility.Collapsed;
         ProductMargeColumn.Visibility = _canViewMarges ? Visibility.Visible : Visibility.Collapsed;
         AnalyseTabButton.Visibility = _canViewStockAnalytics ? Visibility.Visible : Visibility.Collapsed;
 
@@ -162,6 +183,11 @@ public partial class StockView : UserControl
             if (_canViewStockAnalytics && UiState.For(_session).Tabs.GetValueOrDefault(ModuleKey) == "analyse")
                 SetActiveTab(analyse: true);
             await LoadAsync();
+
+            // The server already matches a scanned barcode against Name/SKU/Barcode (see
+            // StockEndpoints.ListProductsAsync) - starting focused here means a barcode
+            // scanner's keystrokes land in the search box without a click first.
+            if (!_analyseTab) SearchBox.Focus();
         };
 
         // LiveCharts paints are plain SkiaSharp colours snapshotted at render time, not
@@ -246,7 +272,11 @@ public partial class StockView : UserControl
         _page = Math.Clamp(_page, 0, totalPages - 1);
 
         _pageItems = _products.Skip(_page * PageSize).Take(PageSize).ToList();
-        ProductGrid.ItemsSource = _pageItems;
+
+        await PreloadThumbnailsAsync(_pageItems);
+        ProductGrid.ItemsSource = _pageItems
+            .Select(p => new ListRow(p, p.ImageUrl is { } url ? _thumbnailCache.GetValueOrDefault(url) : null))
+            .ToList();
         if (_iconView) await LoadIconViewAsync();
 
         PageText.Text = $"Page {_page + 1} / {totalPages}";
@@ -302,7 +332,7 @@ public partial class StockView : UserControl
         }
     }
 
-    private ProductDto? Selected => ProductGrid.SelectedItem as ProductDto;
+    private ProductDto? Selected => (ProductGrid.SelectedItem as ListRow)?.Product;
 
     private void Grid_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -572,14 +602,19 @@ public partial class StockView : UserControl
         var requestId = ++_movementRequestId;
         try
         {
-            var response = await _session.Api.GetStockMovementStatsAsync(
-                _movementDateDebut, _movementDateFin, _analyseCategoryId);
+            var statsTask = _session.Api.GetStockMovementStatsAsync(_movementDateDebut, _movementDateFin, _analyseCategoryId);
+            var detailTask = _session.Api.GetStockMovementDetailsAsync(_movementDateDebut, _movementDateFin, _analyseCategoryId);
+            await Task.WhenAll(statsTask, detailTask);
             if (requestId != _movementRequestId) return;
 
-            var rows = response.Movements.OrderByDescending(m => m.TotalCost)
+            var rows = statsTask.Result.Movements.OrderByDescending(m => m.TotalCost)
                 .Select(m => new MovementRow(m)).ToList();
             MovementStatsGrid.ItemsSource = rows;
             MovementStatsEmptyText.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+            var detailRows = detailTask.Result.Movements.Select(m => new MovementDetailRow(m)).ToList();
+            MovementDetailGrid.ItemsSource = detailRows;
+            MovementDetailEmptyText.Visibility = detailRows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
         catch (ApiException ex)
         {
@@ -772,6 +807,7 @@ public partial class StockView : UserControl
                 // all-NaN placeholders (e.g. Analyse filtered down to zero products) can hand
                 // this a non-finite tick value.
                 Labeler = v => double.IsFinite(v) ? Money.FormatPlain((decimal)v) : string.Empty,
+                MinStep = ChartAxis.NiceStep(topByValue.Count == 0 ? 0 : (double)topByValue.Max(p => p.Value)),
             },
         ];
     }
@@ -861,38 +897,34 @@ public partial class StockView : UserControl
     };
 
     /// <summary>
-    /// Downloads the thumbnail for every product on the current page, reusing whatever is
-    /// already cached. Paging keeps this bounded to at most <see cref="PageSize"/> downloads
-    /// at a time, even on a large catalogue.
+    /// Downloads the thumbnail for every product in <paramref name="products"/> into
+    /// <see cref="_thumbnailCache"/>, reusing whatever is already there. Paging keeps callers
+    /// bounded to at most <see cref="PageSize"/> downloads at a time, even on a large catalogue.
     /// </summary>
+    private async Task PreloadThumbnailsAsync(IEnumerable<ProductDto> products)
+    {
+        foreach (var product in products)
+        {
+            if (product.ImageUrl is not { } url || _thumbnailCache.ContainsKey(url)) continue;
+
+            try
+            {
+                var bytes = await _session.Api.GetImageBytesAsync(url);
+                _thumbnailCache[url] = ImageHelper.FromBytes(bytes);
+            }
+            catch (ApiException)
+            {
+                // Missing thumbnail is not worth failing the whole view over.
+            }
+        }
+    }
+
     private async Task LoadIconViewAsync()
     {
-        var rows = new List<IconRow>(_pageItems.Count);
-
-        foreach (var product in _pageItems)
-        {
-            BitmapImage? thumbnail = null;
-            if (product.ImageUrl is { } url)
-            {
-                if (!_thumbnailCache.TryGetValue(url, out thumbnail))
-                {
-                    try
-                    {
-                        var bytes = await _session.Api.GetImageBytesAsync(url);
-                        thumbnail = ImageHelper.FromBytes(bytes);
-                        _thumbnailCache[url] = thumbnail;
-                    }
-                    catch (ApiException)
-                    {
-                        // Missing thumbnail is not worth failing the whole view over.
-                    }
-                }
-            }
-
-            rows.Add(new IconRow(product, thumbnail));
-        }
-
-        IconGrid.ItemsSource = rows;
+        await PreloadThumbnailsAsync(_pageItems);
+        IconGrid.ItemsSource = _pageItems
+            .Select(p => new IconRow(p, p.ImageUrl is { } url ? _thumbnailCache.GetValueOrDefault(url) : null))
+            .ToList();
     }
 
     /// <summary>Keeps the hidden <see cref="ProductGrid"/>'s selection in step with the icon

@@ -119,6 +119,11 @@ public partial class VentesView : UserControl
     /// rather than unconditionally at startup.</summary>
     private bool _catalogueLoaded;
 
+    /// <summary>Nouvelle Vente's catalogue pager - 1-based. Reset to the first page by every
+    /// <see cref="LoadAsync"/>, since each of its callers is a new search or category.</summary>
+    private int _catalogPage = 1;
+    private int _catalogPageSize = 24;
+
     /// <summary>Thumbnails already downloaded, keyed by image URL, shared by the catalogue
     /// cards and the cart rows so a product added to the cart never re-downloads its photo.</summary>
     private readonly Dictionary<string, BitmapImage> _thumbnailCache = [];
@@ -394,6 +399,7 @@ public partial class VentesView : UserControl
             }
 
             _products = await _session.Api.GetProductsAsync(search: SearchBox.Text, categoryId: _selectedCategoryId);
+            _catalogPage = 1;
             await LoadCatalogueAsync();
             if (!_catalogueLoaded) RestoreCart();
 
@@ -411,13 +417,23 @@ public partial class VentesView : UserControl
         }
     }
 
-    /// <summary>Downloads each visible product's thumbnail, reusing whatever is already
-    /// cached, and binds the catalogue grid.</summary>
+    /// <summary>Downloads the thumbnail of each product on the current catalogue page,
+    /// reusing whatever is already cached, and binds the catalogue grid to that page.</summary>
     private async Task LoadCatalogueAsync()
     {
-        var rows = new List<CatalogRow>(_products.Count);
+        var pageCount = Math.Max(1, (int)Math.Ceiling(_products.Count / (double)_catalogPageSize));
+        _catalogPage = Math.Clamp(_catalogPage, 1, pageCount);
+        var page = _products.Skip((_catalogPage - 1) * _catalogPageSize).Take(_catalogPageSize).ToList();
 
-        foreach (var product in _products)
+        var first = _products.Count == 0 ? 0 : (_catalogPage - 1) * _catalogPageSize + 1;
+        CatalogCountText.Text = $"{first}–{first + page.Count - (page.Count > 0 ? 1 : 0)} sur {_products.Count} produit(s)";
+        CatalogPageText.Text = $"Page {_catalogPage} / {pageCount}";
+        CatalogPrevButton.IsEnabled = _catalogPage > 1;
+        CatalogNextButton.IsEnabled = _catalogPage < pageCount;
+
+        var rows = new List<CatalogRow>(page.Count);
+
+        foreach (var product in page)
         {
             BitmapImage? thumbnail = null;
             if (product.ImageUrl is { } url)
@@ -441,6 +457,30 @@ public partial class VentesView : UserControl
         }
 
         ProductGrid.ItemsSource = rows;
+        ProductScroll.ScrollToTop();
+    }
+
+    private async void CatalogPrev_Click(object sender, RoutedEventArgs e)
+    {
+        _catalogPage--;
+        await LoadCatalogueAsync();
+    }
+
+    private async void CatalogNext_Click(object sender, RoutedEventArgs e)
+    {
+        _catalogPage++;
+        await LoadCatalogueAsync();
+    }
+
+    private async void CatalogPageSize_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (((ComboBox)sender).SelectedItem is not ComboBoxItem { Content: string text } || !int.TryParse(text, out var size)) return;
+
+        // Keeps the first product currently shown on screen, rather than jumping back to page 1.
+        var firstIndex = (_catalogPage - 1) * _catalogPageSize;
+        _catalogPageSize = size;
+        _catalogPage = firstIndex / size + 1;
+        if (IsLoaded && _catalogueLoaded) await LoadCatalogueAsync();
     }
 
     private void BuildCategoryPills()
@@ -503,7 +543,22 @@ public partial class VentesView : UserControl
     {
         if (e.Key != Key.Enter) return;
         _searchDebounce.Stop();
+
+        // A barcode scanner types the code then sends Enter on its own - if it matches exactly
+        // one product, ring it up straight away instead of making the cashier find and click
+        // its tile, then clear the box so the next scan starts from an empty search again.
+        var scanned = SearchBox.Text.Trim();
         await LoadAsync();
+
+        var matches = scanned.Length == 0 ? [] : _products.Where(p => p.Barcode == scanned || p.Sku == scanned).ToList();
+        if (matches is [var product])
+        {
+            AddToCart(product);
+            SearchBox.Text = string.Empty;
+            await LoadAsync();
+        }
+
+        SearchBox.Focus();
     }
 
     // --- Tabs ---
@@ -539,6 +594,9 @@ public partial class VentesView : UserControl
         {
             if (!_catalogueLoaded) await LoadAsync();
             if (_canAddPayment) await RefreshCaisseStatusAsync();
+            // Ready for a barcode scanner to type straight into it without the cashier having
+            // to click the box first.
+            SearchBox.Focus();
         }
         if (tab == "liste") await LoadVentesAsync();
         if (tab == "statistiques") await OpenStatistiquesAsync();
@@ -670,6 +728,11 @@ public partial class VentesView : UserControl
     /// being silently folded into it.</summary>
     private void UpdateTotals()
     {
+        // "PANIER (3)": distinct products; the tooltip adds the unit count, which is what
+        // differs from it once a line holds more than one.
+        CartTitleText.Text = $"PANIER ({_cart.Count})";
+        CartTitleText.ToolTip = $"{_cart.Count} produit(s), {_cart.Sum(c => c.Quantity)} article(s)";
+
         var rawSubtotal = _cart.Sum(c => c.UnitPrice * c.Quantity);
         var afterItemDiscounts = _cart.Sum(c => c.LineTotal);
         var itemDiscountTotal = rawSubtotal - afterItemDiscounts;
@@ -1898,6 +1961,7 @@ public partial class VentesView : UserControl
             {
                 LabelsPaint = axisPaint, SeparatorsPaint = separatorPaint,
                 Labeler = v => Money.FormatPlain((decimal)v),
+                MinStep = ChartAxis.NiceStep(stats.Serie.Count == 0 ? 0 : (double)stats.Serie.Max(p => p.MontantTotal)),
             },
         ];
 
@@ -1946,6 +2010,7 @@ public partial class VentesView : UserControl
             {
                 LabelsPaint = axisPaint, SeparatorsPaint = separatorPaint,
                 Labeler = v => double.IsFinite(v) ? Money.FormatPlain((decimal)v) : string.Empty,
+                MinStep = ChartAxis.NiceStep(topProducts.Count == 0 ? 0 : (double)topProducts.Max(p => p.MontantTotal)),
             },
         ];
     }

@@ -54,6 +54,12 @@ public partial class ChargesView : UserControl
         new(0x8B, 0x5C, 0xF6), new(0xEC, 0x48, 0x99), new(0x06, 0xB6, 0xD4), new(0x84, 0xCC, 0x16),
     ];
 
+    /// <summary>Fixe and variable charges' colours in every Analyse chart.</summary>
+    private static readonly SKColor FixeColor = new(0x25, 0x63, 0xEB);
+    private static readonly SKColor VariableColor = new(0xF5, 0x9E, 0x0B);
+
+    private ChargesStatsResponse? _stats;
+
     private sealed record ChargeRow(ChargeDto Charge, Brush CategoryBrush, Visibility CanEdit, Visibility CanDelete)
     {
         public string Description => Charge.Description;
@@ -100,6 +106,13 @@ public partial class ChargesView : UserControl
 
         BuildYearCombo();
         ApplyTabVisuals();
+
+        // LiveCharts paints are SkiaSharp colours snapshotted at render time, not
+        // DynamicResource-aware - same as Ventes' Statistiques - so a theme toggle re-renders.
+        ThemeManager.Changed += (_, _) =>
+        {
+            if (_stats is not null) RenderAnalytics(_stats);
+        };
 
         Loaded += async (_, _) =>
         {
@@ -197,6 +210,7 @@ public partial class ChargesView : UserControl
                 var remove = new Button
                 {
                     Style = (Style)FindResource("IconButton"), Content = "✕", Width = 22, Height = 22, FontSize = 10,
+                    Foreground = (Brush)FindResource("TextPrimary"),
                     ToolTip = "Supprimer la catégorie",
                 };
                 remove.Click += async (_, _) => await DeleteCategoryAsync(category);
@@ -599,6 +613,7 @@ public partial class ChargesView : UserControl
 
     private void RenderAnalytics(ChargesStatsResponse stats)
     {
+        _stats = stats;
         var axisPaint = new SolidColorPaint(CurrentTextColor());
         var separatorPaint = new SolidColorPaint(CurrentBorderColor()) { StrokeThickness = 1 };
 
@@ -606,6 +621,29 @@ public partial class ChargesView : UserControl
         StatsTilesPanel.Children.Add(StatTile("Total des Charges", Money.Format(stats.Total), "Danger"));
         StatsTilesPanel.Children.Add(StatTile("Moyenne Mensuelle", Money.Format(stats.MoyenneMensuelle), "Warning"));
         StatsTilesPanel.Children.Add(StatTile("Catégorie Principale", stats.CategoriePrincipale, "TextPrimary"));
+
+        // Fixe versus variable, for the selected year: what the shop owes whatever it sells,
+        // against what moves with its activity - the split the Marges break-even rests on.
+        var yearTotal = stats.FixesAnnee + stats.VariablesAnnee;
+        string ShareOfYear(decimal part) => yearTotal > 0 ? $" ({Money.FormatPlain(part / yearTotal * 100, 2)} %)" : string.Empty;
+        StatsTilesPanel.Children.Add(StatTile($"Charges Fixes {YearCombo.SelectedItem}{ShareOfYear(stats.FixesAnnee)}",
+            Money.Format(stats.FixesAnnee), "Accent"));
+        StatsTilesPanel.Children.Add(StatTile($"Charges Variables {YearCombo.SelectedItem}{ShareOfYear(stats.VariablesAnnee)}",
+            Money.Format(stats.VariablesAnnee), "Warning"));
+        var monthsWithFixes = stats.FixesParMois.Count(kv => kv.Value > 0);
+        StatsTilesPanel.Children.Add(StatTile("Charges Fixes Mensuelles Moyennes",
+            Money.Format(monthsWithFixes > 0 ? stats.FixesAnnee / monthsWithFixes : 0), "TextPrimary"));
+
+        // Charges Fixes et Variables
+        var typeSlices = new[] { (Label: "Fixes", Value: stats.FixesAnnee, Color: FixeColor), (Label: "Variables", Value: stats.VariablesAnnee, Color: VariableColor) }
+            .Where(t => t.Value > 0).ToList();
+        TypeEmptyText.Visibility = typeSlices.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        TypePieChart.Series = typeSlices.Select(t => (ISeries)new PieSeries<double>
+        {
+            Values = [(double)t.Value], Name = t.Label, Fill = new SolidColorPaint(t.Color), InnerRadius = 45,
+            ToolTipLabelFormatter = point => Money.Format((decimal)point.Coordinate.PrimaryValue),
+        }).ToArray();
+        RenderPieLegend(TypeLegendPanel, typeSlices);
 
         // Charges par Catégorie - each slice uses that category's own stored colour rather
         // than a position-based palette, so it always reads the same colour here as on the
@@ -644,16 +682,38 @@ public partial class ChargesView : UserControl
             .Select(m => (Label: new DateTime(2000, m, 1).ToString("MMM"), Value: stats.ParMois.GetValueOrDefault(m)))
             .ToList();
         MonthEmptyText.Visibility = months.All(m => m.Value == 0) ? Visibility.Visible : Visibility.Collapsed;
+        // Stacked fixe + variable: the bar's full height is still the month's total.
+        var fixesByMonth = Enumerable.Range(1, 12).Select(m => stats.FixesParMois.GetValueOrDefault(m)).ToList();
         MonthChart.Series =
         [
-            new ColumnSeries<double>
+            new StackedColumnSeries<double>
             {
-                Values = months.Select(m => (double)m.Value).ToArray(),
-                Fill = new SolidColorPaint(FallbackPalette[3]),
-                Name = "Charges",
+                Values = fixesByMonth.Select(v => (double)v).ToArray(),
+                Fill = new SolidColorPaint(FixeColor),
+                Name = "Fixes",
+                YToolTipLabelFormatter = point => Money.Format((decimal)point.Coordinate.PrimaryValue),
+            },
+            new StackedColumnSeries<double>
+            {
+                Values = months.Select((m, i) => (double)(m.Value - fixesByMonth[i])).ToArray(),
+                Fill = new SolidColorPaint(VariableColor),
+                Name = "Variables",
                 YToolTipLabelFormatter = point => Money.Format((decimal)point.Coordinate.PrimaryValue),
             },
         ];
+        MonthLegendPanel.Children.Clear();
+        foreach (var (label, color) in new[] { ("Fixes", FixeColor), ("Variables", VariableColor) })
+        {
+            var item = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(12, 0, 0, 0) };
+            item.Children.Add(new Border
+            {
+                Width = 10, Height = 10, CornerRadius = new CornerRadius(2), Margin = new Thickness(0, 0, 5, 0),
+                Background = new SolidColorBrush(Color.FromRgb(color.Red, color.Green, color.Blue)),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            item.Children.Add(new TextBlock { Text = label, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+            MonthLegendPanel.Children.Add(item);
+        }
         MonthChart.XAxes = [new Axis { Labels = months.Select(m => m.Label).ToArray(), LabelsPaint = axisPaint, SeparatorsPaint = separatorPaint, TextSize = 10 }];
         MonthChart.YAxes = [new Axis { LabelsPaint = axisPaint, SeparatorsPaint = separatorPaint, Labeler = v => Money.FormatPlain((decimal)v) }];
     }

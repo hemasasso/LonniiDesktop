@@ -14,6 +14,7 @@
             <local:RoleLabelConverter x:Key="RoleLabel" />
             <local:InitialConverter x:Key="Initial" />
             <local:CurrencyConverter x:Key="Currency" />
+            <local:CostPriceMissingConverter x:Key="CostPriceMissing" />
             <BooleanToVisibilityConverter x:Key="BoolToVis" />
         </ResourceDictionary>
     </Application.Resources>

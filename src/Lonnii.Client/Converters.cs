@@ -73,6 +73,28 @@ public static class Money
 }
 
 /// <summary>
+/// Rounds a LiveCharts axis step up to a "nice" 1/2/5 × 10^n number, so a value axis gets
+/// roughly <see cref="NiceStep"/>'s <c>targetTicks</c> separators instead of the
+/// one-tick-per-raw-unit spacing LiveCharts falls back to for currency-sized ranges - a
+/// "Chiffre d'Affaires" or "Produits Immobilisant le Plus de Valeur" axis spanning 270 000
+/// was defaulting to a tick roughly every 10 000, cramming every label together.
+/// </summary>
+public static class ChartAxis
+{
+    public static double NiceStep(double max, int targetTicks = 6)
+    {
+        if (!double.IsFinite(max) || max <= 0) return 1;
+
+        var rawStep = max / targetTicks;
+        var magnitude = Math.Pow(10, Math.Floor(Math.Log10(rawStep)));
+        var normalized = rawStep / magnitude;
+        var niceNormalized = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+
+        return niceNormalized * magnitude;
+    }
+}
+
+/// <summary>
 /// Shortens a vendor/cashier name for a compact column - "Sassama Hema" becomes "S. Hema" -
 /// so a list of many sales stays easy to scan. The full name is never lost: every place this
 /// is used keeps it as the element's ToolTip, and "Détails" (<c>VenteDetailDialog</c>) shows
@@ -138,6 +160,22 @@ public class InitialConverter : IValueConverter
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
         throw new NotSupportedException("Initials are display-only.");
+}
+
+/// <summary>
+/// True when a product's purchase price is missing (null or zero) - the one figure a shop
+/// forgetting to fill in silently turns every margin report into an estimate (see
+/// <c>MargesView.EstimateNotice</c>). Bound from a product list row's <c>CostPrice</c> so the
+/// gap can be flagged right where it is fixed, in Gestion de Stock, rather than only after the
+/// fact in Analyse des Marges.
+/// </summary>
+public class CostPriceMissingConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) =>
+        value is not decimal cost || cost <= 0;
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException("Display-only.");
 }
 
 /// <summary>

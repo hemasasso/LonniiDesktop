@@ -201,20 +201,36 @@
             <DataGrid x:Name="ProductGrid" MouseDoubleClick="Grid_DoubleClick"
                       SelectionChanged="Grid_SelectionChanged"
                       PreviewMouseRightButtonDown="ProductGrid_PreviewMouseRightButtonDown">
+                <!-- Bound to a list of ListRow (Product, Thumbnail), the same pairing the icon
+                     view's IconRow already uses - a photo column can then bind Image.Source
+                     straight to Thumbnail, with no converter needing the instance-level
+                     thumbnail cache handed to it as a runtime-registered resource. -->
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="Produit" Binding="{Binding Name}" Width="2*" />
-                    <DataGridTextColumn Header="SKU" Binding="{Binding Sku}" Width="110" />
-                    <DataGridTextColumn Header="Catégorie" Binding="{Binding CategoryName}" Width="130" />
-
-                    <DataGridTemplateColumn Header="Quantité" Width="90" SortMemberPath="Quantity">
+                    <DataGridTemplateColumn Header="Photo" Width="46" CanUserSort="False" CanUserResize="False">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <TextBlock Text="{Binding QuantityDisplay}">
+                                <Border Width="32" Height="32" Margin="0,2" CornerRadius="4"
+                                        Background="White" BorderBrush="{DynamicResource Border}" BorderThickness="1"
+                                        ClipToBounds="True">
+                                    <Image Source="{Binding Thumbnail}" Stretch="Uniform" />
+                                </Border>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <DataGridTextColumn Header="Produit" Binding="{Binding Product.Name}" Width="2*" />
+                    <DataGridTextColumn Header="SKU" Binding="{Binding Product.Sku}" Width="110" />
+                    <DataGridTextColumn Header="Catégorie" Binding="{Binding Product.CategoryName}" Width="130" />
+
+                    <DataGridTemplateColumn Header="Quantité" Width="90" SortMemberPath="Product.Quantity">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Product.QuantityDisplay}">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}">
                                             <Style.Triggers>
                                                 <!-- Low stock is the one thing a shopkeeper scans for. -->
-                                                <DataTrigger Binding="{Binding IsLowStock}" Value="True">
+                                                <DataTrigger Binding="{Binding Product.IsLowStock}" Value="True">
                                                     <Setter Property="Foreground" Value="{DynamicResource Danger}" />
                                                     <Setter Property="FontWeight" Value="Bold" />
                                                 </DataTrigger>
@@ -226,21 +242,39 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
-                    <DataGridTextColumn Header="Seuil" Binding="{Binding MinimumThreshold}" Width="70">
+                    <DataGridTextColumn Header="Seuil" Binding="{Binding Product.MinimumThreshold}" Width="70">
                         <DataGridTextColumn.ElementStyle>
                             <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}" />
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
 
-                    <DataGridTextColumn Header="Prix d'achat" Width="130"
-                                        Binding="{Binding CostPrice, Converter={StaticResource Currency}}">
-                        <DataGridTextColumn.ElementStyle>
-                            <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}" />
-                        </DataGridTextColumn.ElementStyle>
-                    </DataGridTextColumn>
+                    <DataGridTemplateColumn Header="Prix d'achat" Width="140" SortMemberPath="Product.CostPrice">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <!-- Flagged right here rather than only after the fact in
+                                     Analyse des Marges (EstimateNotice): a missing purchase
+                                     price is what turns every sale of this product into a
+                                     margin estimate. -->
+                                <TextBlock Text="{Binding Product.CostPrice, Converter={StaticResource Currency}}"
+                                           ToolTip="Renseignez le prix d'achat pour une marge exacte sur ce produit.">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Product.CostPrice, Converter={StaticResource CostPriceMissing}}" Value="True">
+                                                    <Setter Property="Text" Value="⚠ Non renseigné" />
+                                                    <Setter Property="Foreground" Value="{DynamicResource Warning}" />
+                                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
 
                     <DataGridTextColumn Header="Prix de vente" Width="130"
-                                        Binding="{Binding Price, Converter={StaticResource Currency}}">
+                                        Binding="{Binding Product.Price, Converter={StaticResource Currency}}">
                         <DataGridTextColumn.ElementStyle>
                             <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}">
                                 <Setter Property="FontWeight" Value="SemiBold" />
@@ -248,7 +282,7 @@
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
 
-                    <DataGridTextColumn Header="Emplacement" Binding="{Binding StorageLocation}" Width="130" />
+                    <DataGridTextColumn Header="Emplacement" Binding="{Binding Product.StorageLocation}" Width="130" />
                 </DataGrid.Columns>
             </DataGrid>
 
@@ -507,6 +541,39 @@
                                     </DataGrid.Columns>
                                 </DataGrid>
                                 <TextBlock x:Name="MovementStatsEmptyText" Text="Aucun mouvement sur cette période."
+                                           Visibility="Collapsed" HorizontalAlignment="Center"
+                                           Margin="0,20,0,20" Style="{StaticResource PageSubtitle}" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Détail des Mouvements: which product (and category) each movement
+                             above actually happened to, newest first - the per-type summary
+                             cannot say that on its own. -->
+                        <Border x:Name="MovementDetailPanel" Padding="14" CornerRadius="8" BorderThickness="1" Margin="0,0,0,10"
+                                Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Border}">
+                            <StackPanel>
+                                <TextBlock Text="Détail des Mouvements" FontWeight="SemiBold" Margin="0,0,0,8" />
+                                <DataGrid x:Name="MovementDetailGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                                          MaxHeight="320" PreviewMouseWheel="AnalyseGrid_PreviewMouseWheel">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Date" Binding="{Binding DateDisplay}" Width="130" />
+                                        <DataGridTextColumn Header="Produit" Binding="{Binding ProductName}" Width="2*" />
+                                        <DataGridTextColumn Header="Catégorie" Binding="{Binding CategoryName}" Width="*" />
+                                        <DataGridTextColumn Header="Mouvement" Binding="{Binding Label}" Width="130" />
+                                        <DataGridTextColumn Header="Quantité" Binding="{Binding QuantityDisplay}" Width="90">
+                                            <DataGridTextColumn.ElementStyle>
+                                                <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}" />
+                                            </DataGridTextColumn.ElementStyle>
+                                        </DataGridTextColumn>
+                                        <DataGridTextColumn Header="Coût" Binding="{Binding CostDisplay}" Width="110">
+                                            <DataGridTextColumn.ElementStyle>
+                                                <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}" />
+                                            </DataGridTextColumn.ElementStyle>
+                                        </DataGridTextColumn>
+                                        <DataGridTextColumn Header="Motif" Binding="{Binding ReasonDisplay}" Width="*" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                                <TextBlock x:Name="MovementDetailEmptyText" Text="Aucun mouvement sur cette période."
                                            Visibility="Collapsed" HorizontalAlignment="Center"
                                            Margin="0,20,0,20" Style="{StaticResource PageSubtitle}" />
                             </StackPanel>

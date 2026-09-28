@@ -331,8 +331,9 @@ public static class ChargesEndpoints
         return Results.Ok(ToDto(charge, names));
     }
 
-    /// <summary>"Analyses": totals, monthly average, the year's heaviest category, and three
-    /// breakdowns (by month, by quarter, by category) for one calendar year.</summary>
+    /// <summary>"Analyses": totals, monthly average, the year's heaviest category, and
+    /// breakdowns (by month, by quarter, by category, fixe versus variable) for one calendar
+    /// year.</summary>
     private static async Task<IResult> GetStatsAsync(
         int? annee, GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
@@ -340,7 +341,7 @@ public static class ChargesEndpoints
 
         var all = await db.Charges.AsNoTracking()
             .Where(c => c.GroupId == scope.GroupId)
-            .Select(c => new { c.Montant, c.Date, c.Categorie })
+            .Select(c => new { c.Montant, c.Date, c.Categorie, c.TypeCharge })
             .ToListAsync(ct);
 
         var total = all.Sum(c => c.Montant);
@@ -366,8 +367,13 @@ public static class ChargesEndpoints
             .OrderByDescending(g => g.Sum(c => c.Montant))
             .ToDictionary(g => g.Key, g => g.Sum(c => c.Montant));
 
+        var fixes = ofYear.Where(c => c.TypeCharge == ChargeTypes.Fixe).ToList();
+        var fixesParMois = fixes.GroupBy(c => c.Date.Month)
+            .ToDictionary(g => g.Key, g => g.Sum(c => c.Montant));
+
         return Results.Ok(new ChargesStatsResponse(
-            total, moyenne, categoriePrincipale, parMois, parTrimestre, parCategorie));
+            total, moyenne, categoriePrincipale, parMois, parTrimestre, parCategorie,
+            fixes.Sum(c => c.Montant), ofYear.Sum(c => c.Montant) - fixes.Sum(c => c.Montant), fixesParMois));
     }
 
     // --- Recurrence ---

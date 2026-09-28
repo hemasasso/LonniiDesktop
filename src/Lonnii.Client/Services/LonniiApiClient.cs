@@ -259,6 +259,20 @@ public class LonniiApiClient
         return GetAsync<StockMovementStatsResponse>(url, ct);
     }
 
+    /// <summary>The individual movements behind <see cref="GetStockMovementStatsAsync"/>'s
+    /// totals, newest first, each naming its product and category.</summary>
+    public Task<StockMovementDetailsResponse> GetStockMovementDetailsAsync(
+        DateOnly? dateDebut = null, DateOnly? dateFin = null, string? categoryId = null, CancellationToken ct = default)
+    {
+        var query = new List<string>();
+        if (dateDebut is { } debut) query.Add($"dateDebut={debut:yyyy-MM-dd}");
+        if (dateFin is { } fin) query.Add($"dateFin={fin:yyyy-MM-dd}");
+        if (!string.IsNullOrWhiteSpace(categoryId)) query.Add($"categoryId={Uri.EscapeDataString(categoryId)}");
+
+        var url = "api/stock/movements/detail" + (query.Count > 0 ? "?" + string.Join("&", query) : string.Empty);
+        return GetAsync<StockMovementDetailsResponse>(url, ct);
+    }
+
     public Task<List<CategoryDto>> GetCategoriesAsync(CancellationToken ct = default) =>
         GetAsync<List<CategoryDto>>("api/stock/categories", ct);
 
@@ -411,6 +425,21 @@ public class LonniiApiClient
 
     public Task<ChargesStatsResponse> GetChargesStatsAsync(int? annee = null, CancellationToken ct = default) =>
         GetAsync<ChargesStatsResponse>("api/charges/stats" + (annee is { } y ? $"?annee={y}" : string.Empty), ct);
+
+    /// <summary>Marges. Both dates null means every sale ever made; <paramref name="categoryId"/>
+    /// narrows the sales figures, never the charges - see <see cref="MargesResponse"/>.</summary>
+    public Task<MargesResponse> GetMargesAsync(
+        DateOnly? dateDebut = null, DateOnly? dateFin = null, string? categoryId = null, CancellationToken ct = default)
+    {
+        // Always sent: the trailing-twelve-months chart needs this machine's "this month"
+        // even when the period filter itself is "Toutes".
+        var query = new List<string> { $"tzOffsetMinutes={LocalTzOffsetMinutes()}" };
+        if (dateDebut is { } debut) query.Add($"dateDebut={debut:yyyy-MM-dd}");
+        if (dateFin is { } fin) query.Add($"dateFin={fin:yyyy-MM-dd}");
+        if (!string.IsNullOrWhiteSpace(categoryId)) query.Add($"categoryId={Uri.EscapeDataString(categoryId)}");
+
+        return GetAsync<MargesResponse>("api/marges?" + string.Join("&", query), ct);
+    }
 
     /// <summary>This machine's local time minus UTC, in minutes - what a date-range filter
     /// needs so the server can tell which UTC instants "today" (this machine's today) actually

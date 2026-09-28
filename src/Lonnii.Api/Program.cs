@@ -130,6 +130,7 @@ app.MapStockEndpoints();
 app.MapVentesEndpoints();
 app.MapCaisseEndpoints();
 app.MapChargesEndpoints();
+app.MapMargesEndpoints();
 app.MapParametresEndpoints();
 app.MapImageEndpoints();
 

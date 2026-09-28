@@ -356,8 +356,48 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Catalogue pager: only one page of tiles (and so of thumbnails to
+                     download) is built at a time, so a shop with hundreds of products still
+                     opens Nouvelle Vente instantly. -->
+                <Border x:Name="CatalogPager" DockPanel.Dock="Bottom" Padding="12,6"
+                        Background="{DynamicResource Surface}"
+                        BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
+                    <!-- A 3-column Grid (*, Auto, *) split the leftover space evenly between the
+                         count text and the "Par page" combo, regardless of how much either
+                         actually needed - on a narrow window the Auto centre (prev/page/next)
+                         claimed its width first and could leave the two Star columns with
+                         almost nothing, clipping the page-size combo. A DockPanel instead gives
+                         the count text and the "Par page" group their natural width first, and
+                         only what floats in the middle (the pager buttons) gets squeezed. -->
+                    <DockPanel LastChildFill="True">
+                        <TextBlock x:Name="CatalogCountText" DockPanel.Dock="Left" Style="{StaticResource PageSubtitle}"
+                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <TextBlock Text="Par page" Style="{StaticResource PageSubtitle}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <ComboBox x:Name="CatalogPageSizeCombo" Width="70" SelectionChanged="CatalogPageSize_Changed">
+                                <ComboBoxItem Content="24" IsSelected="True" />
+                                <ComboBoxItem Content="48" />
+                                <ComboBoxItem Content="96" />
+                            </ComboBox>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                            <Button x:Name="CatalogPrevButton" Style="{StaticResource SecondaryButton}" Padding="10,3"
+                                    ToolTip="Page précédente" Click="CatalogPrev_Click">
+                                <TextBlock Text="&#xE76B;" FontFamily="Segoe MDL2 Assets" FontSize="11"
+                                           Style="{StaticResource ButtonContentText}" />
+                            </Button>
+                            <TextBlock x:Name="CatalogPageText" Margin="12,0" VerticalAlignment="Center" FontWeight="SemiBold" />
+                            <Button x:Name="CatalogNextButton" Style="{StaticResource SecondaryButton}" Padding="10,3"
+                                    ToolTip="Page suivante" Click="CatalogNext_Click">
+                                <TextBlock Text="&#xE76C;" FontFamily="Segoe MDL2 Assets" FontSize="11"
+                                           Style="{StaticResource ButtonContentText}" />
+                            </Button>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
                 <Grid>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <ScrollViewer x:Name="ProductScroll" VerticalScrollBarVisibility="Auto">
                         <ListBox x:Name="ProductGrid" Background="Transparent" BorderThickness="0"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  SelectionChanged="ProductGrid_SelectionChanged">
@@ -467,7 +507,7 @@
                 <DockPanel Margin="14">
 
                     <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
-                        <TextBlock Text="PANIER" FontWeight="Bold" FontSize="13"
+                        <TextBlock x:Name="CartTitleText" Text="PANIER (0)" FontWeight="Bold" FontSize="13"
                                    Foreground="{DynamicResource TextSecondary}" VerticalAlignment="Center" />
                         <Button x:Name="ClearCartButton" HorizontalAlignment="Right"
                                 Style="{StaticResource DangerButton}"

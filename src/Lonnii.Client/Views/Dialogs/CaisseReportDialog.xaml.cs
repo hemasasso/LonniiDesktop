@@ -53,8 +53,9 @@ public partial class CaisseReportDialog : Window
         Divider();
 
         Section("ENCAISSEMENTS");
-        // PaiementCash already has cash-drawer movements (withdrawals, avoir refunds, older
-        // factures settled) folded in - see CaisseEndpoints.ComputeLiveStatsAsync.
+        // PaiementCash folds in facture/avoir CaisseTransaction movements, but not manual
+        // retraits (shown in their own RETRAITS section below) - see
+        // CaisseEndpoints.ComputeLiveStatsAsync.
         Row("Espèces (net des mouvements)", Money.Format(c.PaiementCash));
         Row("Mobile Money", Money.Format(c.PaiementMobile));
         Row("Carte", Money.Format(c.PaiementCarte));
@@ -84,7 +85,7 @@ public partial class CaisseReportDialog : Window
         // recovered from the two stored figures rather than recomputed from ones that may
         // have been corrected since (an "Ajusté" résolution moves MontantFinal).
         var expected = isOpen || c.MontantFinal is null
-            ? c.MontantInitialCash + c.PaiementCash
+            ? c.MontantInitialCash + c.PaiementCash - c.TotalRetraits
             : c.MontantFinal.Value - c.Ecart;
         Row("Espèces attendues", Money.Format(expected));
 

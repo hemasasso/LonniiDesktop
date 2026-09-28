@@ -31,11 +31,78 @@ public static class MargesEndpoints
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.ViewMarges);
     }
 
-    private sealed record ProductInfo(string Name, string? CategoryId, decimal? CostPrice, bool VenteLibre);
+    internal sealed record ProductInfo(string Name, string? CategoryId, decimal? CostPrice, bool VenteLibre);
 
-    private sealed record Line(
+    /// <summary>One sold line of a non-cancelled sale, costed. Also what the Bilan's compte
+    /// de résultat takes its cost of sales from, so both screens always agree.</summary>
+    internal sealed record Line(
         string VenteId, DateTime DateVente, string? ProductId, string NomProduit,
         int Quantite, decimal PrixTotal, decimal Cost, string CostSource, string? CategoryId);
+
+    /// <summary>Every product of the group, soft-deleted ones included: a sale made before the
+    /// deletion still cost what that product cost.</summary>
+    internal static Task<Dictionary<string, ProductInfo>> LoadProductsAsync(
+        LonniiDbContext db, string groupId, CancellationToken ct) =>
+        db.Products.AsNoTracking()
+            .Where(p => p.GroupId == groupId)
+            .Select(p => new { p.Id, p.Name, p.CategoryId, p.CostPrice, p.VenteLibre })
+            .ToDictionaryAsync(p => p.Id, p => new ProductInfo(p.Name, p.CategoryId, p.CostPrice, p.VenteLibre), ct);
+
+    /// <summary>The costed lines of every non-cancelled sale between two UTC instants
+    /// (either bound open).</summary>
+    internal static async Task<List<Line>> SaleLinesAsync(
+        LonniiDbContext db, string groupId, IReadOnlyDictionary<string, ProductInfo> products,
+        DateTime? startUtc, DateTime? endUtc, CancellationToken ct)
+    {
+        var query = db.Ventes.AsNoTracking().Where(v => v.GroupId == groupId);
+        if (startUtc is { } s) query = query.Where(v => v.DateVente >= s);
+        if (endUtc is { } e) query = query.Where(v => v.DateVente < e);
+
+        // A join rather than SelectMany over v.Items: SQLite cannot translate the latter
+        // (it needs an APPLY).
+        var raw = await query
+            .Join(db.VenteItems, v => v.Id, i => i.VenteId, (v, i) => new
+            {
+                v.Id, v.DateVente, v.StatutPaiement, i.ProductId, i.NomProduit, i.Quantite, i.PrixTotal,
+            })
+            .ToListAsync(ct);
+
+        // The purchase price as it stood when each sale was rung up: VentesEndpoints
+        // writes it into the sale's stock_history row. Today's cost_price is only a
+        // fallback - a product edited or repurposed since would otherwise re-price every
+        // past sale of it.
+        var saleCosts = await query
+            .Join(db.StockHistories.Where(h => h.MovementType == StockMovementTypes.Vente && h.UnitCost != null),
+                v => v.Id, h => h.ReferenceId, (v, h) => new { h.ReferenceId, h.ProductId, h.UnitCost })
+            .ToListAsync(ct);
+        var costAtSale = saleCosts
+            .GroupBy(h => (h.ReferenceId!, h.ProductId))
+            .ToDictionary(g => g.Key, g => g.First().UnitCost!.Value);
+
+        // Filtered after Normalise rather than in SQL: the live column still holds the
+        // English spellings as well as "annule".
+        return raw
+            .Where(r => StatutPaiement.Normalise(r.StatutPaiement) != StatutPaiement.Annule)
+            .Select(r =>
+            {
+                var product = r.ProductId is not null ? products.GetValueOrDefault(r.ProductId) : null;
+
+                // A line whose name no longer matches its product was sold as something
+                // else before the product was renamed or reused: neither today's name,
+                // category nor purchase price describes what was actually sold, so it is
+                // treated like a line whose product was deleted.
+                if (product is not null && !SameName(product.Name, r.NomProduit)) product = null;
+
+                decimal? unitCostAtSale = r.ProductId is not null && costAtSale.TryGetValue((r.Id, r.ProductId), out var c) ? c : null;
+                var (cost, source) = product is null && unitCostAtSale is null
+                    ? Estimate(r.PrixTotal)
+                    : LineCost(unitCostAtSale ?? product?.CostPrice, r.PrixTotal, product?.VenteLibre ?? false, r.Quantite);
+
+                return new Line(r.Id, r.DateVente, product is not null ? r.ProductId : null, r.NomProduit,
+                    r.Quantite, r.PrixTotal, cost, source, product?.CategoryId);
+            })
+            .ToList();
+    }
 
     /// <summary>
     /// <paramref name="dateDebut"/>/<paramref name="dateFin"/> are client-local calendar
@@ -50,12 +117,7 @@ public static class MargesEndpoints
         var offset = TimeSpan.FromMinutes(tzOffsetMinutes ?? 0);
         var groupId = scope.GroupId;
 
-        // Soft-deleted products are kept: a sale made before the deletion still cost what
-        // that product cost.
-        var products = await db.Products.AsNoTracking()
-            .Where(p => p.GroupId == groupId)
-            .Select(p => new { p.Id, p.Name, p.CategoryId, p.CostPrice, p.VenteLibre })
-            .ToDictionaryAsync(p => p.Id, p => new ProductInfo(p.Name, p.CategoryId, p.CostPrice, p.VenteLibre), ct);
+        var products = await LoadProductsAsync(db, groupId, ct);
 
         var categories = await db.Categories.AsNoTracking()
             .Where(c => c.GroupId == groupId)
@@ -64,58 +126,10 @@ public static class MargesEndpoints
             .ToListAsync(ct);
         var categoryNames = categories.ToDictionary(c => c.Id, c => c.Name);
 
-        async Task<List<Line>> LinesAsync(DateTime? startUtc, DateTime? endUtc)
-        {
-            var query = db.Ventes.AsNoTracking().Where(v => v.GroupId == groupId);
-            if (startUtc is { } s) query = query.Where(v => v.DateVente >= s);
-            if (endUtc is { } e) query = query.Where(v => v.DateVente < e);
-
-            // A join rather than SelectMany over v.Items: SQLite cannot translate the latter
-            // (it needs an APPLY).
-            var raw = await query
-                .Join(db.VenteItems, v => v.Id, i => i.VenteId, (v, i) => new
-                {
-                    v.Id, v.DateVente, v.StatutPaiement, i.ProductId, i.NomProduit, i.Quantite, i.PrixTotal,
-                })
-                .ToListAsync(ct);
-
-            // The purchase price as it stood when each sale was rung up: VentesEndpoints
-            // writes it into the sale's stock_history row. Today's cost_price is only a
-            // fallback - a product edited or repurposed since would otherwise re-price every
-            // past sale of it.
-            var saleCosts = await query
-                .Join(db.StockHistories.Where(h => h.MovementType == StockMovementTypes.Vente && h.UnitCost != null),
-                    v => v.Id, h => h.ReferenceId, (v, h) => new { h.ReferenceId, h.ProductId, h.UnitCost })
-                .ToListAsync(ct);
-            var costAtSale = saleCosts
-                .GroupBy(h => (h.ReferenceId!, h.ProductId))
-                .ToDictionary(g => g.Key, g => g.First().UnitCost!.Value);
-
-            // Filtered after Normalise rather than in SQL: the live column still holds the
-            // English spellings as well as "annule".
-            return raw
-                .Where(r => StatutPaiement.Normalise(r.StatutPaiement) != StatutPaiement.Annule)
-                .Select(r =>
-                {
-                    var product = r.ProductId is not null ? products.GetValueOrDefault(r.ProductId) : null;
-
-                    // A line whose name no longer matches its product was sold as something
-                    // else before the product was renamed or reused: neither today's name,
-                    // category nor purchase price describes what was actually sold, so it is
-                    // treated like a line whose product was deleted.
-                    if (product is not null && !SameName(product.Name, r.NomProduit)) product = null;
-
-                    decimal? unitCostAtSale = r.ProductId is not null && costAtSale.TryGetValue((r.Id, r.ProductId), out var c) ? c : null;
-                    var (cost, source) = product is null && unitCostAtSale is null
-                        ? Estimate(r.PrixTotal)
-                        : LineCost(unitCostAtSale ?? product?.CostPrice, r.PrixTotal, product?.VenteLibre ?? false, r.Quantite);
-
-                    return new Line(r.Id, r.DateVente, product is not null ? r.ProductId : null, r.NomProduit,
-                        r.Quantite, r.PrixTotal, cost, source, product?.CategoryId);
-                })
+        async Task<List<Line>> LinesAsync(DateTime? startUtc, DateTime? endUtc) =>
+            (await SaleLinesAsync(db, groupId, products, startUtc, endUtc, ct))
                 .Where(l => categoryId is null || l.CategoryId == categoryId)
                 .ToList();
-        }
 
         async Task<List<(DateTime Date, decimal Montant, bool Fixe)>> ChargesAsync(DateOnly? debut, DateOnly? fin)
         {

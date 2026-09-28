@@ -3,6 +3,7 @@ using System;
 using Lonnii.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,201 +11,14 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Lonnii.Data.Migrations
 {
     [DbContext(typeof(LonniiDbContext))]
-    partial class LonniiDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260928020625_AddProgramme")]
+    partial class AddProgramme
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
-
-            modelBuilder.Entity("Lonnii.Data.Entities.AmortissementEcheance", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("id");
-
-                    b.Property<long>("AmortissementCumule")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("amortissement_cumule");
-
-                    b.Property<int>("Annee")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("annee");
-
-                    b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("created_at");
-
-                    b.Property<DateOnly>("DateDebut")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("date_debut");
-
-                    b.Property<DateOnly>("DateFin")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("date_fin");
-
-                    b.Property<long>("DotationAnnuelle")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("dotation_annuelle");
-
-                    b.Property<string>("GroupId")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("groupe_id");
-
-                    b.Property<int>("ImmobilisationId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("immobilisation_id");
-
-                    b.Property<int>("NumeroAnnee")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("numero_annee");
-
-                    b.Property<long>("ValeurDebutPeriode")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("valeur_debut_periode");
-
-                    b.Property<long>("ValeurNetteComptable")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("valeur_nette_comptable");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Annee");
-
-                    b.HasIndex("GroupId");
-
-                    b.HasIndex("ImmobilisationId");
-
-                    b.ToTable("amortissement_echeances");
-                });
-
-            modelBuilder.Entity("Lonnii.Data.Entities.BilanCompte", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("id");
-
-                    b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("CreatedBy")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("created_by");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("description");
-
-                    b.Property<string>("GroupId")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("groupe_id");
-
-                    b.Property<bool?>("IsSystem")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("is_system");
-
-                    b.Property<string>("Libelle")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("libelle");
-
-                    b.Property<string>("NumeroCompte")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("numero_compte");
-
-                    b.Property<long?>("Solde")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("solde");
-
-                    b.Property<string>("SousType")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("sous_type");
-
-                    b.Property<string>("TypeCompte")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("type_compte");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("GroupId");
-
-                    b.HasIndex("TypeCompte");
-
-                    b.ToTable("bilan_comptes");
-                });
-
-            modelBuilder.Entity("Lonnii.Data.Entities.BilanEcriture", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("id");
-
-                    b.Property<int>("CompteId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("compte_id");
-
-                    b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("created_by");
-
-                    b.Property<DateOnly>("DateEcriture")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("date_ecriture");
-
-                    b.Property<string>("GroupId")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("groupe_id");
-
-                    b.Property<string>("Libelle")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("libelle");
-
-                    b.Property<long?>("MontantCredit")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("montant_credit");
-
-                    b.Property<long?>("MontantDebit")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("montant_debit");
-
-                    b.Property<string>("Notes")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("notes");
-
-                    b.Property<string>("Reference")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("reference");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CompteId");
-
-                    b.HasIndex("DateEcriture");
-
-                    b.HasIndex("GroupId");
-
-                    b.ToTable("bilan_ecritures");
-                });
 
             modelBuilder.Entity("Lonnii.Data.Entities.Caisse", b =>
                 {
@@ -1131,125 +945,6 @@ namespace Lonnii.Data.Migrations
                     b.ToTable("groupe_sessions");
                 });
 
-            modelBuilder.Entity("Lonnii.Data.Entities.Immobilisation", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("id");
-
-                    b.Property<string>("Categorie")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("categorie");
-
-                    b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("created_by");
-
-                    b.Property<DateOnly>("DateAcquisition")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("date_acquisition");
-
-                    b.Property<DateOnly?>("DateCession")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("date_cession");
-
-                    b.Property<DateOnly?>("DateMiseEnService")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("date_mise_en_service");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("description");
-
-                    b.Property<int>("DureeAmortissement")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("duree_amortissement");
-
-                    b.Property<string>("Fournisseur")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("fournisseur");
-
-                    b.Property<string>("GroupId")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("groupe_id");
-
-                    b.Property<string>("Localisation")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("localisation");
-
-                    b.Property<string>("MethodeAmortissement")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("methode_amortissement");
-
-                    b.Property<string>("MotifSortie")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("motif_sortie");
-
-                    b.Property<string>("Nom")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("nom");
-
-                    b.Property<string>("Notes")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("notes");
-
-                    b.Property<string>("NumeroFacture")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("numero_facture");
-
-                    b.Property<string>("NumeroInventaire")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("numero_inventaire");
-
-                    b.Property<string>("Statut")
-                        .HasMaxLength(50)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("statut");
-
-                    b.Property<long?>("TauxDegressif")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("taux_degressif");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("updated_at");
-
-                    b.Property<long>("ValeurAcquisition")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("valeur_acquisition");
-
-                    b.Property<long?>("ValeurCession")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("valeur_cession");
-
-                    b.Property<long?>("ValeurResiduelle")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("valeur_residuelle");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Categorie");
-
-                    b.HasIndex("GroupId");
-
-                    b.HasIndex("Statut");
-
-                    b.ToTable("immobilisations");
-                });
-
             modelBuilder.Entity("Lonnii.Data.Entities.OptionPrivilege", b =>
                 {
                     b.Property<int>("Id")
@@ -1868,71 +1563,6 @@ namespace Lonnii.Data.Migrations
                     b.ToTable("programme_entries");
                 });
 
-            modelBuilder.Entity("Lonnii.Data.Entities.ResultatCompte", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("id");
-
-                    b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("CreatedBy")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("created_by");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("description");
-
-                    b.Property<string>("GroupId")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("groupe_id");
-
-                    b.Property<bool?>("IsSystem")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("is_system");
-
-                    b.Property<string>("Libelle")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("libelle");
-
-                    b.Property<string>("NumeroCompte")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("numero_compte");
-
-                    b.Property<long?>("Solde")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("solde");
-
-                    b.Property<string>("SousType")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("sous_type");
-
-                    b.Property<string>("TypeCompte")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("type_compte");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("GroupId");
-
-                    b.HasIndex("TypeCompte");
-
-                    b.ToTable("resultat_comptes");
-                });
-
             modelBuilder.Entity("Lonnii.Data.Entities.RolePrivilege", b =>
                 {
                     b.Property<int>("Id")
@@ -2093,33 +1723,6 @@ namespace Lonnii.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("stock_settings");
-                });
-
-            modelBuilder.Entity("Lonnii.Data.Entities.StockSnapshot", b =>
-                {
-                    b.Property<string>("GroupId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("group_id");
-
-                    b.Property<int>("Annee")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("annee");
-
-                    b.Property<string>("CreatedBy")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("created_by");
-
-                    b.Property<DateTime?>("SnapshotDate")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("snapshot_date");
-
-                    b.Property<long?>("StockValueDebut")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("stock_value_debut");
-
-                    b.HasKey("GroupId", "Annee");
-
-                    b.ToTable("stock_snapshots");
                 });
 
             modelBuilder.Entity("Lonnii.Data.Entities.StockUserActivity", b =>
@@ -2751,28 +2354,6 @@ namespace Lonnii.Data.Migrations
                     b.ToTable("ventes_user_activity");
                 });
 
-            modelBuilder.Entity("Lonnii.Data.Entities.AmortissementEcheance", b =>
-                {
-                    b.HasOne("Lonnii.Data.Entities.Immobilisation", "Immobilisation")
-                        .WithMany("Echeances")
-                        .HasForeignKey("ImmobilisationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Immobilisation");
-                });
-
-            modelBuilder.Entity("Lonnii.Data.Entities.BilanEcriture", b =>
-                {
-                    b.HasOne("Lonnii.Data.Entities.BilanCompte", "Compte")
-                        .WithMany()
-                        .HasForeignKey("CompteId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Compte");
-                });
-
             modelBuilder.Entity("Lonnii.Data.Entities.CaisseTransaction", b =>
                 {
                     b.HasOne("Lonnii.Data.Entities.Caisse", "Caisse")
@@ -2942,11 +2523,6 @@ namespace Lonnii.Data.Migrations
             modelBuilder.Entity("Lonnii.Data.Entities.Groupe", b =>
                 {
                     b.Navigation("Members");
-                });
-
-            modelBuilder.Entity("Lonnii.Data.Entities.Immobilisation", b =>
-                {
-                    b.Navigation("Echeances");
                 });
 
             modelBuilder.Entity("Lonnii.Data.Entities.User", b =>

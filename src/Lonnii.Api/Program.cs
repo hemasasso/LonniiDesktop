@@ -131,6 +131,9 @@ app.MapVentesEndpoints();
 app.MapCaisseEndpoints();
 app.MapChargesEndpoints();
 app.MapMargesEndpoints();
+app.MapAmortissementEndpoints();
+app.MapBilanEndpoints();
+app.MapProgrammeEndpoints();
 app.MapParametresEndpoints();
 app.MapImageEndpoints();
 

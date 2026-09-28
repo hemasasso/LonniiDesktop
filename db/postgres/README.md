@@ -40,6 +40,7 @@ psql -h <host> -p 5432 -U <user> -d <database> -f 001_groupes_desktop_columns.sq
 | `001_groupes_desktop_columns.sql` | `groupes`: mode, max_devices, currency_label, prestations_location | yes, 2026-09-24 |
 | `002_desktop_columns.sql` | `users.password_changed_at`, `categories.image_url`, `products`: stock_illimite, unite_affichage, deleted_at, deleted_by | yes, 2026-09-24 |
 | `006_ventes_parametres.sql` | `ventes_parametres`: the whole table and every receipt/facture column | no — see below |
+| `007_amortissement_bilan.sql` | `immobilisations`, `amortissement_echeances`, `bilan_comptes`, `bilan_ecritures`, `resultat_comptes`, `stock_snapshots`; the `can_edit_resultat_donnees` privilege | no — `stock_snapshots` is inferred, see the script header |
 
 ## `ventes_parametres` is Lonnii Business's, not ours
 

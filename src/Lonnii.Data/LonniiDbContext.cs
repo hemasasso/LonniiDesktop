@@ -84,6 +84,18 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
     public DbSet<Charge> Charges => Set<Charge>();
     public DbSet<ChargeCategory> ChargeCategories => Set<ChargeCategory>();
 
+    // Programme
+    public DbSet<ProgrammeEntry> ProgrammeEntries => Set<ProgrammeEntry>();
+    public DbSet<ProgrammeAnnouncement> ProgrammeAnnouncements => Set<ProgrammeAnnouncement>();
+
+    // Amortissement & Bilan
+    public DbSet<Immobilisation> Immobilisations => Set<Immobilisation>();
+    public DbSet<AmortissementEcheance> AmortissementEcheances => Set<AmortissementEcheance>();
+    public DbSet<BilanCompte> BilanComptes => Set<BilanCompte>();
+    public DbSet<BilanEcriture> BilanEcritures => Set<BilanEcriture>();
+    public DbSet<ResultatCompte> ResultatComptes => Set<ResultatCompte>();
+    public DbSet<StockSnapshot> StockSnapshots => Set<StockSnapshot>();
+
     protected override void OnModelCreating(ModelBuilder b)
     {
         ConfigureBilling(b);
@@ -92,6 +104,8 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         ConfigureStock(b);
         ConfigureVentes(b);
         ConfigureCharges(b);
+        ConfigureProgramme(b);
+        ConfigureComptabilite(b);
 
         // SQLite only. PostgreSQL has a real decimal type, and Lonnii Business already
         // stores these columns as DECIMAL(15,2) - applying the minor-units converter there
@@ -146,6 +160,14 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         [typeof(VentesUserActivity)] = "ventes_user_activity",
         [typeof(Charge)] = "charges",
         [typeof(ChargeCategory)] = "charges_categories",
+        [typeof(ProgrammeEntry)] = "programme_entries",
+        [typeof(ProgrammeAnnouncement)] = "programme_announcements",
+        [typeof(Immobilisation)] = "immobilisations",
+        [typeof(AmortissementEcheance)] = "amortissement_echeances",
+        [typeof(BilanCompte)] = "bilan_comptes",
+        [typeof(BilanEcriture)] = "bilan_ecritures",
+        [typeof(ResultatCompte)] = "resultat_comptes",
+        [typeof(StockSnapshot)] = "stock_snapshots",
     };
 
     /// <summary>Columns whose Lonnii Business name is not the snake_case of the property name.</summary>
@@ -186,6 +208,15 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         // "group_id" - kept as-is so the column name matches the live table exactly.
         [(typeof(Charge), nameof(Charge.GroupId))] = "groupe_id",
         [(typeof(ChargeCategory), nameof(ChargeCategory.GroupId))] = "groupe_id",
+
+        // --- amortissement & bilan -------------------------------------------------------
+        // Same "groupe_id" as charges (setup_amortissement_bilan.sql). stock_snapshots is the
+        // exception: gestionBilan.js reads and writes it as group_id, so it keeps the default.
+        [(typeof(Immobilisation), nameof(Immobilisation.GroupId))] = "groupe_id",
+        [(typeof(AmortissementEcheance), nameof(AmortissementEcheance.GroupId))] = "groupe_id",
+        [(typeof(BilanCompte), nameof(BilanCompte.GroupId))] = "groupe_id",
+        [(typeof(BilanEcriture), nameof(BilanEcriture.GroupId))] = "groupe_id",
+        [(typeof(ResultatCompte), nameof(ResultatCompte.GroupId))] = "groupe_id",
     };
 
     private static void ApplySnakeCaseNames(ModelBuilder b)
@@ -530,6 +561,82 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
             // Unique per group, same as the source's own UNIQUE(groupe_id, nom).
             e.HasIndex(x => new { x.GroupId, x.Nom }).IsUnique();
         });
+    }
+
+    private static void ConfigureProgramme(ModelBuilder b)
+    {
+        b.Entity<ProgrammeEntry>(e =>
+        {
+            e.HasKey(x => x.Id);
+            // One row per worker per day - the board has exactly one card per cell.
+            e.HasIndex(x => new { x.GroupId, x.UserId, x.Date }).IsUnique();
+            e.HasIndex(x => new { x.GroupId, x.Date });
+        });
+
+        b.Entity<ProgrammeAnnouncement>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.GroupId, x.Date });
+            e.HasIndex(x => new { x.GroupId, x.UserId, x.Date });
+        });
+    }
+
+    private static void ConfigureComptabilite(ModelBuilder b)
+    {
+        // Indexes mirror setup_amortissement_bilan.sql's own.
+        b.Entity<Immobilisation>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.GroupId);
+            e.HasIndex(x => x.Statut);
+            e.HasIndex(x => x.Categorie);
+            e.Property(x => x.Nom).HasMaxLength(255);
+            e.Property(x => x.Categorie).HasMaxLength(100);
+            e.Property(x => x.MethodeAmortissement).HasMaxLength(50);
+            e.Property(x => x.Statut).HasMaxLength(50);
+        });
+
+        b.Entity<AmortissementEcheance>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.ImmobilisationId);
+            e.HasIndex(x => x.GroupId);
+            e.HasIndex(x => x.Annee);
+            // ON DELETE CASCADE, as the source: deleting an asset deletes its schedule.
+            e.HasOne(x => x.Immobilisation).WithMany(i => i.Echeances)
+                .HasForeignKey(x => x.ImmobilisationId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<BilanCompte>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.GroupId);
+            e.HasIndex(x => x.TypeCompte);
+            e.Property(x => x.NumeroCompte).HasMaxLength(20);
+        });
+
+        b.Entity<BilanEcriture>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.GroupId);
+            e.HasIndex(x => x.CompteId);
+            e.HasIndex(x => x.DateEcriture);
+            // A plain REFERENCES in the source, so no cascade: an account with entries on it
+            // cannot be deleted out from under them.
+            e.HasOne(x => x.Compte).WithMany()
+                .HasForeignKey(x => x.CompteId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<ResultatCompte>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.GroupId);
+            e.HasIndex(x => x.TypeCompte);
+            e.Property(x => x.NumeroCompte).HasMaxLength(20);
+        });
+
+        // ON CONFLICT (group_id, annee) in gestionBilan.js: one value per group per year.
+        b.Entity<StockSnapshot>(e => e.HasKey(x => new { x.GroupId, x.Annee }));
     }
 
     /// <summary>

@@ -941,6 +941,297 @@ public sealed record MargesResponse(
     IReadOnlyList<MargeMonthDto> Monthly,
     IReadOnlyList<MargeCategoryOptionDto> CategoryOptions);
 
+// --- Programme ---
+
+/// <summary>One worker's day on the Programme board. <paramref name="Type"/> is one of
+/// <c>Lonnii.Data.Entities.ProgrammeEntryTypes</c> ("travail", "reunion", "repos") - the
+/// client owns the French label the same way it already does for other stored type strings.</summary>
+public sealed record ProgrammeEntryDto(
+    int Id,
+    string UserId,
+    string UserName,
+    DateOnly Date,
+    string Type,
+    TimeSpan? HeureDebut,
+    TimeSpan? HeureFin,
+    string? Note);
+
+/// <summary>Creates or edits one day of one worker's schedule. Saving a second entry for the
+/// same worker and date replaces the first rather than adding a duplicate.</summary>
+public sealed record SaveProgrammeEntryRequest(
+    string UserId,
+    DateOnly Date,
+    string Type,
+    TimeSpan? HeureDebut = null,
+    TimeSpan? HeureFin = null,
+    string? Note = null);
+
+/// <summary>A notice on the Programme board - <paramref name="UserId"/> null means every
+/// worker's printed sheet shows it; set, only that worker's does.</summary>
+public sealed record ProgrammeAnnouncementDto(
+    int Id,
+    string? UserId,
+    string? UserName,
+    string Titre,
+    string Message,
+    DateOnly Date,
+    string? CreatedByName);
+
+public sealed record SaveProgrammeAnnouncementRequest(
+    string? UserId,
+    string Titre,
+    string Message,
+    DateOnly Date);
+
+/// <summary>Response of <c>GET /api/programme</c> for one date range - every entry and
+/// announcement in it, optionally narrowed to one worker's own (announcements addressed to
+/// someone else are left out, but group-wide ones always come through).</summary>
+public sealed record ProgrammeResponse(
+    IReadOnlyList<ProgrammeEntryDto> Entries,
+    IReadOnlyList<ProgrammeAnnouncementDto> Announcements);
+
+// --- Amortissement ---
+
+/// <summary>One year of a depreciation schedule - a row of <c>amortissement_echeances</c>.
+/// <paramref name="ValeurDebutPeriode"/> and <paramref name="ValeurNetteComptable"/> are the
+/// net book value at the start and end of the period.</summary>
+public sealed record AmortissementEcheanceDto(
+    int Annee,
+    int NumeroAnnee,
+    DateOnly DateDebut,
+    DateOnly DateFin,
+    decimal ValeurDebutPeriode,
+    decimal DotationAnnuelle,
+    decimal AmortissementCumule,
+    decimal ValeurNetteComptable);
+
+/// <summary>A fixed asset. The four figures at the end are computed for the current year, not
+/// stored: <paramref name="AmortissementCumule"/> and <paramref name="ValeurNetteComptable"/>
+/// as at 31 December, or as at the exit year for an asset sold or scrapped, whose schedule
+/// stops there. <paramref name="TotalementAmorti"/> is true once an active asset's schedule has
+/// run out.</summary>
+public sealed record ImmobilisationDto(
+    int Id,
+    string Nom,
+    string? Description,
+    string Categorie,
+    DateOnly DateAcquisition,
+    decimal ValeurAcquisition,
+    decimal ValeurResiduelle,
+    int DureeAmortissement,
+    string MethodeAmortissement,
+    decimal? TauxDegressif,
+    DateOnly? DateMiseEnService,
+    string Statut,
+    DateOnly? DateCession,
+    decimal? ValeurCession,
+    string? MotifSortie,
+    string? NumeroInventaire,
+    string? Localisation,
+    string? Fournisseur,
+    string? NumeroFacture,
+    string? Notes,
+    string? CreatedByName,
+    decimal AmortissementCumule,
+    decimal ValeurNetteComptable,
+    decimal DotationAnneeCourante,
+    bool TotalementAmorti);
+
+/// <summary>Creates or edits a fixed asset. Its schedule is recomputed and stored on every
+/// save. <paramref name="TauxDegressif"/> is the declining-balance coefficient, only read for
+/// that method; null uses the fiscal default for the duration.</summary>
+public sealed record SaveImmobilisationRequest(
+    string Nom,
+    string Categorie,
+    DateOnly DateAcquisition,
+    decimal ValeurAcquisition,
+    decimal ValeurResiduelle,
+    int DureeAmortissement,
+    string MethodeAmortissement,
+    decimal? TauxDegressif = null,
+    DateOnly? DateMiseEnService = null,
+    string? Description = null,
+    string? NumeroInventaire = null,
+    string? Localisation = null,
+    string? Fournisseur = null,
+    string? NumeroFacture = null,
+    string? Notes = null);
+
+/// <summary>Records an asset leaving the books. <paramref name="Statut"/> is <c>cede</c> (sold,
+/// for <paramref name="ValeurCession"/>) or <c>reforme</c> (scrapped).</summary>
+public sealed record CederImmobilisationRequest(
+    string Statut,
+    DateOnly DateCession,
+    decimal? ValeurCession,
+    string? MotifSortie);
+
+/// <summary>Response of <c>GET /api/amortissement/{id}</c>. For an asset that has left the
+/// books, <paramref name="VncALaSortie"/> is its net book value at the end of its exit year
+/// and <paramref name="PlusMoinsValue"/> the sale price less that value (negative for a loss,
+/// −VNC for a scrapped asset).</summary>
+public sealed record ImmobilisationDetailsResponse(
+    ImmobilisationDto Immobilisation,
+    IReadOnlyList<AmortissementEcheanceDto> Echeances,
+    decimal? VncALaSortie,
+    decimal? PlusMoinsValue);
+
+public sealed record AmortissementCategorieStatDto(string Categorie, int Nombre, decimal ValeurBrute, decimal ValeurNette);
+
+/// <summary>The four summary tiles, over active assets only - as the source app.</summary>
+public sealed record AmortissementStatsDto(
+    int Annee,
+    int TotalImmobilisations,
+    decimal TotalValeurAcquisition,
+    decimal DotationAnneeCourante,
+    decimal AmortissementCumule,
+    decimal ValeurNetteComptable,
+    IReadOnlyList<AmortissementCategorieStatDto> ParCategorie);
+
+/// <summary>Response of <c>GET /api/amortissement</c>: every asset of the group, newest
+/// acquisition first, and the summary figures.</summary>
+public sealed record AmortissementListResponse(
+    IReadOnlyList<ImmobilisationDto> Immobilisations,
+    AmortissementStatsDto Stats);
+
+// --- Bilan & compte de résultat ---
+
+/// <summary>One account line of the bilan or the compte de résultat.
+/// <paramref name="SoldeManuel"/> is what was entered by hand - the écritures on a bilan
+/// account, the typed amount on a résultat account; <paramref name="SoldeAuto"/> what the app
+/// fed in from other modules (sales, stock, assets, charges); <paramref name="Solde"/> both
+/// together.</summary>
+public sealed record BilanCompteDto(
+    int Id,
+    string NumeroCompte,
+    string Libelle,
+    string TypeCompte,
+    string? SousType,
+    string? Description,
+    bool IsSystem,
+    decimal SoldeManuel,
+    decimal SoldeAuto,
+    decimal Solde);
+
+/// <summary>The assets carried from the Amortissement module: gross value, cumulative
+/// depreciation and net book value at the year-end.</summary>
+public sealed record BilanImmobilisationsDto(decimal ValeurBrute, decimal Amortissements, decimal ValeurNette);
+
+/// <summary>
+/// Response of <c>GET /api/bilan?annee=</c>: the balance sheet at 31 December of
+/// <paramref name="Annee"/>, or as of today for the current year
+/// (<paramref name="IsProvisoire"/>). <paramref name="Ecart"/> is total actif − total passif;
+/// zero means the sheet balances.
+/// </summary>
+public sealed record BilanResponse(
+    int Annee,
+    bool IsProvisoire,
+    IReadOnlyList<BilanCompteDto> ActifImmobilise,
+    IReadOnlyList<BilanCompteDto> ActifCirculant,
+    IReadOnlyList<BilanCompteDto> TresorerieActif,
+    IReadOnlyList<BilanCompteDto> CapitauxPropres,
+    IReadOnlyList<BilanCompteDto> DettesLongTerme,
+    IReadOnlyList<BilanCompteDto> DettesCourtTerme,
+    IReadOnlyList<BilanCompteDto> TresoreriePassif,
+    BilanImmobilisationsDto Immobilisations,
+    decimal Stocks,
+    decimal CreancesClients,
+    decimal ResultatExercice,
+    decimal TotalActif,
+    decimal TotalPassif,
+    decimal Ecart);
+
+/// <summary>
+/// What the compte de résultat took from the other modules for the year.
+/// <paramref name="CoutMarchandisesVendues"/> is the cost of the goods actually sold, costed
+/// exactly as Marges does; <paramref name="ChargesAchats"/> the charges filed under a purchase
+/// category, which join it on account 60. <paramref name="VariationStocks"/> (stock fin − stock
+/// début) is shown for information only - the cost of goods sold already accounts for what
+/// left the shelves, so adding it again would count the same goods twice.
+/// </summary>
+/// <param name="StockDebutSaisi">False when no 1 January value was stored for the year yet, so
+/// the one shown is a guess: today's stock for the year in progress (stored from then on, as
+/// the source does), zero for a past year.</param>
+/// <param name="VentesEstimees">Sale lines whose cost was estimated, as on the Marges screen.</param>
+public sealed record ResultatIntegrationDto(
+    decimal Ventes,
+    decimal CoutMarchandisesVendues,
+    decimal ChargesAchats,
+    decimal Charges,
+    decimal DotationAmortissement,
+    decimal StockDebut,
+    decimal StockFin,
+    decimal VariationStocks,
+    bool StockDebutSaisi,
+    int VentesEstimees);
+
+/// <summary>
+/// Response of <c>GET /api/bilan/resultat?annee=</c>: income and expenses for one calendar
+/// year, grouped SYSCOHADA-style into exploitation, financier and exceptionnel, each with its
+/// own sub-result.
+/// </summary>
+public sealed record ResultatResponse(
+    int Annee,
+    IReadOnlyList<BilanCompteDto> ProduitsExploitation,
+    IReadOnlyList<BilanCompteDto> ChargesExploitation,
+    IReadOnlyList<BilanCompteDto> ProduitsFinanciers,
+    IReadOnlyList<BilanCompteDto> ChargesFinancieres,
+    IReadOnlyList<BilanCompteDto> ProduitsExceptionnels,
+    IReadOnlyList<BilanCompteDto> ChargesExceptionnelles,
+    ResultatIntegrationDto Integration,
+    decimal TotalProduits,
+    decimal TotalCharges,
+    decimal ResultatExploitation,
+    decimal ResultatFinancier,
+    decimal ResultatExceptionnel,
+    decimal ResultatNet);
+
+/// <summary>Response of <c>GET /api/bilan/comptes</c> - the chart of accounts, without
+/// balances.</summary>
+public sealed record BilanComptesResponse(
+    IReadOnlyList<BilanCompteDto> BilanComptes,
+    IReadOnlyList<BilanCompteDto> ResultatComptes);
+
+/// <summary>Creates or edits an account. <paramref name="TableType"/> is <c>bilan</c> or
+/// <c>resultat</c> and cannot change on an edit.</summary>
+public sealed record SaveBilanCompteRequest(
+    string TableType,
+    string NumeroCompte,
+    string Libelle,
+    string TypeCompte,
+    string? SousType = null,
+    string? Description = null);
+
+/// <summary>A manual entry on a bilan account.</summary>
+public sealed record BilanEcritureDto(
+    int Id,
+    int CompteId,
+    string NumeroCompte,
+    string CompteLibelle,
+    DateOnly DateEcriture,
+    string Libelle,
+    decimal MontantDebit,
+    decimal MontantCredit,
+    string? Reference,
+    string? Notes,
+    string? CreatedByName);
+
+/// <summary>Creates or edits an écriture. Exactly one of debit and credit is expected to be
+/// non-zero, though the server only requires that they are not both zero - as the source.</summary>
+public sealed record SaveBilanEcritureRequest(
+    int CompteId,
+    DateOnly DateEcriture,
+    string Libelle,
+    decimal MontantDebit,
+    decimal MontantCredit,
+    string? Reference = null,
+    string? Notes = null);
+
+/// <summary>Sets the stock value at 1 January of <paramref name="Annee"/>.</summary>
+public sealed record StockSnapshotRequest(int Annee, decimal StockValueDebut);
+
+/// <summary>Sets the hand-entered amount of a résultat account.</summary>
+public sealed record ResultatCompteSoldeRequest(decimal Solde);
+
 // --- Errors ---
 
 /// <summary>A failure response. <paramref name="Required"/> names the missing privilege on a 403.</summary>

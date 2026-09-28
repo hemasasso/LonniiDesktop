@@ -441,12 +441,113 @@ public class LonniiApiClient
         return GetAsync<MargesResponse>("api/marges?" + string.Join("&", query), ct);
     }
 
+    // --- Amortissement ---
+
+    /// <summary>Every fixed asset and the summary tiles, figured for this machine's current
+    /// year.</summary>
+    public Task<AmortissementListResponse> GetImmobilisationsAsync(CancellationToken ct = default) =>
+        GetAsync<AmortissementListResponse>($"api/amortissement?annee={DateTime.Now.Year}", ct);
+
+    public Task<ImmobilisationDetailsResponse> GetImmobilisationAsync(int id, CancellationToken ct = default) =>
+        GetAsync<ImmobilisationDetailsResponse>($"api/amortissement/{id}?annee={DateTime.Now.Year}", ct);
+
+    public Task<ImmobilisationDetailsResponse> CreateImmobilisationAsync(
+        SaveImmobilisationRequest request, CancellationToken ct = default) =>
+        PostAsync<ImmobilisationDetailsResponse>($"api/amortissement?annee={DateTime.Now.Year}", request, ct);
+
+    public Task<ImmobilisationDetailsResponse> UpdateImmobilisationAsync(
+        int id, SaveImmobilisationRequest request, CancellationToken ct = default) =>
+        SendAsync<ImmobilisationDetailsResponse>(HttpMethod.Put, $"api/amortissement/{id}?annee={DateTime.Now.Year}", request, ct);
+
+    public Task<ImmobilisationDetailsResponse> CederImmobilisationAsync(
+        int id, CederImmobilisationRequest request, CancellationToken ct = default) =>
+        SendAsync<ImmobilisationDetailsResponse>(HttpMethod.Put, $"api/amortissement/{id}/ceder?annee={DateTime.Now.Year}", request, ct);
+
+    public Task DeleteImmobilisationAsync(int id, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Delete, $"api/amortissement/{id}", null, ct);
+
+    // --- Bilan ---
+
+    public Task<BilanResponse> GetBilanAsync(int annee, CancellationToken ct = default) =>
+        GetAsync<BilanResponse>($"api/bilan?annee={annee}&tzOffsetMinutes={LocalTzOffsetMinutes()}", ct);
+
+    public Task<ResultatResponse> GetResultatAsync(int annee, CancellationToken ct = default) =>
+        GetAsync<ResultatResponse>($"api/bilan/resultat?annee={annee}&tzOffsetMinutes={LocalTzOffsetMinutes()}", ct);
+
+    public Task<BilanComptesResponse> GetBilanComptesAsync(CancellationToken ct = default) =>
+        GetAsync<BilanComptesResponse>("api/bilan/comptes", ct);
+
+    public Task<BilanCompteDto> CreateBilanCompteAsync(SaveBilanCompteRequest request, CancellationToken ct = default) =>
+        PostAsync<BilanCompteDto>("api/bilan/comptes", request, ct);
+
+    public Task<BilanCompteDto> UpdateBilanCompteAsync(int id, SaveBilanCompteRequest request, CancellationToken ct = default) =>
+        SendAsync<BilanCompteDto>(HttpMethod.Put, $"api/bilan/comptes/{id}", request, ct);
+
+    public Task DeleteBilanCompteAsync(int id, string tableType, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Delete, $"api/bilan/comptes/{id}?tableType={Uri.EscapeDataString(tableType)}", null, ct);
+
+    public Task<List<BilanEcritureDto>> GetBilanEcrituresAsync(
+        int? compteId = null, DateOnly? dateDebut = null, DateOnly? dateFin = null, CancellationToken ct = default)
+    {
+        var query = new List<string>();
+        if (compteId is { } c) query.Add($"compteId={c}");
+        if (dateDebut is { } debut) query.Add($"dateDebut={debut:yyyy-MM-dd}");
+        if (dateFin is { } fin) query.Add($"dateFin={fin:yyyy-MM-dd}");
+        return GetAsync<List<BilanEcritureDto>>("api/bilan/ecritures" + (query.Count > 0 ? "?" + string.Join("&", query) : string.Empty), ct);
+    }
+
+    public Task<BilanEcritureDto> CreateBilanEcritureAsync(SaveBilanEcritureRequest request, CancellationToken ct = default) =>
+        PostAsync<BilanEcritureDto>("api/bilan/ecritures", request, ct);
+
+    public Task<BilanEcritureDto> UpdateBilanEcritureAsync(int id, SaveBilanEcritureRequest request, CancellationToken ct = default) =>
+        SendAsync<BilanEcritureDto>(HttpMethod.Put, $"api/bilan/ecritures/{id}", request, ct);
+
+    public Task DeleteBilanEcritureAsync(int id, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Delete, $"api/bilan/ecritures/{id}", null, ct);
+
+    public Task SetStockDebutAsync(StockSnapshotRequest request, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Put, "api/bilan/stock-snapshot", request, ct);
+
+    public Task SetResultatCompteSoldeAsync(int id, decimal solde, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Put, $"api/bilan/resultat-comptes/{id}", new ResultatCompteSoldeRequest(solde), ct);
+
     /// <summary>This machine's local time minus UTC, in minutes - what a date-range filter
     /// needs so the server can tell which UTC instants "today" (this machine's today) actually
     /// covers. Same sign convention the server's <c>LocalRangeToUtc</c> expects: positive
     /// east of UTC, negative west of it.</summary>
     private static int LocalTzOffsetMinutes() =>
         (int)TimeZoneInfo.Local.GetUtcOffset(DateTime.Now).TotalMinutes;
+
+    // --- Programme ---
+
+    /// <summary>Every entry and announcement between <paramref name="start"/> and
+    /// <paramref name="end"/> (inclusive). <paramref name="userId"/> narrows the board to one
+    /// worker - what the printable sheet and a non-admin's own view both use.</summary>
+    public Task<ProgrammeResponse> GetProgrammeAsync(
+        DateOnly start, DateOnly end, string? userId = null, CancellationToken ct = default)
+    {
+        var query = new List<string> { $"start={start:yyyy-MM-dd}", $"end={end:yyyy-MM-dd}" };
+        if (!string.IsNullOrWhiteSpace(userId)) query.Add($"userId={Uri.EscapeDataString(userId)}");
+        return GetAsync<ProgrammeResponse>("api/programme?" + string.Join("&", query), ct);
+    }
+
+    public Task<ProgrammeEntryDto> SaveProgrammeEntryAsync(
+        SaveProgrammeEntryRequest request, CancellationToken ct = default) =>
+        PostAsync<ProgrammeEntryDto>("api/programme/entries", request, ct);
+
+    public Task DeleteProgrammeEntryAsync(int id, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Delete, $"api/programme/entries/{id}", null, ct);
+
+    public Task<ProgrammeAnnouncementDto> CreateProgrammeAnnouncementAsync(
+        SaveProgrammeAnnouncementRequest request, CancellationToken ct = default) =>
+        PostAsync<ProgrammeAnnouncementDto>("api/programme/announcements", request, ct);
+
+    public Task<ProgrammeAnnouncementDto> UpdateProgrammeAnnouncementAsync(
+        int id, SaveProgrammeAnnouncementRequest request, CancellationToken ct = default) =>
+        SendAsync<ProgrammeAnnouncementDto>(HttpMethod.Put, $"api/programme/announcements/{id}", request, ct);
+
+    public Task DeleteProgrammeAnnouncementAsync(int id, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Delete, $"api/programme/announcements/{id}", null, ct);
 
     // --- Paramètres: reçu et facture ---
 

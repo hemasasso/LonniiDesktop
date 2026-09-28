@@ -245,6 +245,13 @@ public static class PrivilegeCatalog
         yield return new(Priv.Gestion.ExportBilan, "Exporter Bilan", "Permet d'exporter le bilan et le compte de résultat", bilan, false);
         yield return new(Priv.Gestion.ViewResultat, "Consulter Résultat", "Permet de consulter le compte de résultat", bilan, false);
 
+        // Not in setup_amortissement_bilan.sql or any other repo SQL, yet gestionBilan.js
+        // gates its stock-début and manual résultat amounts on it and gestion.js grants it to
+        // admins - so on the web only an admin could ever pass it. Catalogued so it can be
+        // granted to a comptable too.
+        yield return new(Priv.Gestion.EditResultatDonnees, "Modifier Données Résultat",
+            "Permet de saisir le stock de début d'année et les montants manuels du compte de résultat", bilan, true);
+
         // --- create_prestations_services_system.sql ---
         yield return new(Priv.Gestion.ViewPrestationsClients, "Voir Clients Prestations", "Permet de consulter la liste des clients", presta, false);
         yield return new(Priv.Gestion.ManagePrestationsClients, "Gérer Clients Prestations", "Permet d'ajouter, modifier et supprimer des clients", presta, false);

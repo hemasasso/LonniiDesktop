@@ -1,0 +1,78 @@
+<Window x:Class="Lonnii.Client.Views.Dialogs.CederImmobilisationDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Céder / Réformer"
+        Width="440"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="{DynamicResource Surface}">
+
+    <DockPanel>
+
+        <Border DockPanel.Dock="Top" Padding="18,14"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
+            <StackPanel>
+                <TextBlock Text="Sortie de l'actif" Style="{StaticResource PageTitle}" />
+                <TextBlock x:Name="HeaderHint" Style="{StaticResource PageSubtitle}" />
+            </StackPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" Padding="18,12"
+                Background="{DynamicResource SurfaceAlt}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
+            <Grid>
+                <TextBlock x:Name="ErrorText" Foreground="{DynamicResource Danger}"
+                           VerticalAlignment="Center" TextWrapping="Wrap"
+                           MaxWidth="200" HorizontalAlignment="Left" FontSize="12" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Annuler" IsCancel="True" Margin="0,0,8,0"
+                            Style="{StaticResource SecondaryButton}" />
+                    <Button Content="Confirmer" IsDefault="True"
+                            Style="{StaticResource DangerButton}" Click="Confirm_Click" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <StackPanel Margin="18,16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="14" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Type de sortie" Style="{StaticResource FieldLabel}" />
+                    <ComboBox x:Name="TypeCombo">
+                        <ComboBoxItem Content="Cession (vente)" Tag="cede" IsSelected="True" />
+                        <ComboBoxItem Content="Réforme (mise au rebut)" Tag="reforme" />
+                    </ComboBox>
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Date de sortie" Style="{StaticResource FieldLabel}" />
+                    <DatePicker x:Name="DatePicker" />
+                </StackPanel>
+            </Grid>
+
+            <StackPanel x:Name="ValeurPanel" Margin="0,14,0,0">
+                <TextBlock Text="Prix de cession" Style="{StaticResource FieldLabel}" />
+                <TextBox x:Name="ValeurBox" Text="0" />
+            </StackPanel>
+
+            <TextBlock Text="Motif (facultatif)" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
+            <TextBox x:Name="MotifBox" TextWrapping="Wrap" AcceptsReturn="True" Height="54" />
+
+            <Border Margin="0,16,0,0" Padding="12,10" CornerRadius="6" BorderThickness="1"
+                    Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}">
+                <StackPanel>
+                    <TextBlock x:Name="VncText" />
+                    <TextBlock x:Name="ResultText" FontWeight="SemiBold" Margin="0,4,0,0" />
+                    <TextBlock Text="L'immobilisation quitte le bilan à cette date ; ses dotations s'arrêtent à l'année de sortie."
+                               Foreground="{DynamicResource TextMuted}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+    </DockPanel>
+</Window>

@@ -7,16 +7,22 @@ namespace Lonnii.Client.Views.Dialogs;
 /// <summary>
 /// Moves stock in or out, recording why.
 ///
-/// The user types a positive quantity and picks a movement type; the sign comes from the
-/// type. That avoids the classic till mistake of typing a negative number for a movement
-/// that is already an outgoing one and adding stock by accident.
+/// For most movements the user types a positive quantity and the sign comes from the type,
+/// which avoids the classic till mistake of typing a negative number for a movement that is
+/// already outgoing. An inventory correction is different: the user types what they
+/// actually counted, and the difference from the recorded stock - up or down - is the
+/// movement.
 /// </summary>
 public partial class StockAdjustDialog : Window
 {
     private readonly ProductDto _product;
 
-    /// <summary>A movement type, its label, and whether it adds to or removes from stock.</summary>
-    private sealed record MovementOption(string Value, string Label, int Sign, string Hint);
+    /// <summary>A movement type, its label, and whether it adds to or removes from stock.
+    /// A sign of 0 means the quantity typed is the counted stock, not a change.</summary>
+    private sealed record MovementOption(string Value, string Label, int Sign, string Hint)
+    {
+        public bool IsCount => Sign == 0;
+    }
 
     private static readonly MovementOption[] Movements =
     [
@@ -26,7 +32,8 @@ public partial class StockAdjustDialog : Window
         new("damaged", "Casse ou perte", -1, "Retire des articles abîmés ou perdus."),
         new("expired", "Périmé", -1, "Retire des articles dont la date est dépassée."),
         new("transfer", "Transfert sortant", -1, "Retire des articles envoyés ailleurs."),
-        new("adjustment", "Correction d'inventaire", +1, "Corrige un écart constaté lors d'un comptage."),
+        new("adjustment", "Correction d'inventaire", 0,
+            "Indiquez la quantité réellement comptée : l'écart avec le stock enregistré, en plus ou en moins, est appliqué."),
     ];
 
     /// <summary>The request to send, once the dialog has been accepted.</summary>
@@ -56,8 +63,19 @@ public partial class StockAdjustDialog : Window
 
     private void Quantity_LostFocus(object sender, RoutedEventArgs e)
     {
-        if (Money.TryParse(QuantityBox.Text, out int quantity) && quantity > 0)
+        if (Money.TryParse(QuantityBox.Text, out int quantity) && quantity >= 0)
             QuantityBox.Text = Money.FormatPlain(quantity);
+    }
+
+    /// <summary>The signed change the typed quantity means for the selected movement, or null
+    /// when the field does not hold a usable number. A counted stock of 0 is valid.</summary>
+    private int? Change()
+    {
+        if (!Money.TryParse(QuantityBox.Text, out int quantity)) return null;
+
+        var movement = Selected;
+        if (movement.IsCount) return quantity >= 0 ? quantity - _product.Quantity : null;
+        return quantity > 0 ? movement.Sign * quantity : null;
     }
 
     /// <summary>Shows the resulting stock level before the user commits.</summary>
@@ -68,14 +86,15 @@ public partial class StockAdjustDialog : Window
 
         var movement = Selected;
         PreviewHint.Text = movement.Hint;
+        QuantityLabel.Text = movement.IsCount ? "Quantité comptée (stock réel)" : "Quantité";
 
-        if (!Money.TryParse(QuantityBox.Text, out int quantity) || quantity <= 0)
+        if (Change() is not { } change)
         {
             PreviewText.Text = $"Stock : {Money.FormatPlain(_product.Quantity)}  →  —";
+            ErrorText.Text = string.Empty;
             return;
         }
 
-        var change = movement.Sign * quantity;
         var result = _product.Quantity + change;
         var changeSign = change > 0 ? "+" : "";
 
@@ -88,7 +107,7 @@ public partial class StockAdjustDialog : Window
         }
         else
         {
-            ErrorText.Text = string.Empty;
+            ErrorText.Text = movement.IsCount && change == 0 ? "Aucun écart : le stock est déjà juste." : string.Empty;
             if (result <= _product.MinimumThreshold)
                 PreviewHint.Text = movement.Hint + "  Attention : le produit passera en stock bas.";
         }
@@ -96,15 +115,23 @@ public partial class StockAdjustDialog : Window
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
-        if (!Money.TryParse(QuantityBox.Text, out int quantity) || quantity <= 0)
+        var movement = Selected;
+
+        if (Change() is not { } change)
         {
-            ErrorText.Text = "Indiquez une quantité supérieure à zéro.";
+            ErrorText.Text = movement.IsCount
+                ? "Indiquez la quantité comptée (0 ou plus)."
+                : "Indiquez une quantité supérieure à zéro.";
             QuantityBox.Focus();
             return;
         }
 
-        var movement = Selected;
-        var change = movement.Sign * quantity;
+        if (change == 0)
+        {
+            ErrorText.Text = "Aucun écart : le stock est déjà juste.";
+            QuantityBox.Focus();
+            return;
+        }
 
         if (_product.Quantity + change < 0)
         {

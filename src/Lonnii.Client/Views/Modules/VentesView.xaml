@@ -570,6 +570,14 @@
                                                Foreground="{DynamicResource Danger}"
                                                HorizontalAlignment="Right" />
                                 </Grid>
+                                <!-- Only when the workspace's prices are HT: the TVA the till adds. -->
+                                <Grid x:Name="TvaRow" Visibility="Collapsed" Margin="0,2,0,0">
+                                    <TextBlock x:Name="TvaLabelText" Text="TVA" FontSize="11"
+                                               Foreground="{DynamicResource TextSecondary}" />
+                                    <TextBlock x:Name="TvaText" FontSize="11"
+                                               Foreground="{DynamicResource TextSecondary}"
+                                               HorizontalAlignment="Right" />
+                                </Grid>
                                 <Grid Margin="0,8,0,0">
                                     <TextBlock Text="Total" FontWeight="Bold"
                                                Foreground="{DynamicResource TextSecondary}"

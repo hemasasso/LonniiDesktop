@@ -46,7 +46,7 @@
                 </ComboBox.ItemTemplate>
             </ComboBox>
 
-            <TextBlock Text="Quantité" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
+            <TextBlock x:Name="QuantityLabel" Text="Quantité" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
             <TextBox x:Name="QuantityBox" TextChanged="Quantity_Changed" LostFocus="Quantity_LostFocus" />
 
             <Border Margin="0,12,0,0" Padding="12,10"

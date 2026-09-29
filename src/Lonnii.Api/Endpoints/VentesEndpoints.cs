@@ -663,6 +663,20 @@ public static class VentesEndpoints
         var remiseGlobale = Math.Clamp(request.RemiseGlobale, 0, total);
         total -= remiseGlobale;
 
+        // Computed here from the workspace's settings, not taken from the request: the
+        // customer is charged what the shop configured, whatever the till believed.
+        var tvaSettings = await db.VentesParametres.AsNoTracking()
+            .Where(p => p.GroupeId == scope.GroupId)
+            .Select(p => new { p.TvaMode, p.TvaRate })
+            .FirstOrDefaultAsync(ct);
+        var tvaRate = tvaSettings?.TvaRate;
+        if (TvaModes.Normalise(tvaSettings?.TvaMode) == TvaModes.Ajoutee && tvaRate is > 0)
+        {
+            vente.TvaRate = tvaRate;
+            vente.TvaAmount = TvaModes.Added(total, tvaRate.Value);
+            total += vente.TvaAmount.Value;
+        }
+
         var montantPaye = Math.Min(request.MontantPaye, total);
 
         // Hiding "Payer & Valider" behind can_add_payment on the client is not enforcement -
@@ -799,6 +813,6 @@ public static class VentesEndpoints
                 i.Id, i.ProductId, i.NomProduit, i.Quantite, i.PrixUnitaire, i.PrixTotal, i.Discount, i.DiscountType))
                 .ToList(),
             v.AvoirAmount, v.IsAvoirSolded, avoirSoldedByName, v.AvoirSoldedAt,
-            v.CancellationReason, cancelledByName, v.CancelledAt, paiements);
+            v.CancellationReason, cancelledByName, v.CancelledAt, paiements, v.TvaRate, v.TvaAmount);
     }
 }

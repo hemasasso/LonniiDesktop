@@ -413,7 +413,9 @@ public sealed record VenteDto(
     string? CancellationReason = null,
     string? CancelledByName = null,
     DateTime? CancelledAt = null,
-    IReadOnlyList<PaiementDto>? Paiements = null);
+    IReadOnlyList<PaiementDto>? Paiements = null,
+    decimal? TvaRate = null,
+    decimal? TvaAmount = null);
 
 /// <summary>One row of the "Liste des Ventes" table - lighter than <see cref="VenteDto"/>,
 /// since a list of up to a thousand sales does not need every line item loaded.</summary>
@@ -706,6 +708,29 @@ public static class ReceiptTemplates
         All.FirstOrDefault(t => string.Equals(t, template?.Trim(), StringComparison.OrdinalIgnoreCase)) ?? Ticket;
 }
 
+/// <summary>How a workspace's TVA rate relates to the prices it sells at.</summary>
+public static class TvaModes
+{
+    /// <summary>Prices already include TVA. Nothing changes at the till; the printed document
+    /// splits the total back into HT and TVA.</summary>
+    public const string Incluse = "incluse";
+
+    /// <summary>Prices are HT. The till adds TVA on top and the sale is recorded TTC, so
+    /// payments, the balance due and the caisse all count the tax the customer paid.</summary>
+    public const string Ajoutee = "ajoutee";
+
+    public static string Normalise(string? mode) =>
+        string.Equals(mode?.Trim(), Ajoutee, StringComparison.OrdinalIgnoreCase) ? Ajoutee : Incluse;
+
+    /// <summary>
+    /// TVA on an HT amount, in whole currency units. The server and the till both call this,
+    /// and every amount in the app is shown and paid in whole units - a fractional TVA would
+    /// leave a paid-in-full sale owing a few centimes.
+    /// </summary>
+    public static decimal Added(decimal amountHt, decimal rate) =>
+        Math.Round(amountHt * rate / 100m, 0, MidpointRounding.AwayFromZero);
+}
+
 /// <summary>
 /// The parts of a printed document a shop can switch off, to save paper or because its trade
 /// has no use for them. Stored as the list of <em>hidden</em> keys, so a section added later
@@ -814,12 +839,21 @@ public sealed record ReceiptSettingsDto(
     string? CompanyEmail = null,
     string? CompanyLegalInfo = null,
     string? LegalFooterText = null,
-    decimal? TvaRate = null)
+    decimal? TvaRate = null,
+    string TvaMode = TvaModes.Incluse,
+    bool ReceiptPrintAfterSale = true,
+    bool FacturePrintAfterSale = true)
 {
     public IReadOnlyList<string> HiddenSections(bool facture) =>
         (facture ? FactureHiddenSections : ReceiptHiddenSections) ?? ReceiptSettingsDefaults.DefaultHiddenSections;
 
     public string Template(bool facture) => facture ? FactureTemplate : ReceiptTemplate;
+
+    /// <summary>Whether the till opens the document for printing as soon as a sale is made.</summary>
+    public bool PrintAfterSale(bool facture) => facture ? FacturePrintAfterSale : ReceiptPrintAfterSale;
+
+    /// <summary>The rate the till adds on top of prices, or null when prices already include it.</summary>
+    public decimal? AddedTvaRate => TvaMode == TvaModes.Ajoutee && TvaRate is > 0 ? TvaRate : null;
 }
 
 /// <summary>
@@ -852,7 +886,10 @@ public sealed record UpdateReceiptSettingsRequest(
     string? CompanyEmail = null,
     string? CompanyLegalInfo = null,
     string? LegalFooterText = null,
-    decimal? TvaRate = null);
+    decimal? TvaRate = null,
+    string? TvaMode = null,
+    bool? ReceiptPrintAfterSale = null,
+    bool? FacturePrintAfterSale = null);
 
 // --- Images ---
 

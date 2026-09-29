@@ -98,6 +98,8 @@ public partial class ReceiptSettingsDialog : Window
 
         FontFamilyBox.SelectionChanged += (_, _) => RenderPreview();
         ReceiptTemplateBox.SelectionChanged += (_, _) => RenderPreview();
+        TvaIncluseRadio.Checked += (_, _) => RenderPreview();
+        TvaAjouteeRadio.Checked += (_, _) => RenderPreview();
         FactureTemplateBox.SelectionChanged += (_, _) => RenderPreview();
 
         Slider[] sliders = [FontSizeSlider, ReceiptTitleSizeSlider, FactureTitleSizeSlider];
@@ -152,6 +154,10 @@ public partial class ReceiptSettingsDialog : Window
         CompanyLegalInfoBox.Text = s.CompanyLegalInfo ?? string.Empty;
         LegalFooterBox.Text = s.LegalFooterText ?? string.Empty;
         TvaRateBox.Text = s.TvaRate is { } rate ? rate.ToString("0.##", French) : string.Empty;
+        TvaAjouteeRadio.IsChecked = s.TvaMode == TvaModes.Ajoutee;
+        TvaIncluseRadio.IsChecked = s.TvaMode != TvaModes.Ajoutee;
+        ReceiptPrintAfterSaleCheck.IsChecked = s.ReceiptPrintAfterSale;
+        FacturePrintAfterSaleCheck.IsChecked = s.FacturePrintAfterSale;
 
         ReceiptTemplateBox.SelectedValue = s.ReceiptTemplate;
         FactureTemplateBox.SelectedValue = s.FactureTemplate;
@@ -394,7 +400,10 @@ public partial class ReceiptSettingsDialog : Window
         CompanyEmail: Blank(CompanyEmailBox.Text),
         CompanyLegalInfo: Blank(CompanyLegalInfoBox.Text),
         LegalFooterText: Blank(LegalFooterBox.Text),
-        TvaRate: TryReadTvaRate(out var rate) ? rate : null);
+        TvaRate: TryReadTvaRate(out var rate) ? rate : null,
+        TvaMode: SelectedTvaMode,
+        ReceiptPrintAfterSale: ReceiptPrintAfterSaleCheck.IsChecked == true,
+        FacturePrintAfterSale: FacturePrintAfterSaleCheck.IsChecked == true);
 
     // --- Sections ----------------------------------------------------------------
 
@@ -422,7 +431,7 @@ public partial class ReceiptSettingsDialog : Window
     {
         ReceiptSections.CompanyContact => "Imprimé seulement si l'adresse, le téléphone ou l'email est rempli.",
         ReceiptSections.CompanyLegal => "Imprimé seulement si les mentions légales sont remplies.",
-        ReceiptSections.Tva => "Imprimé seulement si un taux de TVA est renseigné.",
+        ReceiptSections.Tva => "Imprimé seulement si un taux de TVA est renseigné. Toujours imprimé quand la TVA est ajoutée au prix, pour que le total s'explique.",
         ReceiptSections.LegalFooter => "Imprimé seulement si le texte de bas de page est rempli.",
         ReceiptSections.Qr => "Imprimé seulement si un QR code ou une note est configuré.",
         ReceiptSections.Cashier => "Imprimé seulement quand l'encaissement a été fait par une autre personne que le vendeur.",
@@ -488,7 +497,12 @@ public partial class ReceiptSettingsDialog : Window
         CompanyLegalInfo = Blank(CompanyLegalInfoBox.Text),
         LegalFooterText = Blank(LegalFooterBox.Text),
         TvaRate = TryReadTvaRate(out var rate) ? rate : null,
+        TvaMode = SelectedTvaMode,
+        ReceiptPrintAfterSale = ReceiptPrintAfterSaleCheck.IsChecked == true,
+        FacturePrintAfterSale = FacturePrintAfterSaleCheck.IsChecked == true,
     };
+
+    private string SelectedTvaMode => TvaAjouteeRadio.IsChecked == true ? TvaModes.Ajoutee : TvaModes.Incluse;
 
     /// <summary>
     /// Redraws the sample document from the current form values. Cheap enough to run on
@@ -504,15 +518,19 @@ public partial class ReceiptSettingsDialog : Window
         ReceiptTitleSizeLabel.Text = $"Taille du titre ({(int)ReceiptTitleSizeSlider.Value} px)";
         FactureTitleSizeLabel.Text = $"Taille du titre ({(int)FactureTitleSizeSlider.Value} px)";
 
+        var draft = Draft();
         PreviewBox.Child = ReceiptDocument.Build(
-            ReceiptData.Sample(_showingFacture), Draft(), _logoBytes, _qrBytes, FallbackCompany, forPrint: false);
+            ReceiptData.Sample(_showingFacture, draft.AddedTvaRate), draft, _logoBytes, _qrBytes, FallbackCompany,
+            forPrint: false);
     }
 
     private void FullPreview_Click(object sender, RoutedEventArgs e)
     {
         if (_loading) return;
 
-        new VenteReceiptDialog(ReceiptData.Sample(_showingFacture), Draft(), _logoBytes, _qrBytes, FallbackCompany)
+        var draft = Draft();
+        new VenteReceiptDialog(ReceiptData.Sample(_showingFacture, draft.AddedTvaRate), draft, _logoBytes, _qrBytes,
+            FallbackCompany)
         {
             Owner = this,
         }.ShowDialog();

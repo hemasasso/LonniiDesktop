@@ -115,6 +115,9 @@ public static class ParametresEndpoints
         row.CompanyLegalInfo = Blank(request.CompanyLegalInfo);
         row.LegalFooterText = Blank(request.LegalFooterText);
         row.TvaRate = request.TvaRate is > 0 ? Math.Round(request.TvaRate.Value, 2) : null;
+        row.TvaMode = TvaModes.Normalise(request.TvaMode);
+        row.ReceiptPrintAfterSale = request.ReceiptPrintAfterSale ?? row.ReceiptPrintAfterSale;
+        row.FacturePrintAfterSale = request.FacturePrintAfterSale ?? row.FacturePrintAfterSale;
 
         row.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
@@ -306,7 +309,10 @@ public static class ParametresEndpoints
         CompanyEmail: Blank(p?.CompanyEmail),
         CompanyLegalInfo: Blank(p?.CompanyLegalInfo),
         LegalFooterText: Blank(p?.LegalFooterText),
-        TvaRate: p?.TvaRate is > 0 ? p.TvaRate : null);
+        TvaRate: p?.TvaRate is > 0 ? p.TvaRate : null,
+        TvaMode: TvaModes.Normalise(p?.TvaMode),
+        ReceiptPrintAfterSale: p?.ReceiptPrintAfterSale ?? true,
+        FacturePrintAfterSale: p?.FacturePrintAfterSale ?? true);
 
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 

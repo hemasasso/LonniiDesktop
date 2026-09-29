@@ -885,20 +885,28 @@ public sealed class ReceiptDocument
         (_settings.CompanyLegalInfo ?? string.Empty)
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-    private string TvaRateLabel => (_settings.TvaRate ?? 0).ToString("0.##", French);
+    private string TvaRateLabel => (TaxBreakdown?.Rate ?? 0).ToString("0.##", French);
 
     /// <summary>
-    /// Prices are what the customer pays, so the total is taken as tax-inclusive and split
-    /// back into HT and TVA. Null when the shop set no rate or hid the section.
+    /// A sale the till added TVA to prints exactly what was charged, whatever the settings
+    /// say now - even with the section switched off, since otherwise the total would exceed
+    /// the lines above it with nothing to explain the difference. Otherwise, when prices
+    /// include TVA, the total is split back into HT and TVA. Null when there is no rate, the
+    /// section is hidden, or prices are HT but this sale was recorded before TVA was added.
     /// </summary>
-    private (decimal Ht, decimal Tva)? TaxBreakdown
+    private (decimal Ht, decimal Tva, decimal Rate)? TaxBreakdown
     {
         get
         {
-            if (!Show(ReceiptSections.Tva) || _settings.TvaRate is not { } rate || rate <= 0) return null;
+            if (_data.TvaAmount is > 0 && _data.TvaRate is { } charged)
+                return (_data.NetTotal, _data.TvaAmount.Value, charged);
+
+            if (!Show(ReceiptSections.Tva)) return null;
+
+            if (_settings.TvaMode != TvaModes.Incluse || _settings.TvaRate is not { } rate || rate <= 0) return null;
 
             var ht = Math.Round(_data.MontantTotal / (1 + rate / 100m), Money.DecimalDigits, MidpointRounding.AwayFromZero);
-            return (ht, _data.MontantTotal - ht);
+            return (ht, _data.MontantTotal - ht, rate);
         }
     }
 

@@ -159,7 +159,12 @@ public class ReceiptSettingsTests : IAsyncLifetime
         IReadOnlyList<string>? factureHidden = null,
         string? companyAddress = null,
         string? companyLegalInfo = null,
-        decimal? tvaRate = null) => new(
+        decimal? tvaRate = null,
+        string? tvaMode = null,
+        bool? receiptPrintAfterSale = null) => new(
+            TvaMode: tvaMode ?? from.TvaMode,
+            ReceiptPrintAfterSale: receiptPrintAfterSale ?? from.ReceiptPrintAfterSale,
+            FacturePrintAfterSale: from.FacturePrintAfterSale,
             ReceiptTemplate: receiptTemplate ?? from.ReceiptTemplate,
             FactureTemplate: factureTemplate ?? from.FactureTemplate,
             ReceiptHiddenSections: receiptHidden ?? from.ReceiptHiddenSections,
@@ -395,6 +400,78 @@ public class ReceiptSettingsTests : IAsyncLifetime
             From(await GetAsync(owner), tvaRate: 192.5m));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    // --- TVA at the till, and the after-sale popup ---
+
+    private async Task<VenteDto> SellAsync(Session owner, decimal price, decimal montantPaye, decimal remiseGlobale = 0)
+    {
+        var product = await (await SendAsync(HttpMethod.Post, "/api/stock/products", owner,
+            new SaveProductRequest($"Article {Guid.NewGuid():N}", price, Quantity: 10)))
+            .Content.ReadFromJsonAsync<ProductDto>();
+
+        var response = await SendAsync(HttpMethod.Post, "/api/ventes", owner,
+            new CreateVenteRequest([new CartItemRequest(product!.Id, 1, price)], "cash", montantPaye, remiseGlobale));
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+        return (await response.Content.ReadFromJsonAsync<VenteDto>())!;
+    }
+
+    [Fact]
+    public async Task WhenPricesAreHt_TheSaleIsChargedTvaOnTop()
+    {
+        var owner = await SignUpOwnerAsync();
+        await SendAsync(HttpMethod.Put, "/api/parametres/recu", owner,
+            From(await GetAsync(owner), tvaRate: 18m, tvaMode: TvaModes.Ajoutee));
+
+        var vente = await SellAsync(owner, price: 10000m, montantPaye: 11800m);
+
+        Assert.Equal(11800m, vente.MontantTotal);
+        Assert.Equal(1800m, vente.TvaAmount);
+        Assert.Equal(18m, vente.TvaRate);
+        Assert.Equal("paye", vente.StatutPaiement);
+        Assert.Equal(0m, vente.MontantRestant);
+    }
+
+    /// <summary>TVA is charged on what the customer actually pays for, after the discount.</summary>
+    [Fact]
+    public async Task TvaOnTop_IsComputedAfterTheDiscount()
+    {
+        var owner = await SignUpOwnerAsync();
+        await SendAsync(HttpMethod.Put, "/api/parametres/recu", owner,
+            From(await GetAsync(owner), tvaRate: 18m, tvaMode: TvaModes.Ajoutee));
+
+        var vente = await SellAsync(owner, price: 10000m, montantPaye: 10620m, remiseGlobale: 1000m);
+
+        Assert.Equal(1620m, vente.TvaAmount);
+        Assert.Equal(10620m, vente.MontantTotal);
+    }
+
+    [Fact]
+    public async Task WhenPricesIncludeTva_TheSaleTotalIsUnchanged()
+    {
+        var owner = await SignUpOwnerAsync();
+        await SendAsync(HttpMethod.Put, "/api/parametres/recu", owner,
+            From(await GetAsync(owner), tvaRate: 18m, tvaMode: TvaModes.Incluse));
+
+        var vente = await SellAsync(owner, price: 10000m, montantPaye: 10000m);
+
+        Assert.Equal(10000m, vente.MontantTotal);
+        Assert.Null(vente.TvaAmount);
+    }
+
+    [Fact]
+    public async Task ThePopupAfterASale_IsOnUntilTheShopTurnsItOff()
+    {
+        var owner = await SignUpOwnerAsync();
+        var initial = await GetAsync(owner);
+        Assert.True(initial.ReceiptPrintAfterSale);
+        Assert.True(initial.FacturePrintAfterSale);
+
+        await SendAsync(HttpMethod.Put, "/api/parametres/recu", owner, From(initial, receiptPrintAfterSale: false));
+
+        var settings = await GetAsync(owner);
+        Assert.False(settings.ReceiptPrintAfterSale);
+        Assert.True(settings.FacturePrintAfterSale);
     }
 
     // --- Who may read and who may write ---

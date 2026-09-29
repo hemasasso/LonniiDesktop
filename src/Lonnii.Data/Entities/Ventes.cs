@@ -72,7 +72,18 @@ public class Vente
     public string? ClientTelephone { get; set; }
     public string? ClientEmail { get; set; }
 
+    /// <summary>What the customer owes, TVA included when the till added it.</summary>
     public decimal MontantTotal { get; set; }
+
+    /// <summary>
+    /// The TVA the till added on top of HT prices, and the rate it used - both null when the
+    /// workspace's prices already include TVA. Stored with the sale rather than read from
+    /// the settings at print time, so changing the rate later cannot rewrite an old receipt.
+    /// Desktop-only columns (db/postgres/010_tva_ajoutee.sql).
+    /// </summary>
+    public decimal? TvaRate { get; set; }
+
+    public decimal? TvaAmount { get; set; }
 
     /// <summary>
     /// What has been paid so far, summed from <see cref="Paiements"/> rather than stored.
@@ -406,6 +417,15 @@ public class VentesParametres
 
     /// <summary>Percentage, e.g. 19.25. Null means the shop does not print a tax breakdown.</summary>
     public decimal? TvaRate { get; set; }
+
+    /// <summary>One of <see cref="Lonnii.Shared.Contracts.TvaModes"/>. Null reads as
+    /// <c>incluse</c>, the only behaviour before this column existed.</summary>
+    public string? TvaMode { get; set; }
+
+    /// <summary>Null reads as true: the till always opened the document after a sale.</summary>
+    public bool? ReceiptPrintAfterSale { get; set; }
+
+    public bool? FacturePrintAfterSale { get; set; }
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

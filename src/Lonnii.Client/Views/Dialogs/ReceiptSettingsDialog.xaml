@@ -148,8 +148,15 @@
 
                             <TextBlock Text="Taux de TVA (%)" Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
                             <TextBox x:Name="TvaRateBox" Width="120" HorizontalAlignment="Left" />
-                            <TextBlock Text="Laissé vide, aucun détail de TVA n'est imprimé. Les prix sont considérés TTC."
+                            <TextBlock Text="Laissé vide, aucune TVA n'est appliquée ni imprimée."
                                        Style="{StaticResource PageSubtitle}" Margin="0,3,0,0" TextWrapping="Wrap" />
+
+                            <TextBlock Text="La TVA est-elle déjà comprise dans vos prix ?" Style="{StaticResource FieldLabel}"
+                                       Margin="0,12,0,4" />
+                            <RadioButton x:Name="TvaIncluseRadio" GroupName="TvaMode" IsChecked="True"
+                                         Content="Oui - prix TTC : le montant ne change pas, la TVA est seulement détaillée" />
+                            <RadioButton x:Name="TvaAjouteeRadio" GroupName="TvaMode" Margin="0,4,0,0"
+                                         Content="Non - prix HT : la TVA est ajoutée au montant payé à la caisse" />
 
                             <TextBlock Text="Texte de bas de page" Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
                             <TextBox x:Name="LegalFooterBox" MaxLength="1000" Height="62"
@@ -166,6 +173,9 @@
                         <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
                                 BorderThickness="1" CornerRadius="3" Padding="16,12">
                             <StackPanel>
+                                <CheckBox x:Name="ReceiptPrintAfterSaleCheck" Margin="0,0,0,12"
+                                          Content="Ouvrir le reçu pour impression juste après la vente" />
+
                                 <TextBlock Text="Modèle" Style="{StaticResource FieldLabel}" />
                                 <ComboBox x:Name="ReceiptTemplateBox" Width="240" HorizontalAlignment="Left"
                                           DisplayMemberPath="Label" SelectedValuePath="Value" />
@@ -215,6 +225,9 @@
                             <StackPanel>
                                 <TextBlock Text="Une vente non réglée s'imprime comme une facture, à payer à la caisse."
                                            Style="{StaticResource PageSubtitle}" Margin="0,0,0,8" TextWrapping="Wrap" />
+
+                                <CheckBox x:Name="FacturePrintAfterSaleCheck" Margin="0,0,0,12"
+                                          Content="Ouvrir la facture pour impression juste après la vente" />
 
                                 <TextBlock Text="Modèle" Style="{StaticResource FieldLabel}" />
                                 <ComboBox x:Name="FactureTemplateBox" Width="240" HorizontalAlignment="Left"

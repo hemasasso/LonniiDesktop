@@ -390,6 +390,7 @@ public partial class VentesView : UserControl
     private async Task LoadAsync()
     {
         SetBusy(true);
+        await RefreshReceiptSettingsAsync();
         try
         {
             if (_categories.Count == 0)
@@ -744,9 +745,12 @@ public partial class VentesView : UserControl
         Money.TryParse(RemiseGlobaleBox.Text, out decimal remise);
         remise = Math.Clamp(remise, 0, afterItemDiscounts);
 
-        var total = afterItemDiscounts - remise;
+        var (tva, total) = WithTva(afterItemDiscounts - remise);
 
         SubtotalText.Text = Money.Format(rawSubtotal);
+        TvaRow.Visibility = tva > 0 ? Visibility.Visible : Visibility.Collapsed;
+        TvaLabelText.Text = $"TVA ({_receiptSettings?.AddedTvaRate:0.##} %)";
+        TvaText.Text = $"+ {Money.Format(tva)}";
         ItemDiscountRow.Visibility = itemDiscountTotal > 0 ? Visibility.Visible : Visibility.Collapsed;
         ItemDiscountText.Text = $"- {Money.Format(itemDiscountTotal)}";
         RemiseSummaryRow.Visibility = remise > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -759,6 +763,31 @@ public partial class VentesView : UserControl
         ValidateButton.IsEnabled = _cart.Count > 0 && hasCheckoutMode && _session.Can(Priv.Gestion.CreateVente);
 
         if (_cartRestored) SaveCart();
+    }
+
+    /// <summary>Read for the TVA rule and the print-after-sale switches. Null only until the
+    /// first load, or if it failed - the till then shows prices as they are.</summary>
+    private ReceiptSettingsDto? _receiptSettings;
+
+    private async Task RefreshReceiptSettingsAsync()
+    {
+        try
+        {
+            _receiptSettings = await _session.GetReceiptSettingsAsync();
+        }
+        catch (ApiException)
+        {
+            // Keeps whatever was read before; the server applies the real rule regardless.
+        }
+    }
+
+    /// <summary>The TVA the till adds and the resulting TTC, when the workspace's prices are HT.
+    /// Uses the same rounding as the server, so a paid-in-full sale is not left owing centimes.</summary>
+    private (decimal Tva, decimal Total) WithTva(decimal net)
+    {
+        if (_receiptSettings?.AddedTvaRate is not { } rate) return (0, net);
+        var tva = TvaModes.Added(net, rate);
+        return (tva, net + tva);
     }
 
     /// <summary>False until <see cref="RestoreCart"/> has run: the constructor renders the
@@ -1115,10 +1144,13 @@ public partial class VentesView : UserControl
             return;
         }
 
+        // Same settings the server will apply, re-read so a vente rapide pays the exact TTC.
+        await RefreshReceiptSettingsAsync();
+
         var subtotal = _cart.Sum(c => c.LineTotal);
         Money.TryParse(RemiseGlobaleBox.Text, out decimal remise);
         remise = Math.Clamp(remise, 0, subtotal);
-        var total = subtotal - remise;
+        var (_, total) = WithTva(subtotal - remise);
 
         var items = _cart.Select(c =>
             new CartItemRequest(c.Product.Id, c.Quantity, c.UnitPrice, c.Discount, c.DiscountType)).ToList();
@@ -1148,7 +1180,9 @@ public partial class VentesView : UserControl
             ClientTelephoneBox.Text = string.Empty;
             ClientEmailBox.Text = string.Empty;
 
-            await VenteReceiptDialog.ShowForAsync(vente, _session, Window.GetWindow(this));
+            var settings = await _session.GetReceiptSettingsAsync();
+            if (settings.PrintAfterSale(facture: vente.StatutPaiement == "en_attente"))
+                await VenteReceiptDialog.ShowForAsync(vente, _session, Window.GetWindow(this));
 
             await LoadAsync();
             if (_caisseStatus is not null) await RefreshCaisseStatusAsync();

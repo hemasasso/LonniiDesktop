@@ -29,7 +29,9 @@ public sealed record ReceiptData(
     string? ModePaiement,
     decimal AvoirAmount,
     bool IsAvoirSolded,
-    IReadOnlyList<ReceiptPayment> Paiements)
+    IReadOnlyList<ReceiptPayment> Paiements,
+    decimal? TvaRate = null,
+    decimal? TvaAmount = null)
 {
     /// <summary>An unpaid sale prints as a facture to settle at the till; anything else as a reçu.</summary>
     public bool IsFacture => StatutPaiement == "en_attente";
@@ -37,13 +39,16 @@ public sealed record ReceiptData(
     /// <summary>The pre-discount sum, so the discounts can be shown as their own line.</summary>
     public decimal RawSubtotal => Lines.Sum(l => l.UnitPrice * l.Quantity);
 
+    /// <summary>The total before any TVA the till added - what the discounts are measured against.</summary>
+    public decimal NetTotal => MontantTotal - (TvaAmount ?? 0);
+
     /// <summary>Per-line discounts plus any global one taken off the whole sale.</summary>
     public decimal TotalRemise
     {
         get
         {
             var linesTotal = Lines.Sum(l => l.Total);
-            return RawSubtotal - linesTotal + Math.Max(0, linesTotal - MontantTotal);
+            return RawSubtotal - linesTotal + Math.Max(0, linesTotal - NetTotal);
         }
     }
 
@@ -71,7 +76,9 @@ public sealed record ReceiptData(
             vente.IsAvoirSolded,
             (vente.Paiements ?? [])
                 .Select(p => new ReceiptPayment(p.Montant, p.ModePaiement, p.DatePaiement.ToLocalTime(), p.CreatedByName))
-                .ToList());
+                .ToList(),
+            vente.TvaRate,
+            vente.TvaAmount);
     }
 
     /// <summary>
@@ -79,7 +86,9 @@ public sealed record ReceiptData(
     /// optional section at once - a discounted line, a second cashier, two payments and an
     /// overpayment - so a shop sees each switch do something before it prints for real.
     /// </summary>
-    public static ReceiptData Sample(bool facture)
+    /// <param name="addedTvaRate">The rate the till would add on top, so the sample shows the
+    /// same TVA lines a real sale would; null when prices already include TVA.</param>
+    public static ReceiptData Sample(bool facture, decimal? addedTvaRate = null)
     {
         ReceiptLine[] lines =
         [
@@ -87,23 +96,26 @@ public sealed record ReceiptData(
             new("Pantalon Chino", 1, 12500m, 12500m),
             new("Ceinture Cuir", 1, 4000m, 3500m),
         ];
-        var total = lines.Sum(l => l.Total);
+        var tva = addedTvaRate is { } rate ? TvaModes.Added(lines.Sum(l => l.Total), rate) : (decimal?)null;
+        var total = lines.Sum(l => l.Total) + (tva ?? 0);
         var now = DateTime.Now;
 
         if (facture)
         {
             return new ReceiptData("V2026-00042", now, "Client Exemple", "690 00 00 00", "client@exemple.com",
-                "Jean Dupont", null, lines, total, 0m, total, "en_attente", null, 0m, false, []);
+                "Jean Dupont", null, lines, total, 0m, total, "en_attente", null, 0m, false, [], addedTvaRate, tva);
         }
 
+        const decimal avoir = 5000m;
         ReceiptPayment[] paiements =
         [
             new(20000m, "cash", now.AddDays(-2), "Jean Dupont"),
-            new(18000m, "mobile_money", now, "Awa Diallo"),
+            new(total + avoir - 20000m, "mobile_money", now, "Awa Diallo"),
         ];
         var paye = paiements.Sum(p => p.Amount);
 
         return new ReceiptData("V2026-00042", now, "Client Exemple", "690 00 00 00", "client@exemple.com",
-            "Jean Dupont", "Awa Diallo", lines, total, paye, 0m, "paye", "cash", paye - total, false, paiements);
+            "Jean Dupont", "Awa Diallo", lines, total, paye, 0m, "paye", "cash", avoir, false, paiements,
+            addedTvaRate, tva);
     }
 }

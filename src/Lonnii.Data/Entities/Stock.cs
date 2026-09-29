@@ -106,6 +106,14 @@ public class Product
     /// <summary>Optional unit shown next to the quantity, e.g. "page", "service", "copie".</summary>
     public string? UniteAffichage { get; set; }
 
+    /// <summary>
+    /// One of <c>Lonnii.Shared.Contracts.ProductTypes</c>: produit fini (sold), matière première
+    /// or autre (stocked but never offered in Ventes). New to the desktop - Lonnii Business has
+    /// no such column and sells every product - so it defaults to produit fini and an existing
+    /// catalogue is unchanged.
+    /// </summary>
+    public string TypeProduit { get; set; } = "produit_fini";
+
     // Physical properties
     public decimal? Weight { get; set; }
     public decimal? DimensionsLength { get; set; }

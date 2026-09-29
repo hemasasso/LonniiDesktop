@@ -44,6 +44,35 @@ public partial class MainWindow : Window
 
         ThemeManager.Changed += (_, _) => ApplyThemeButtonVisuals();
         ApplyThemeButtonVisuals();
+
+        _presenceTimer.Tick += async (_, _) => await SendPresenceAsync();
+        _presenceTimer.Start();
+        Closing += (_, _) => EndPresence();
+    }
+
+    // --- Presence (Audit → présences) ---
+
+    /// <summary>Once a minute: well inside the server's 2-minute "en ligne" window, so a
+    /// working till never flickers offline between beats.</summary>
+    private readonly System.Windows.Threading.DispatcherTimer _presenceTimer = new() { Interval = TimeSpan.FromSeconds(60) };
+
+    /// <summary>Tells the server this user is here, on this screen. Never surfaces an error:
+    /// attendance is a by-product of working, and a failed beat must not interrupt a sale.</summary>
+    private async Task SendPresenceAsync()
+    {
+        if (_session.Groupe is null) return;
+        try { await _session.Api.SendPresenceAsync(_currentLabel); }
+        catch (Exception ex) when (ex is ApiException or System.Net.Http.HttpRequestException or TaskCanceledException) { }
+    }
+
+    /// <summary>Closes the stretch now rather than leaving the server to notice the silence
+    /// ten minutes later. Bounded wait: closing the window must not hang on a dead network.</summary>
+    private void EndPresence()
+    {
+        _presenceTimer.Stop();
+        if (_session.Groupe is null) return;
+        try { Task.Run(() => _session.Api.EndPresenceAsync()).Wait(TimeSpan.FromSeconds(2)); }
+        catch (AggregateException) { }
     }
 
     private void DarkMode_Click(object sender, RoutedEventArgs e) => ThemeManager.Toggle();
@@ -293,7 +322,6 @@ public partial class MainWindow : Window
     {
         "program" => "🗓",
         "prestations" => "🧾",
-        "options" => "⚙",
         _ => "•",
     };
 
@@ -332,6 +360,8 @@ public partial class MainWindow : Window
 
         ContentHost.Content = view;
         BuildTopNav(_session.Menu);
+
+        _ = SendPresenceAsync();
     }
 
     private UserControl CreateModule(string key, string label) => key switch
@@ -343,7 +373,7 @@ public partial class MainWindow : Window
         "amortissement" => new AmortissementView(_session),
         "bilan" => new BilanView(_session),
         "program" => new ProgrammeView(_session),
-        "options" => new MembersView(_session),
+        "audit" => new AuditView(_session),
         "parametres" => new ParametresView(_session),
         _ => PlaceholderView.For(label, key),
     };
@@ -450,6 +480,7 @@ public partial class MainWindow : Window
 
         if (confirm != MessageBoxResult.Yes) return;
 
+        EndPresence();
         _session.SignOut();
         Application.Current.Shutdown();
     }

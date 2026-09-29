@@ -20,6 +20,10 @@ public partial class ProductDialog : Window
     /// <summary>Sentinel for the "no category" row.</summary>
     private static readonly CategoryDto NoCategory = new("", "— Aucune —", null, null, null, null, true, 0);
 
+    /// <summary>Sentinel for the "no supplier" row.</summary>
+    private static readonly SupplierDto NoSupplier =
+        new("", "— Aucun —", null, null, null, null, null, null, null, null, null, true);
+
     /// <summary>The request to send, once the dialog has been accepted.</summary>
     public SaveProductRequest? Result { get; private set; }
 
@@ -42,17 +46,31 @@ public partial class ProductDialog : Window
     /// callers that never show an image, none currently, but avoids a breaking change).
     /// </summary>
     public ProductDialog(IReadOnlyList<CategoryDto> categories, ProductDto? existing)
-        : this(categories, existing, null)
+        : this(categories, [], existing, null)
     {
     }
 
-    public ProductDialog(IReadOnlyList<CategoryDto> categories, ProductDto? existing, AppSession? session)
+    public ProductDialog(
+        IReadOnlyList<CategoryDto> categories, ProductDto? existing, AppSession? session)
+        : this(categories, [], existing, session)
+    {
+    }
+
+    public ProductDialog(
+        IReadOnlyList<CategoryDto> categories, IReadOnlyList<SupplierDto> suppliers,
+        ProductDto? existing, AppSession? session)
     {
         _existing = existing;
         _session = session;
         InitializeComponent();
 
         CategoryBox.ItemsSource = new[] { NoCategory }.Concat(categories).ToList();
+        SupplierBox.ItemsSource = new[] { NoSupplier }.Concat(suppliers).ToList();
+
+        TypeBox.ItemsSource = ProductTypes.All.Select(t => new TypeOption(t, ProductTypes.DisplayName(t))).ToList();
+        TypeBox.DisplayMemberPath = nameof(TypeOption.Label);
+        TypeBox.SelectedValuePath = nameof(TypeOption.Value);
+        TypeBox.SelectedValue = existing?.TypeProduit ?? ProductTypes.ProduitFini;
 
         if (existing is null)
         {
@@ -62,6 +80,7 @@ public partial class ProductDialog : Window
             ThresholdBox.Text = Money.FormatPlain(5);
             QuantityBox.Text = Money.FormatPlain(0);
             CategoryBox.SelectedIndex = 0;
+            SupplierBox.SelectedIndex = 0;
             PrixNegociableCheck.IsChecked = false;
         }
         else
@@ -83,6 +102,7 @@ public partial class ProductDialog : Window
             UnitBox.Text = existing.UniteAffichage ?? string.Empty;
 
             CategoryBox.SelectedValue = existing.CategoryId ?? string.Empty;
+            SupplierBox.SelectedValue = existing.SupplierId ?? string.Empty;
 
             QuantityLabel.Text = "Quantité en stock";
             QuantityBox.Text = Money.FormatPlain(existing.Quantity);
@@ -188,6 +208,18 @@ public partial class ProductDialog : Window
 
     private void VenteLibre_Changed(object sender, RoutedEventArgs e) => ApplySalesModeVisuals();
 
+    private sealed record TypeOption(string Value, string Label);
+
+    private string SelectedType => TypeBox.SelectedValue as string ?? ProductTypes.ProduitFini;
+
+    /// <summary>A product that is not for sale has no use for the till-only options, so the
+    /// hint says why it will vanish from Ventes.</summary>
+    private void Type_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (TypeHint is null) return;
+        TypeHint.Visibility = ProductTypes.IsSellable(SelectedType) ? Visibility.Collapsed : Visibility.Visible;
+    }
+
     private void Save_Click(object sender, RoutedEventArgs e)
     {
         var name = NameBox.Text.Trim();
@@ -245,6 +277,7 @@ public partial class ProductDialog : Window
         }
 
         var categoryId = (CategoryBox.SelectedItem as CategoryDto)?.Id;
+        var supplierId = (SupplierBox.SelectedItem as SupplierDto)?.Id;
 
         Result = new SaveProductRequest(
             Name: name,
@@ -253,7 +286,7 @@ public partial class ProductDialog : Window
             Sku: Blank(SkuBox.Text),
             Barcode: Blank(BarcodeBox.Text),
             CategoryId: Blank(categoryId),
-            SupplierId: _existing?.SupplierId,
+            SupplierId: Blank(supplierId),
             Quantity: quantity,
             MinimumThreshold: threshold,
             CostPrice: cost,
@@ -265,7 +298,8 @@ public partial class ProductDialog : Window
             StockIllimite: venteLibre,
             UniteAffichage: Blank(UnitBox.Text),
             StorageLocation: Blank(LocationBox.Text),
-            ExpiryDate: _existing?.ExpiryDate);
+            ExpiryDate: _existing?.ExpiryDate,
+            TypeProduit: SelectedType);
 
         DialogResult = true;
     }

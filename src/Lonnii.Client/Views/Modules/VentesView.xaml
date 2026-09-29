@@ -254,11 +254,14 @@
                                            Foreground="{DynamicResource TextMuted}" Margin="9,0,0,0"
                                            VerticalAlignment="Center" IsHitTestVisible="False" />
                             </Grid>
-                            <ComboBox x:Name="VenteSearchTypeCombo" Width="100" Margin="0,0,8,0"
+                            <!-- The Vendeur label is replaced at load by the shop's own SellerLabel
+                                 from Paramètre Reçu et Facture - see VentesView.ApplySellerLabel. -->
+                            <ComboBox x:Name="VenteSearchTypeCombo" Width="130" Margin="0,0,8,0"
                                       SelectionChanged="VenteFilters_Changed">
                                 <ComboBoxItem Content="Tous" Tag="both" IsSelected="True" />
                                 <ComboBoxItem Content="Client" Tag="client" />
-                                <ComboBoxItem Content="Vendeur" Tag="vendeur" />
+                                <ComboBoxItem x:Name="VendeurSearchItem" Content="Vendeur" Tag="vendeur" />
+                                <ComboBoxItem Content="Caissier" Tag="caissier" />
                             </ComboBox>
                             <ComboBox x:Name="VenteStatusCombo" Width="150" Margin="0,0,8,0"
                                       SelectionChanged="VenteFilters_Changed">
@@ -375,6 +378,7 @@
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                             <TextBlock Text="Par page" Style="{StaticResource PageSubtitle}" VerticalAlignment="Center" Margin="0,0,8,0" />
                             <ComboBox x:Name="CatalogPageSizeCombo" Width="70" SelectionChanged="CatalogPageSize_Changed">
+                                <ComboBoxItem Content="12" />
                                 <ComboBoxItem Content="24" IsSelected="True" />
                                 <ComboBoxItem Content="48" />
                                 <ComboBoxItem Content="96" />

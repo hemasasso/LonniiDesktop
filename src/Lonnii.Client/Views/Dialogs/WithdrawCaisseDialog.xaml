@@ -36,7 +36,19 @@
         </Border>
 
         <StackPanel Margin="18,16">
-            <TextBlock Text="Montant à retirer (espèces)" Style="{StaticResource FieldLabel}" />
+            <TextBlock Text="Retirer de" Style="{StaticResource FieldLabel}" />
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                <Button x:Name="CashModeButton" Width="90" Height="34" Margin="0,0,8,0"
+                        Style="{StaticResource PrimaryButton}" Click="Mode_Click" Tag="cash">
+                    <TextBlock Text="Espèces" Style="{StaticResource ButtonContentText}" />
+                </Button>
+                <Button x:Name="MobileModeButton" Width="110" Height="34"
+                        Style="{StaticResource SecondaryButton}" Click="Mode_Click" Tag="mobile_money">
+                    <TextBlock Text="Mobile Money" Style="{StaticResource ButtonContentText}" />
+                </Button>
+            </StackPanel>
+
+            <TextBlock Text="Montant à retirer" Style="{StaticResource FieldLabel}" />
             <TextBox x:Name="MontantBox" />
 
             <TextBlock Text="Motif" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />

@@ -112,13 +112,68 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- Coordonnées: shared by both documents; each line prints only once filled in -->
+                    <TextBlock Text="COORDONNÉES ET MENTIONS LÉGALES" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12">
+                        <StackPanel>
+                            <TextBlock Text="Chaque ligne n'est imprimée que si elle est remplie."
+                                       Style="{StaticResource PageSubtitle}" Margin="0,0,0,8" TextWrapping="Wrap" />
+
+                            <TextBlock Text="Adresse" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="CompanyAddressBox" MaxLength="255" />
+
+                            <Grid Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Téléphone" Style="{StaticResource FieldLabel}" />
+                                    <TextBox x:Name="CompanyPhoneBox" MaxLength="100" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Email" Style="{StaticResource FieldLabel}" />
+                                    <TextBox x:Name="CompanyEmailBox" MaxLength="255" />
+                                </StackPanel>
+                            </Grid>
+
+                            <TextBlock Text="Mentions légales" Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
+                            <TextBox x:Name="CompanyLegalInfoBox" MaxLength="1000" Height="62"
+                                     AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                     VerticalContentAlignment="Top" />
+                            <TextBlock Text="Une information par ligne, ex. « RCCM : … », « NIU : … », « Capital : … »."
+                                       Style="{StaticResource PageSubtitle}" Margin="0,3,0,0" TextWrapping="Wrap" />
+
+                            <TextBlock Text="Taux de TVA (%)" Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
+                            <TextBox x:Name="TvaRateBox" Width="120" HorizontalAlignment="Left" />
+                            <TextBlock Text="Laissé vide, aucun détail de TVA n'est imprimé. Les prix sont considérés TTC."
+                                       Style="{StaticResource PageSubtitle}" Margin="0,3,0,0" TextWrapping="Wrap" />
+
+                            <TextBlock Text="Texte de bas de page" Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
+                            <TextBox x:Name="LegalFooterBox" MaxLength="1000" Height="62"
+                                     AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                     VerticalContentAlignment="Top" />
+                            <TextBlock Text="Ex. « Réserve de propriété : les marchandises restent notre propriété jusqu'à complet paiement. »"
+                                       Style="{StaticResource PageSubtitle}" Margin="0,3,0,0" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+
                     <!-- Reçu-only -->
                     <StackPanel x:Name="RecuCard">
                         <TextBlock Text="REÇU" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
                         <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
                                 BorderThickness="1" CornerRadius="3" Padding="16,12">
                             <StackPanel>
-                                <TextBlock Text="Titre" Style="{StaticResource FieldLabel}" />
+                                <TextBlock Text="Modèle" Style="{StaticResource FieldLabel}" />
+                                <ComboBox x:Name="ReceiptTemplateBox" Width="240" HorizontalAlignment="Left"
+                                          DisplayMemberPath="Label" SelectedValuePath="Value" />
+
+                                <TextBlock Text="Sections imprimées" Style="{StaticResource FieldLabel}" Margin="0,12,0,4" />
+                                <WrapPanel x:Name="ReceiptSectionsPanel" />
+
+                                <TextBlock Text="Titre" Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
                                 <TextBox x:Name="ReceiptTitleBox" MaxLength="100" />
 
                                 <TextBlock x:Name="ReceiptTitleSizeLabel" Text="Taille du titre"
@@ -161,7 +216,14 @@
                                 <TextBlock Text="Une vente non réglée s'imprime comme une facture, à payer à la caisse."
                                            Style="{StaticResource PageSubtitle}" Margin="0,0,0,8" TextWrapping="Wrap" />
 
-                                <TextBlock Text="Titre" Style="{StaticResource FieldLabel}" />
+                                <TextBlock Text="Modèle" Style="{StaticResource FieldLabel}" />
+                                <ComboBox x:Name="FactureTemplateBox" Width="240" HorizontalAlignment="Left"
+                                          DisplayMemberPath="Label" SelectedValuePath="Value" />
+
+                                <TextBlock Text="Sections imprimées" Style="{StaticResource FieldLabel}" Margin="0,12,0,4" />
+                                <WrapPanel x:Name="FactureSectionsPanel" />
+
+                                <TextBlock Text="Titre" Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
                                 <TextBox x:Name="FactureTitleBox" MaxLength="100" />
 
                                 <TextBlock x:Name="FactureTitleSizeLabel" Text="Taille du titre"
@@ -223,116 +285,18 @@
                           Background="{DynamicResource Border}" IsEnabled="False" />
 
             <!-- ============ Right: live preview ============ -->
+            <!-- Drawn by the same ReceiptDocument that prints, so the preview cannot differ
+                 from the paper. Scaled down to fit the column; "Taille réelle" shows it at
+                 full size and can print a test page. -->
             <DockPanel Grid.Column="2" Background="{DynamicResource SurfaceAlt}">
-                <TextBlock DockPanel.Dock="Top" Text="APERÇU" Style="{StaticResource SectionHeader}"
-                           Margin="18,16,18,8" />
+                <DockPanel DockPanel.Dock="Top" Margin="18,16,18,8">
+                    <Button DockPanel.Dock="Right" Content="Taille réelle / test d'impression"
+                            Style="{StaticResource SecondaryButton}" Click="FullPreview_Click" />
+                    <TextBlock Text="APERÇU" Style="{StaticResource SectionHeader}" VerticalAlignment="Center" />
+                </DockPanel>
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,0,18,18">
-                    <!-- Deliberately the same structure as VenteReceiptDialog's paper: same
-                         dashed rules, same column widths, same order. A preview that is only
-                         approximately the printed document is worse than none, because it is
-                         what the shop trusts before committing. -->
-                    <Border x:Name="PreviewPaper" Width="360" Padding="22"
-                            Background="White" BorderBrush="{DynamicResource Border}" BorderThickness="1">
-                        <StackPanel>
-                            <Image x:Name="PreviewLogo" MaxHeight="64" Stretch="Uniform"
-                                   Margin="0,0,0,8" Visibility="Collapsed" />
-
-                            <TextBlock x:Name="PreviewCompany" FontWeight="Bold"
-                                       HorizontalAlignment="Center" Foreground="#4C3B9E" TextAlignment="Center"
-                                       TextWrapping="Wrap" />
-                            <TextBlock x:Name="PreviewTitle" FontWeight="Bold"
-                                       HorizontalAlignment="Center" Foreground="#4C3B9E" Margin="0,4,0,0"
-                                       TextAlignment="Center" TextWrapping="Wrap" />
-                            <TextBlock x:Name="PreviewNumero" HorizontalAlignment="Center"
-                                       Foreground="#333" Margin="0,4,0,0" />
-                            <TextBlock x:Name="PreviewDate" HorizontalAlignment="Center"
-                                       Foreground="#666" Margin="0,2,0,0" />
-
-                            <Line X1="0" Y1="0" X2="312" Y2="0" Stroke="Black" StrokeThickness="1"
-                                  StrokeDashArray="4 2" Margin="0,12,0,10" />
-
-                            <Grid Margin="0,0,0,3">
-                                <TextBlock x:Name="PreviewClientLabel" Text="Client:" Foreground="#333" />
-                                <TextBlock x:Name="PreviewClient" Text="Client Exemple" HorizontalAlignment="Right"
-                                           FontWeight="SemiBold" Foreground="Black" />
-                            </Grid>
-                            <Grid Margin="0,0,0,3">
-                                <TextBlock x:Name="PreviewSellerLabel" Foreground="#333" />
-                                <TextBlock x:Name="PreviewSeller" Text="Jean Dupont" HorizontalAlignment="Right"
-                                           FontWeight="SemiBold" Foreground="Black" />
-                            </Grid>
-
-                            <Line X1="0" Y1="0" X2="312" Y2="0" Stroke="Black" StrokeThickness="1"
-                                  StrokeDashArray="4 2" Margin="0,10,0,10" />
-
-                            <Grid Margin="0,0,0,6">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="30" />
-                                    <ColumnDefinition Width="66" />
-                                    <ColumnDefinition Width="74" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock x:Name="PreviewColArticle" Grid.Column="0" Text="Article" FontWeight="SemiBold" Foreground="Black" />
-                                <TextBlock x:Name="PreviewColQte" Grid.Column="1" Text="Qte" FontWeight="SemiBold" Foreground="Black" TextAlignment="Center" />
-                                <TextBlock x:Name="PreviewColPu" Grid.Column="2" Text="P.U" FontWeight="SemiBold" Foreground="Black" TextAlignment="Right" />
-                                <TextBlock x:Name="PreviewColTotal" Grid.Column="3" Text="Total" FontWeight="SemiBold" Foreground="Black" TextAlignment="Right" />
-                            </Grid>
-
-                            <ItemsControl x:Name="PreviewItems" />
-
-                            <Line X1="0" Y1="0" X2="312" Y2="0" Stroke="Black" StrokeThickness="1"
-                                  StrokeDashArray="4 2" Margin="0,10,0,10" />
-
-                            <Border Background="#F3F3F3" BorderBrush="Black" BorderThickness="1"
-                                    Padding="10,8" Margin="0,4,0,10">
-                                <Grid>
-                                    <TextBlock x:Name="PreviewTotalLabel" Text="TOTAL:" FontWeight="Bold" Foreground="Black" />
-                                    <TextBlock x:Name="PreviewTotal" FontWeight="Bold"
-                                               HorizontalAlignment="Right" Foreground="Black" />
-                                </Grid>
-                            </Border>
-
-                            <!-- Facture: the pay-at-till box -->
-                            <Grid x:Name="PreviewFactureNotice" Visibility="Collapsed" Margin="0,4,0,0">
-                                <Rectangle Stroke="Black" StrokeThickness="1" StrokeDashArray="3 2"
-                                           RadiusX="2" RadiusY="2" />
-                                <StackPanel Margin="10,8">
-                                    <TextBlock x:Name="PreviewFactureNoticeTitle" FontWeight="Bold"
-                                               HorizontalAlignment="Center" Foreground="Black"
-                                               TextAlignment="Center" TextWrapping="Wrap" />
-                                    <TextBlock x:Name="PreviewFactureNoticeText" HorizontalAlignment="Center"
-                                               Foreground="#333" Margin="0,3,0,0"
-                                               TextWrapping="Wrap" TextAlignment="Center" />
-                                </StackPanel>
-                            </Grid>
-
-                            <!-- Reçu: the avoir box -->
-                            <Grid x:Name="PreviewAvoirNotice" Visibility="Collapsed" Margin="0,4,0,0">
-                                <Rectangle Stroke="Black" StrokeThickness="1" StrokeDashArray="3 2"
-                                           RadiusX="2" RadiusY="2" />
-                                <StackPanel Margin="10,8">
-                                    <TextBlock x:Name="PreviewAvoirNoticeTitle" FontWeight="Bold"
-                                               HorizontalAlignment="Center" Foreground="Black"
-                                               TextAlignment="Center" TextWrapping="Wrap" />
-                                    <TextBlock x:Name="PreviewAvoirNoticeText" HorizontalAlignment="Center"
-                                               Foreground="#333" Margin="0,3,0,0"
-                                               TextWrapping="Wrap" TextAlignment="Center" />
-                                </StackPanel>
-                            </Grid>
-
-                            <TextBlock x:Name="PreviewFooter" FontWeight="SemiBold" Foreground="#4C3B9E"
-                                       HorizontalAlignment="Center" Margin="0,16,0,0"
-                                       TextAlignment="Center" TextWrapping="Wrap" />
-
-                            <StackPanel x:Name="PreviewQrPanel" Visibility="Collapsed" Margin="0,12,0,0">
-                                <Image x:Name="PreviewQr" MaxHeight="110" Stretch="Uniform"
-                                       HorizontalAlignment="Center" />
-                                <TextBlock x:Name="PreviewQrNote" HorizontalAlignment="Center" Foreground="#333"
-                                           Margin="0,5,0,0" TextAlignment="Center" TextWrapping="Wrap" />
-                            </StackPanel>
-
-                        </StackPanel>
-                    </Border>
+                    <Viewbox x:Name="PreviewBox" Stretch="Uniform" StretchDirection="DownOnly"
+                             VerticalAlignment="Top" />
                 </ScrollViewer>
             </DockPanel>
 

@@ -124,6 +124,7 @@
                                 <MenuItem x:Name="DeleteMenuItem" Header="Supprimer" Click="Delete_Click" />
                                 <Separator />
                                 <MenuItem x:Name="CategoriesMenuItem" Header="Catégories…" Click="Categories_Click" />
+                                <MenuItem x:Name="SuppliersMenuItem" Header="Fournisseurs…" Click="Suppliers_Click" />
                                 <MenuItem Header="Actualiser" Click="Refresh_Click" />
                             </ContextMenu>
                         </Button.ContextMenu>
@@ -140,6 +141,14 @@
                      the user go looking for it. -->
                 <StackPanel x:Name="AnalyseToolsPanel" Orientation="Horizontal" Visibility="Collapsed">
                     <ComboBox x:Name="AnalyseCategoryFilter" Width="180" Margin="0,0,10,6"
+                              SelectedValuePath="Id" SelectionChanged="AnalyseFilter_Changed">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Name}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <ComboBox x:Name="AnalyseSupplierFilter" Width="180" Margin="0,0,10,6"
                               SelectedValuePath="Id" SelectionChanged="AnalyseFilter_Changed">
                         <ComboBox.ItemTemplate>
                             <DataTemplate>
@@ -221,6 +230,8 @@
                     <DataGridTextColumn Header="Produit" Binding="{Binding Product.Name}" Width="2*" />
                     <DataGridTextColumn Header="SKU" Binding="{Binding Product.Sku}" Width="110" />
                     <DataGridTextColumn Header="Catégorie" Binding="{Binding Product.CategoryName}" Width="130" />
+                    <DataGridTextColumn Header="Type" Binding="{Binding Product.TypeProduitDisplay}" Width="130"
+                                        SortMemberPath="Product.TypeProduit" />
 
                     <DataGridTemplateColumn Header="Quantité" Width="90" SortMemberPath="Product.Quantity">
                         <DataGridTemplateColumn.CellTemplate>
@@ -485,6 +496,7 @@
                                     <DataGrid.Columns>
                                         <DataGridTextColumn Header="Produit" Binding="{Binding Name}" Width="2*" />
                                         <DataGridTextColumn Header="Catégorie" Binding="{Binding CategoryName}" Width="*" />
+                                        <DataGridTextColumn Header="Fournisseur" Binding="{Binding SupplierName}" Width="*" />
                                         <DataGridTextColumn Header="Quantité" Binding="{Binding QuantityDisplay}" Width="90">
                                             <DataGridTextColumn.ElementStyle>
                                                 <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}" />
@@ -559,6 +571,7 @@
                                         <DataGridTextColumn Header="Date" Binding="{Binding DateDisplay}" Width="130" />
                                         <DataGridTextColumn Header="Produit" Binding="{Binding ProductName}" Width="2*" />
                                         <DataGridTextColumn Header="Catégorie" Binding="{Binding CategoryName}" Width="*" />
+                                        <DataGridTextColumn Header="Fournisseur" Binding="{Binding SupplierName}" Width="*" />
                                         <DataGridTextColumn Header="Mouvement" Binding="{Binding Label}" Width="130" />
                                         <DataGridTextColumn Header="Quantité" Binding="{Binding QuantityDisplay}" Width="90">
                                             <DataGridTextColumn.ElementStyle>

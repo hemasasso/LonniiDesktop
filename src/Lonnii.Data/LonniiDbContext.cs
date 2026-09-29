@@ -88,6 +88,9 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
     public DbSet<ProgrammeEntry> ProgrammeEntries => Set<ProgrammeEntry>();
     public DbSet<ProgrammeAnnouncement> ProgrammeAnnouncements => Set<ProgrammeAnnouncement>();
 
+    // Audit
+    public DbSet<MemberWorkLog> MemberWorkLogs => Set<MemberWorkLog>();
+
     // Amortissement & Bilan
     public DbSet<Immobilisation> Immobilisations => Set<Immobilisation>();
     public DbSet<AmortissementEcheance> AmortissementEcheances => Set<AmortissementEcheance>();
@@ -162,6 +165,7 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         [typeof(ChargeCategory)] = "charges_categories",
         [typeof(ProgrammeEntry)] = "programme_entries",
         [typeof(ProgrammeAnnouncement)] = "programme_announcements",
+        [typeof(MemberWorkLog)] = "member_work_log",
         [typeof(Immobilisation)] = "immobilisations",
         [typeof(AmortissementEcheance)] = "amortissement_echeances",
         [typeof(BilanCompte)] = "bilan_comptes",
@@ -448,6 +452,9 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
             e.HasIndex(x => x.GroupId);
             e.HasIndex(x => new { x.GroupId, x.Sku }).IsUnique().HasFilter("sku IS NOT NULL");
             e.HasIndex(x => new { x.GroupId, x.Barcode }).IsUnique().HasFilter("barcode IS NOT NULL");
+            // Database default too, so rows that predate the column - or that Lonnii Business
+            // inserts without knowing it exists - read as sellable.
+            e.Property(x => x.TypeProduit).HasMaxLength(32).HasDefaultValue("produit_fini");
             e.HasOne(x => x.Category).WithMany()
                 .HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);
             e.HasOne(x => x.Supplier).WithMany()
@@ -578,6 +585,19 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
             e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.GroupId, x.Date });
             e.HasIndex(x => new { x.GroupId, x.UserId, x.Date });
+        });
+
+        // Indexes mirror add_work_schedule_tables.sql's own.
+        b.Entity<MemberWorkLog>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.UserId, x.GroupId, x.SessionDate });
+            e.HasIndex(x => new { x.GroupId, x.SessionDate });
+            e.Property(x => x.UserId).HasMaxLength(36);
+            e.Property(x => x.GroupId).HasMaxLength(255);
+            e.Property(x => x.SessionToken).HasMaxLength(128);
+            e.Property(x => x.CurrentModule).HasMaxLength(64);
+            e.Property(x => x.DeviceName).HasMaxLength(255);
         });
     }
 

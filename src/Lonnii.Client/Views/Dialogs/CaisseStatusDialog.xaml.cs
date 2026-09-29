@@ -24,12 +24,11 @@ public partial class CaisseStatusDialog : Window
     /// cashier can withdraw more than once - or withdraw, then close - in one visit.</summary>
     private CaisseDto _caisse;
 
-    /// <summary>Cash the drawer should hold - <see cref="CaisseDto.MontantInitialCash"/> (not
-    /// <see cref="CaisseDto.MontantInitial"/>, which also carries the mobile-money float)
-    /// plus the session's cash sale payments, minus what has been withdrawn, same formula as
-    /// CaisseEndpoints.LiveStats.ExpectedCash. Reads <see cref="_caisse"/> live, so it stays
-    /// correct across a withdrawal without needing its own refresh call.</summary>
-    private decimal ExpectedCash => _caisse.MontantInitialCash + _caisse.PaiementCash - _caisse.TotalRetraits;
+    /// <summary>Read from <see cref="_caisse"/> live, so both stay correct across a withdrawal
+    /// without their own refresh call. Same formulas as CaisseEndpoints.LiveStats.</summary>
+    private decimal ExpectedCash => _caisse.ExpectedCash;
+
+    private decimal ExpectedMobile => _caisse.ExpectedMobile;
 
     /// <summary>Set once <see cref="CloseCaisse_Click"/> accepts the input.</summary>
     public CloseCaisseRequest? CloseResult { get; private set; }
@@ -48,17 +47,18 @@ public partial class CaisseStatusDialog : Window
 
         Populate();
 
-        if (canClose)
-        {
-            MontantFinalBox.Text = Money.FormatPlain(ExpectedCash);
-            UpdateExpectedPreview();
-        }
+        // Left empty on purpose: pre-filling the expected figures invited the cashier to
+        // accept them without counting, which hides exactly the écart the count is for.
+        if (canClose) UpdateExpectedPreview();
 
-        MontantFinalBox.LostFocus += (_, _) =>
+        foreach (var box in new[] { MontantFinalBox, MontantFinalMobileBox })
         {
-            if (Money.TryParse(MontantFinalBox.Text, out decimal montant))
-                MontantFinalBox.Text = Money.FormatPlain(montant);
-        };
+            box.LostFocus += (_, _) =>
+            {
+                if (Money.TryParse(box.Text, out decimal montant))
+                    box.Text = Money.FormatPlain(montant);
+            };
+        }
     }
 
     /// <summary>(Re)paints every read-only figure from <see cref="_caisse"/>. Called once at
@@ -81,31 +81,51 @@ public partial class CaisseStatusDialog : Window
         RetraitsText.Text = $"-{Money.Format(_caisse.TotalRetraits)}";
         RetraitsPanel.ToolTip = retraits.Count == 0 ? null
             : string.Join(Environment.NewLine, retraits.Select(r =>
-                $"{r.Date.ToLocalTime():HH:mm}  {Money.Format(r.Montant)}  —  {r.Motif}"));
+                $"{r.Date.ToLocalTime():HH:mm}  {Money.Format(r.Montant)} " +
+                $"({(r.ModePaiement == "mobile_money" ? "mobile" : "espèces")})  —  {r.Motif}"));
     }
 
     private void MontantFinal_Changed(object sender, TextChangedEventArgs e) => UpdateExpectedPreview();
 
+    /// <summary>Each count shows its own expected figure and difference, and the line below
+    /// sums them into the écart the server will record - so a shortfall in cash hidden by an
+    /// excess in mobile money (or the reverse) is still visible on its own side.</summary>
     private void UpdateExpectedPreview()
     {
-        if (!Money.TryParse(MontantFinalBox.Text, out decimal counted))
+        // Fires from XAML's TextChanged before the constructor has built every control.
+        if (ExpectedText is null || ExpectedCashText is null || ExpectedMobileText is null) return;
+
+        var cash = Money.TryParse(MontantFinalBox.Text, out decimal c) ? c : (decimal?)null;
+        var mobile = Money.TryParse(MontantFinalMobileBox.Text, out decimal m) ? m : (decimal?)null;
+
+        ExpectedCashText.Text = Line(ExpectedCash, cash);
+        ExpectedMobileText.Text = Line(ExpectedMobile, mobile);
+
+        if (cash is null || mobile is null)
         {
-            ExpectedText.Text = $"Attendu : {Money.Format(ExpectedCash)}";
+            ExpectedText.Text = $"Total attendu : {Money.Format(ExpectedCash + ExpectedMobile)}";
+            ExpectedText.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondary");
             return;
         }
 
-        var ecart = counted - ExpectedCash;
-        ExpectedText.Text = ecart switch
+        var ecart = cash.Value - ExpectedCash + mobile.Value - ExpectedMobile;
+        ExpectedText.Text = $"Total attendu : {Money.Format(ExpectedCash + ExpectedMobile)}  •  " + ecart switch
         {
-            0 => $"Attendu : {Money.Format(ExpectedCash)}  •  Aucun écart",
-            > 0 => $"Attendu : {Money.Format(ExpectedCash)}  •  Excédent de {Money.Format(ecart)}",
-            _ => $"Attendu : {Money.Format(ExpectedCash)}  •  Manque de {Money.Format(-ecart)}",
+            0 => "Aucun écart",
+            > 0 => $"Écart : excédent de {Money.Format(ecart)}",
+            _ => $"Écart : manque de {Money.Format(-ecart)}",
         };
+        ExpectedText.Foreground = (System.Windows.Media.Brush)FindResource(ecart == 0 ? "Success" : "Danger");
+
+        static string Line(decimal expected, decimal? counted) =>
+            counted is not { } value || value == expected
+                ? $"Attendu : {Money.Format(expected)}"
+                : $"Attendu : {Money.Format(expected)}  ({(value > expected ? "+" : "-")}{Money.Format(Math.Abs(value - expected))})";
     }
 
     private async void Withdraw_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new WithdrawCaisseDialog(ExpectedCash) { Owner = this };
+        var dialog = new WithdrawCaisseDialog(ExpectedCash, ExpectedMobile) { Owner = this };
         if (dialog.ShowDialog() != true || dialog.Result is not { } request) return;
 
         try
@@ -125,12 +145,20 @@ public partial class CaisseStatusDialog : Window
     {
         if (!Money.TryParse(MontantFinalBox.Text, out decimal montant) || montant < 0)
         {
-            ErrorText.Text = "Indiquez le montant compté en caisse.";
+            ErrorText.Text = "Indiquez les espèces comptées en caisse.";
             MontantFinalBox.Focus();
             return;
         }
 
-        CloseResult = new CloseCaisseRequest(montant, string.IsNullOrWhiteSpace(NotesBox.Text) ? null : NotesBox.Text.Trim());
+        if (!Money.TryParse(MontantFinalMobileBox.Text, out decimal mobile) || mobile < 0)
+        {
+            ErrorText.Text = "Indiquez le solde mobile money constaté (0 s'il n'y en a pas).";
+            MontantFinalMobileBox.Focus();
+            return;
+        }
+
+        CloseResult = new CloseCaisseRequest(montant,
+            string.IsNullOrWhiteSpace(NotesBox.Text) ? null : NotesBox.Text.Trim(), mobile);
         DialogResult = true;
     }
 }

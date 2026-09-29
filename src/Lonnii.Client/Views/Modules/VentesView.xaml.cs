@@ -398,7 +398,11 @@ public partial class VentesView : UserControl
                 BuildCategoryPills();
             }
 
-            _products = await _session.Api.GetProductsAsync(search: SearchBox.Text, categoryId: _selectedCategoryId);
+            // Produits finis only: matières premières and internal-use items are stocked in
+            // Gestion de Stock but are not for sale (see ProductTypes).
+            _products = (await _session.Api.GetProductsAsync(search: SearchBox.Text, categoryId: _selectedCategoryId))
+                .Where(p => ProductTypes.IsSellable(p.TypeProduit))
+                .ToList();
             _catalogPage = 1;
             await LoadCatalogueAsync();
             if (!_catalogueLoaded) RestoreCart();
@@ -1319,9 +1323,25 @@ public partial class VentesView : UserControl
         return sb.ToString();
     }
 
+    /// <summary>Names the "Vendeur" search option after the shop's own seller label from
+    /// Paramètre Reçu et Facture (e.g. "Préparateur"), so the filter reads the same as the
+    /// printed receipt. Settings are cached by the session, so this costs nothing after the
+    /// first load; a failure just leaves the default label.</summary>
+    private async Task ApplySellerLabelAsync()
+    {
+        try
+        {
+            var settings = await _session.GetReceiptSettingsAsync();
+            if (!string.IsNullOrWhiteSpace(settings.SellerLabel))
+                VendeurSearchItem.Content = settings.SellerLabel.Trim();
+        }
+        catch (ApiException) { }
+    }
+
     private async Task LoadVentesAsync()
     {
         VenteListBusyPanel.Visibility = Visibility.Visible;
+        await ApplySellerLabelAsync();
         try
         {
             var response = await _session.Api.GetVentesAsync(

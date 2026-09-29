@@ -251,6 +251,7 @@ public class AppSession(LonniiApiClient api)
     {
         Groupe = groupe;
         Money.Label = groupe?.CurrencyLabel ?? "FCFA";
+        Money.LabelBefore = groupe?.CurrencyBefore ?? false;
     }
 
     /// <summary>True when the named privilege is granted in the current group.</summary>

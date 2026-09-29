@@ -110,6 +110,21 @@ public partial class ProgrammeView : UserControl
         await LoadAsync();
     }
 
+    /// <summary>The day picked in "Aller au", outlined on the board so it stands out once the
+    /// month is on screen. It stays marked until another date is picked.</summary>
+    private DateOnly? _focusDate;
+
+    /// <summary>Jumps straight to the month of the picked date - quicker than clicking ‹ › a
+    /// dozen times to reach a meeting planned next year or a day to check last spring.</summary>
+    private async void GoToDate_Changed(object? sender, SelectionChangedEventArgs e)
+    {
+        if (GoToDatePicker.SelectedDate is not { } picked) return;
+
+        _focusDate = DateOnly.FromDateTime(picked);
+        _month = new DateOnly(picked.Year, picked.Month, 1);
+        await LoadAsync();
+    }
+
     private string? SelectedWorkerId => (WorkerCombo.SelectedItem as WorkerRow)?.Id;
     private string SelectedWorkerName => (WorkerCombo.SelectedItem as WorkerRow)?.Nom ?? string.Empty;
 
@@ -226,12 +241,15 @@ public partial class ProgrammeView : UserControl
             });
         }
 
+        // The picked "Aller au" day wins over today's outline, since it is what the user just asked to see.
+        var isFocus = date == _focusDate;
         var cell = new Border
         {
             Margin = new Thickness(2), CornerRadius = new CornerRadius(6),
             Background = (Brush)FindResource("Surface"),
-            BorderBrush = isToday ? (Brush)FindResource("Accent") : (Brush)FindResource("Border"),
-            BorderThickness = new Thickness(isToday ? 2 : 1),
+            BorderBrush = isFocus ? (Brush)FindResource("Warning")
+                : isToday ? (Brush)FindResource("Accent") : (Brush)FindResource("Border"),
+            BorderThickness = new Thickness(isFocus ? 3 : isToday ? 2 : 1),
             Child = stack,
         };
 

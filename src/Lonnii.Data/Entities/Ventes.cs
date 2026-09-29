@@ -244,6 +244,13 @@ public class Caisse
     /// <summary>Cash counted at closing.</summary>
     public decimal? MontantFinal { get; set; }
 
+    /// <summary>
+    /// Mobile-money balance found at closing. New to the desktop: Lonnii Business counts cash
+    /// only. Null for any session closed without it, whose <see cref="Ecart"/> is then cash only;
+    /// otherwise the écart covers both - see CaisseEndpoints.FermerAsync.
+    /// </summary>
+    public decimal? MontantFinalMobile { get; set; }
+
     public int TotalVentes { get; set; }
     public decimal TotalChiffreAffaires { get; set; }
     public decimal TotalEncaisse { get; set; }
@@ -255,7 +262,8 @@ public class Caisse
     public decimal PaiementCarte { get; set; }
     public decimal PaiementAutres { get; set; }
 
-    /// <summary>Counted cash minus expected cash. Resolving a non-zero écart needs can_resolve_caisse_ecart.</summary>
+    /// <summary>Counted minus expected: cash, plus mobile money when <see cref="MontantFinalMobile"/>
+    /// was counted. Resolving a non-zero écart needs can_resolve_caisse_ecart.</summary>
     public decimal Ecart { get; set; }
 
     public bool EcartResolved { get; set; }
@@ -369,6 +377,35 @@ public class VentesParametres
     // --- Typeface, shared by both documents ---------------------------------------
     public string? ReceiptFontFamily { get; set; }
     public int? ReceiptFontSize { get; set; }
+
+    // --- Desktop-only from here: Lonnii Business has no layouts or section switches ---
+    // (db/postgres/009_receipt_templates.sql). All nullable, so a row the web app wrote
+    // still reads back as the 80 mm ticket it always printed.
+
+    /// <summary>One of <see cref="Lonnii.Shared.Contracts.ReceiptTemplates"/>.</summary>
+    public string? ReceiptTemplate { get; set; }
+
+    public string? FactureTemplate { get; set; }
+
+    /// <summary>Comma-separated <see cref="Lonnii.Shared.Contracts.ReceiptSections"/> keys the
+    /// reçu leaves out. Null means never configured; an empty string means nothing hidden.</summary>
+    public string? ReceiptHiddenSections { get; set; }
+
+    public string? FactureHiddenSections { get; set; }
+
+    public string? CompanyAddress { get; set; }
+    public string? CompanyPhone { get; set; }
+    public string? CompanyEmail { get; set; }
+
+    /// <summary>Free text, one identifier per line - RCCM, NIU, capital… Free rather than one
+    /// field per identifier because which ones a business must print differs by country.</summary>
+    public string? CompanyLegalInfo { get; set; }
+
+    /// <summary>Small print at the bottom of an A4 document, e.g. a reservation-of-title clause.</summary>
+    public string? LegalFooterText { get; set; }
+
+    /// <summary>Percentage, e.g. 19.25. Null means the shop does not print a tax breakdown.</summary>
+    public decimal? TvaRate { get; set; }
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

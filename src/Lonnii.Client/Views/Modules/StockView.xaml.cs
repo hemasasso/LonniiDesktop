@@ -27,6 +27,7 @@ public partial class StockView : UserControl
     private readonly AppSession _session;
     private List<ProductDto> _products = [];
     private List<CategoryDto> _categories = [];
+    private List<SupplierDto> _suppliers = [];
     private List<ProductDto> _pageItems = [];
     private bool _iconView = true;
     private bool _analyseTab;
@@ -69,6 +70,7 @@ public partial class StockView : UserControl
     {
         public string Name => Product.Name;
         public string? CategoryName => Product.CategoryName;
+        public string? SupplierName => Product.SupplierName;
         public string QuantityDisplay => Product.QuantityDisplay;
 
         // Stock indéfini means there is no quantity to multiply a price by at all - Quantity
@@ -98,6 +100,7 @@ public partial class StockView : UserControl
         public string DateDisplay => Movement.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm");
         public string ProductName => Movement.ProductName;
         public string CategoryName => Movement.CategoryName ?? "Sans catégorie";
+        public string SupplierName => Movement.SupplierName ?? "Sans fournisseur";
         public string Label => MovementTypeLabels.GetValueOrDefault(Movement.MovementType, Movement.MovementType);
         public string QuantityDisplay => (Movement.QuantityChanged > 0 ? "+" : string.Empty) + Money.FormatPlain(Movement.QuantityChanged);
         public string CostDisplay => Movement.TotalCost is { } cost ? Money.Format(cost) : "—";
@@ -113,6 +116,7 @@ public partial class StockView : UserControl
     /// </summary>
     private List<ProductDto>? _allProducts;
     private string? _analyseCategoryId;
+    private string? _analyseSupplierId;
     private bool _analyseLowStockOnly;
 
     /// <summary>Products load one page at a time so a large catalogue never means downloading
@@ -126,6 +130,8 @@ public partial class StockView : UserControl
 
     /// <summary>Sentinel for the "all categories" row of the filter.</summary>
     private static readonly CategoryDto AllCategories = new("", "Toutes les catégories", null, null, null, null, true, 0);
+    private static readonly SupplierDto AllSuppliers =
+        new("", "Tous les fournisseurs", null, null, null, null, null, null, null, null, null, true);
 
     /// <summary>Same 8-colour palette as Ventes' Statistiques charts, so a pie chart reads
     /// the same way regardless of which module it is in.</summary>
@@ -209,6 +215,7 @@ public partial class StockView : UserControl
         DeleteMenuItem.IsEnabled = _session.Can(Priv.Gestion.DeleteProducts);
         HistoryMenuItem.IsEnabled = _session.Can(Priv.Gestion.ViewStockHistory);
         CategoriesMenuItem.IsEnabled = _session.Can(Priv.Gestion.ManageCategories);
+        SuppliersMenuItem.IsEnabled = _session.Can(Priv.Gestion.ManageSuppliers);
         ExportButton.IsEnabled = _session.Can(Priv.Gestion.ExportStockData);
 
         // An admin-only privilege never resolves true for a member, so say why it is greyed out.
@@ -229,6 +236,9 @@ public partial class StockView : UserControl
                 CategoryFilter.ItemsSource = new[] { AllCategories }.Concat(_categories).ToList();
                 CategoryFilter.SelectedIndex = 0;
             }
+
+            if (_suppliers.Count == 0)
+                _suppliers = await _session.Api.GetSuppliersAsync();
 
             var categoryId = (CategoryFilter.SelectedItem as CategoryDto)?.Id;
             if (string.IsNullOrEmpty(categoryId)) categoryId = null;
@@ -550,6 +560,12 @@ public partial class StockView : UserControl
                 AnalyseCategoryFilter.SelectedIndex = 0;
             }
 
+            if (AnalyseSupplierFilter.ItemsSource is null)
+            {
+                AnalyseSupplierFilter.ItemsSource = new[] { AllSuppliers }.Concat(_suppliers).ToList();
+                AnalyseSupplierFilter.SelectedIndex = 0;
+            }
+
             UpdateAnalyse();
             if (_canViewStockHistory) await LoadMovementStatsAsync();
         }
@@ -567,14 +583,17 @@ public partial class StockView : UserControl
 
         _analyseCategoryId = (AnalyseCategoryFilter.SelectedItem as CategoryDto)?.Id;
         if (string.IsNullOrEmpty(_analyseCategoryId)) _analyseCategoryId = null;
+        _analyseSupplierId = (AnalyseSupplierFilter.SelectedItem as SupplierDto)?.Id;
+        if (string.IsNullOrEmpty(_analyseSupplierId)) _analyseSupplierId = null;
         _analyseLowStockOnly = AnalyseLowStockCheck.IsChecked == true;
 
         UpdateAnalyse();
 
-        // The category filter narrows the movement table too (it has no low-stock
-        // equivalent of its own - a movement is not "low stock" or not), so only a category
-        // change, not the low-stock checkbox, needs to re-fetch it.
-        if (_canViewStockHistory && sender == AnalyseCategoryFilter) await LoadMovementStatsAsync();
+        // The category/supplier filters narrow the movement table too (it has no low-stock
+        // equivalent of its own - a movement is not "low stock" or not), so only one of those
+        // changing, not the low-stock checkbox, needs to re-fetch it.
+        if (_canViewStockHistory && (sender == AnalyseCategoryFilter || sender == AnalyseSupplierFilter))
+            await LoadMovementStatsAsync();
     }
 
     private async void MovementFilter_Changed(object sender, EventArgs e)
@@ -602,8 +621,8 @@ public partial class StockView : UserControl
         var requestId = ++_movementRequestId;
         try
         {
-            var statsTask = _session.Api.GetStockMovementStatsAsync(_movementDateDebut, _movementDateFin, _analyseCategoryId);
-            var detailTask = _session.Api.GetStockMovementDetailsAsync(_movementDateDebut, _movementDateFin, _analyseCategoryId);
+            var statsTask = _session.Api.GetStockMovementStatsAsync(_movementDateDebut, _movementDateFin, _analyseCategoryId, _analyseSupplierId);
+            var detailTask = _session.Api.GetStockMovementDetailsAsync(_movementDateDebut, _movementDateFin, _analyseCategoryId, _analyseSupplierId);
             await Task.WhenAll(statsTask, detailTask);
             if (requestId != _movementRequestId) return;
 
@@ -677,6 +696,7 @@ public partial class StockView : UserControl
 
         var products = _allProducts
             .Where(p => _analyseCategoryId is null || p.CategoryId == _analyseCategoryId)
+            .Where(p => _analyseSupplierId is null || p.SupplierId == _analyseSupplierId)
             .Where(p => !_analyseLowStockOnly || p.IsLowStock)
             .ToList();
 
@@ -976,7 +996,7 @@ public partial class StockView : UserControl
 
     private async void Add_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new ProductDialog(_categories, null, _session) { Owner = Window.GetWindow(this) };
+        var dialog = new ProductDialog(_categories, _suppliers, null, _session) { Owner = Window.GetWindow(this) };
         if (dialog.ShowDialog() != true) return;
 
         try
@@ -997,7 +1017,7 @@ public partial class StockView : UserControl
     {
         if (Selected is not { } product) return;
 
-        var dialog = new ProductDialog(_categories, product, _session) { Owner = Window.GetWindow(this) };
+        var dialog = new ProductDialog(_categories, _suppliers, product, _session) { Owner = Window.GetWindow(this) };
         if (dialog.ShowDialog() != true) return;
 
         try
@@ -1054,6 +1074,18 @@ public partial class StockView : UserControl
         dialog.ShowDialog();
 
         _categories.Clear();
+        await LoadAsync();
+    }
+
+    /// <summary>Opens the supplier manager, then refreshes the cached list so the next
+    /// product dialog and the Analyse filter both see any change.</summary>
+    private async void Suppliers_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new SupplierManagerDialog(_session) { Owner = Window.GetWindow(this) };
+        dialog.ShowDialog();
+
+        _suppliers.Clear();
+        AnalyseSupplierFilter.ItemsSource = null;
         await LoadAsync();
     }
 

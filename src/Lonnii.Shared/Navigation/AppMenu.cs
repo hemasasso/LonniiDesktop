@@ -46,10 +46,9 @@ public static class AppMenu
     public static readonly IReadOnlyList<MenuEntry> Espace =
     [
         new("program", "Programme", "Gérez le calendrier et les événements", "#3b82f6", Priv.Option.ViewProgramme),
-        // Admin-only, unlike the web app. Options is where members and privileges are
-        // managed; an ordinary member could only look at it, so showing it to them just
-        // advertises a door they cannot open.
-        new("options", "Options", "Gérez les membres et les privilèges", "#8b5cf6", RequiresAdmin: true),
+        // No "Options" pill, unlike the web app: members and privileges are managed from a
+        // "MEMBRES ET PRIVILÈGES" section inside Paramètres instead - see ParametresView -
+        // so the top bar does not carry a second admin-only entry next to it.
         new("prestations", "Prestations", "Devis, factures et rentabilité", "#e11d48",
             Priv.Gestion.ViewPrestations, RequiresPrestationsEnabled: true),
     ];
@@ -64,9 +63,12 @@ public static class AppMenu
         new("prestations", "Prestation et Services", "Devis, factures et rentabilité", "#e11d48",
             Priv.Gestion.ViewPrestations, RequiresPrestationsEnabled: true),
         new("amortissement", "Amortissement", "Suivez les amortissements et immobilisations", "#4895ef", Priv.Gestion.ViewAmortissement),
-        new("bilan", "Bilan", "Bilan comptable et compte de résultat", "#6366f1", Priv.Gestion.ViewBilan),
-        new("audit", "Audit", "Surveillez les activités en temps réel", "#6366f1", Priv.Gestion.ViewAudit),
-        new("parametres", "Paramètres", "Configurez les paramètres et privilèges", "#64748b", Priv.Gestion.ViewParametres),
+        // Labelled "États financiers", not the web app's "Bilan": the screen holds both the
+        // Bilan and the Compte de résultat, and a menu entry named after only one of them
+        // hides the other. The key stays "bilan" so saved navigation state still resolves.
+        new("bilan", "États financiers", "Bilan comptable et compte de résultat", "#6366f1", Priv.Gestion.ViewBilan),
+        new("audit", "Audit", "Présences, retards et heures de travail des membres", "#6366f1", Priv.Gestion.ViewAudit),
+        new("parametres", "Paramètres", "Devise, reçus et consommation de données", "#64748b", Priv.Gestion.ViewParametres),
     ];
 
     /// <summary>

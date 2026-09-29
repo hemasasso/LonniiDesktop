@@ -9,8 +9,10 @@ using Lonnii.Shared.Security;
 namespace Lonnii.Client.Views.Modules;
 
 /// <summary>
-/// The Options screen: who is in the group, what role they hold, and which privileges
-/// they have been granted. Mirrors the web app's Option and privilege-management screens.
+/// Who is in the group, what role they hold, and which privileges they have been granted.
+/// Mirrors the web app's Option and privilege-management screens. Opened from Paramètres'
+/// "MEMBRES ET PRIVILÈGES" section via <see cref="Dialogs.MembresDialog"/>, not from its own
+/// top-bar pill - see the "no Options pill" comment on <c>AppMenu.Espace</c>.
 /// </summary>
 public partial class MembersView : UserControl
 {
@@ -340,8 +342,11 @@ public class RoleDialog : Window
         panel.Children.Add(_profileCombo);
         panel.Children.Add(new TextBlock
         {
-            Text = "Coche les privilèges Caisse, Ventes et Stock correspondants et retire les autres de ces trois sections. " +
-                   "Les autres privilèges ne sont pas modifiés. Ajustez ensuite au besoin dans « Privilèges ».",
+            Text = "Caissier / Vendeur / Stock / Responsable : coche les privilèges Caisse, Ventes et Stock " +
+                   "correspondants et retire les autres de ces trois sections - un profil remplace le précédent. " +
+                   "Comptable / Financier : ajoute leurs privilèges sans rien retirer, et peuvent donc se cumuler " +
+                   "entre eux ou avec un profil ci-dessus (rouvrez ce dialogue pour appliquer le second). " +
+                   "Ajustez ensuite au besoin dans « Privilèges ».",
             Style = (Style)Application.Current.Resources["PageSubtitle"],
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 16),

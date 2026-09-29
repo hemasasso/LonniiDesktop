@@ -152,7 +152,24 @@ public class ReceiptSettingsTests : IAsyncLifetime
         string? factureTitle = null,
         string? sellerLabel = null,
         string? fontFamily = null,
-        int? fontSize = null) => new(
+        int? fontSize = null,
+        string? receiptTemplate = null,
+        string? factureTemplate = null,
+        IReadOnlyList<string>? receiptHidden = null,
+        IReadOnlyList<string>? factureHidden = null,
+        string? companyAddress = null,
+        string? companyLegalInfo = null,
+        decimal? tvaRate = null) => new(
+            ReceiptTemplate: receiptTemplate ?? from.ReceiptTemplate,
+            FactureTemplate: factureTemplate ?? from.FactureTemplate,
+            ReceiptHiddenSections: receiptHidden ?? from.ReceiptHiddenSections,
+            FactureHiddenSections: factureHidden ?? from.FactureHiddenSections,
+            CompanyAddress: companyAddress ?? from.CompanyAddress,
+            CompanyPhone: from.CompanyPhone,
+            CompanyEmail: from.CompanyEmail,
+            CompanyLegalInfo: companyLegalInfo ?? from.CompanyLegalInfo,
+            LegalFooterText: from.LegalFooterText,
+            TvaRate: tvaRate ?? from.TvaRate,
             CompanyName: companyName ?? from.CompanyName,
             NoteUnderQr: noteUnderQr ?? from.NoteUnderQr,
             ReceiptTitle: receiptTitle ?? from.ReceiptTitle,
@@ -292,6 +309,92 @@ public class ReceiptSettingsTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var error = await response.Content.ReadFromJsonAsync<ApiError>();
         Assert.Contains("100", error!.Error);
+    }
+
+    // --- Layouts and sections ---
+
+    /// <summary>A shop that never opens the new options must keep printing the 80 mm ticket
+    /// it always printed - the only thing hidden by default is the signature zone, which did
+    /// not exist before.</summary>
+    [Fact]
+    public async Task AnUnconfiguredWorkspace_PrintsTheTicketWithOnlyTheSignatureHidden()
+    {
+        var owner = await SignUpOwnerAsync();
+
+        var settings = await GetAsync(owner);
+
+        Assert.Equal(ReceiptTemplates.Ticket, settings.ReceiptTemplate);
+        Assert.Equal(ReceiptTemplates.Ticket, settings.FactureTemplate);
+        Assert.Equal([ReceiptSections.Signature], settings.ReceiptHiddenSections);
+        Assert.Equal([ReceiptSections.Signature], settings.FactureHiddenSections);
+        Assert.Null(settings.TvaRate);
+    }
+
+    [Fact]
+    public async Task EachDocumentKeepsItsOwnLayoutAndHiddenSections()
+    {
+        var owner = await SignUpOwnerAsync();
+
+        var save = await SendAsync(HttpMethod.Put, "/api/parametres/recu", owner,
+            From(await GetAsync(owner),
+                receiptTemplate: ReceiptTemplates.Compact,
+                factureTemplate: ReceiptTemplates.A4,
+                receiptHidden: [ReceiptSections.Qr, ReceiptSections.UnitPrice],
+                factureHidden: [],
+                companyAddress: "Rue 1.234, Douala",
+                companyLegalInfo: "RCCM : RC/DLA/2020/B/123\nNIU : M012345678901A"));
+        save.EnsureSuccessStatusCode();
+
+        var settings = await GetAsync(owner);
+
+        Assert.Equal(ReceiptTemplates.Compact, settings.ReceiptTemplate);
+        Assert.Equal(ReceiptTemplates.A4, settings.FactureTemplate);
+        Assert.Equal([ReceiptSections.Qr, ReceiptSections.UnitPrice], settings.ReceiptHiddenSections);
+        Assert.Empty(settings.FactureHiddenSections!);
+        Assert.Equal("Rue 1.234, Douala", settings.CompanyAddress);
+        Assert.Equal("RCCM : RC/DLA/2020/B/123\nNIU : M012345678901A", settings.CompanyLegalInfo);
+    }
+
+    /// <summary>A key or layout this server does not know - a typo, or a newer client - must
+    /// not be stored, or it could come to mean something else once that name is used.</summary>
+    [Fact]
+    public async Task UnknownLayoutsAndSections_AreNotStored()
+    {
+        var owner = await SignUpOwnerAsync();
+
+        await SendAsync(HttpMethod.Put, "/api/parametres/recu", owner,
+            From(await GetAsync(owner),
+                receiptTemplate: "papyrus",
+                receiptHidden: ["qr", "not_a_section", "QR"]));
+
+        var settings = await GetAsync(owner);
+
+        Assert.Equal(ReceiptTemplates.Ticket, settings.ReceiptTemplate);
+        Assert.Equal([ReceiptSections.Qr], settings.ReceiptHiddenSections);
+    }
+
+    [Fact]
+    public async Task ATvaRate_IsReadBackExactly()
+    {
+        var owner = await SignUpOwnerAsync();
+
+        await SendAsync(HttpMethod.Put, "/api/parametres/recu", owner,
+            From(await GetAsync(owner), tvaRate: 19.25m));
+
+        Assert.Equal(19.25m, (await GetAsync(owner)).TvaRate);
+    }
+
+    /// <summary>Refused rather than clamped: 192.5 typed for 19.25 would otherwise print a
+    /// plausible-looking but wrong tax line on every invoice.</summary>
+    [Fact]
+    public async Task ATvaRateAboveOneHundred_IsRefused()
+    {
+        var owner = await SignUpOwnerAsync();
+
+        var response = await SendAsync(HttpMethod.Put, "/api/parametres/recu", owner,
+            From(await GetAsync(owner), tvaRate: 192.5m));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     // --- Who may read and who may write ---

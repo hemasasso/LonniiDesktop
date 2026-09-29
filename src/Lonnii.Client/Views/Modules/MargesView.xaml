@@ -154,13 +154,29 @@
                               DisplayMemberPath="Nom" SelectionChanged="CategoryFilter_Changed" />
                     <TextBlock x:Name="PeriodText" Style="{StaticResource PageSubtitle}" VerticalAlignment="Center" />
                 </StackPanel>
-                <Button Grid.Column="1" Style="{StaticResource SecondaryButton}" Click="Refresh_Click">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets"
-                                   Style="{StaticResource ButtonContentText}" Margin="0,0,6,0" />
-                        <TextBlock Text="Actualiser" Style="{StaticResource ButtonContentText}" />
-                    </StackPanel>
-                </Button>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <!-- The estimated-cost notice, folded: shown only while the notice applies
+                         and the user has closed it. -->
+                    <Button x:Name="EstimateNoticeIcon" Visibility="Collapsed" Margin="0,0,8,0"
+                            Style="{StaticResource SecondaryButton}" Padding="10,7"
+                            BorderBrush="{DynamicResource Warning}"
+                            Click="ExpandEstimateNotice_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE7BA;" FontFamily="Segoe MDL2 Assets"
+                                       Foreground="{DynamicResource Warning}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="EstimateNoticeIconText" Margin="6,0,0,0" FontSize="12"
+                                       Foreground="{DynamicResource Warning}" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource SecondaryButton}" Click="Refresh_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets"
+                                       Style="{StaticResource ButtonContentText}" Margin="0,0,6,0" />
+                            <TextBlock Text="Actualiser" Style="{StaticResource ButtonContentText}" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
             </Grid>
         </Border>
 
@@ -177,7 +193,14 @@
                 Background="{DynamicResource SurfaceAlt}"
                 BorderBrush="{DynamicResource Warning}" BorderThickness="0,0,0,1">
             <DockPanel>
+                <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Width="26" Height="26"
+                        Margin="6,0,0,0" VerticalAlignment="Center"
+                        Content="&#xE711;" FontFamily="Segoe MDL2 Assets" FontSize="11"
+                        Foreground="{DynamicResource TextPrimary}"
+                        ToolTip="Réduire (un ⚠ reste à droite de la barre de filtres pour le rouvrir)"
+                        Click="CollapseEstimateNotice_Click" />
                 <Button DockPanel.Dock="Right" Style="{StaticResource SecondaryButton}" Padding="10,3" FontSize="11"
+                        VerticalAlignment="Center"
                         Content="Voir les produits" Click="ShowEstimated_Click" />
                 <TextBlock Text="&#xE7BA;" FontFamily="Segoe MDL2 Assets" FontSize="14" Margin="0,0,10,0"
                            Foreground="{DynamicResource Warning}" VerticalAlignment="Center" />
@@ -253,7 +276,12 @@
                             <StackPanel>
                                 <TextBlock x:Name="TopProductsTitle" Style="{StaticResource CardTitle}" />
                                 <Grid Height="276">
-                                    <lvc:CartesianChart x:Name="TopProductsChart" Background="Transparent" />
+                                    <!-- ExactMatch: the tooltip shows only the bar under the cursor.
+                                         Each bar is its own series (see MargesView.Bar), and the default
+                                         strategy listed all of them - NaN placeholders included - which
+                                         overflowed the top of the chart. -->
+                                    <lvc:CartesianChart x:Name="TopProductsChart" Background="Transparent"
+                                                        FindingStrategy="ExactMatch" TooltipPosition="Auto" />
                                     <TextBlock x:Name="TopProductsEmptyText" Style="{StaticResource EmptyChartText}" />
                                 </Grid>
                                 <WrapPanel x:Name="TopProductsLegendPanel" Margin="0,6,0,0" />
@@ -264,7 +292,8 @@
                             <StackPanel>
                                 <TextBlock Text="Répartition des Produits par Taux de Marge" Style="{StaticResource CardTitle}" />
                                 <Grid Height="300">
-                                    <lvc:CartesianChart x:Name="DistributionChart" Background="Transparent" />
+                                    <lvc:CartesianChart x:Name="DistributionChart" Background="Transparent"
+                                                        FindingStrategy="ExactMatch" TooltipPosition="Auto" />
                                     <TextBlock x:Name="DistributionEmptyText" Style="{StaticResource EmptyChartText}" />
                                 </Grid>
                             </StackPanel>

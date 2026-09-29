@@ -2,10 +2,10 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Caisse ouverte"
-        Width="440"
+        Width="520" MinWidth="460" MinHeight="260"
         SizeToContent="Height"
         WindowStartupLocation="CenterOwner"
-        ResizeMode="NoResize"
+        ResizeMode="CanResizeWithGrip"
         ShowInTaskbar="False"
         Background="{DynamicResource Surface}">
 
@@ -45,6 +45,7 @@
             </Grid>
         </Border>
 
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="18,16">
 
             <Border Padding="12,10" Background="{DynamicResource SurfaceAlt}"
@@ -99,9 +100,27 @@
             </Border>
 
             <StackPanel x:Name="ClosePanel" Margin="0,16,0,0">
-                <TextBlock Text="Montant compté en caisse (espèces)" Style="{StaticResource FieldLabel}" />
-                <TextBox x:Name="MontantFinalBox" TextChanged="MontantFinal_Changed" />
-                <TextBlock x:Name="ExpectedText" Style="{StaticResource PageSubtitle}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Espèces comptées" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="MontantFinalBox" TextChanged="MontantFinal_Changed" />
+                        <TextBlock x:Name="ExpectedCashText" Style="{StaticResource PageSubtitle}" Margin="0,6,0,0"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Mobile money constaté" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="MontantFinalMobileBox" TextChanged="MontantFinal_Changed"
+                                 ToolTip="Solde du compte mobile money de la caisse au moment de la fermeture" />
+                        <TextBlock x:Name="ExpectedMobileText" Style="{StaticResource PageSubtitle}" Margin="0,6,0,0"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                </Grid>
+                <TextBlock x:Name="ExpectedText" Margin="0,10,0,0" FontWeight="SemiBold" TextWrapping="Wrap" />
 
                 <TextBlock Text="Notes de fermeture (optionnel)" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
                 <TextBox x:Name="NotesBox" Height="48" TextWrapping="Wrap" AcceptsReturn="True"
@@ -114,6 +133,7 @@
                        Visibility="Collapsed" />
 
         </StackPanel>
+        </ScrollViewer>
 
     </DockPanel>
 </Window>

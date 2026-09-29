@@ -99,6 +99,23 @@ public static class ParametresEndpoints
         row.ReceiptTitleFontSize = ReceiptSettingsDefaults.ClampTitleFontSize(request.ReceiptTitleFontSize);
         row.FactureTitleFontSize = ReceiptSettingsDefaults.ClampTitleFontSize(request.FactureTitleFontSize);
 
+        row.ReceiptTemplate = ReceiptTemplates.Normalise(request.ReceiptTemplate);
+        row.FactureTemplate = ReceiptTemplates.Normalise(request.FactureTemplate);
+
+        // Null stays null so the defaults keep applying; a list, even an empty one, is the
+        // shop's own choice and is stored as such.
+        row.ReceiptHiddenSections = request.ReceiptHiddenSections is null ? null
+            : ReceiptSections.Serialize(request.ReceiptHiddenSections);
+        row.FactureHiddenSections = request.FactureHiddenSections is null ? null
+            : ReceiptSections.Serialize(request.FactureHiddenSections);
+
+        row.CompanyAddress = Blank(request.CompanyAddress);
+        row.CompanyPhone = Blank(request.CompanyPhone);
+        row.CompanyEmail = Blank(request.CompanyEmail);
+        row.CompanyLegalInfo = Blank(request.CompanyLegalInfo);
+        row.LegalFooterText = Blank(request.LegalFooterText);
+        row.TvaRate = request.TvaRate is > 0 ? Math.Round(request.TvaRate.Value, 2) : null;
+
         row.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
 
@@ -216,6 +233,11 @@ public static class ParametresEndpoints
             ("Le libellé du vendeur", r.SellerLabel, 255),
             ("Le titre de la notice d'avoir", r.AvoirNoticeTitle, 255),
             ("Le texte de la notice d'avoir", r.AvoirNoticeText, 255),
+            ("L'adresse", r.CompanyAddress, 255),
+            ("Le téléphone", r.CompanyPhone, 100),
+            ("L'email", r.CompanyEmail, 255),
+            ("Les mentions légales", r.CompanyLegalInfo, ReceiptSettingsDefaults.MaxLegalTextLength),
+            ("Le texte de bas de page", r.LegalFooterText, ReceiptSettingsDefaults.MaxLegalTextLength),
         ];
 
         foreach (var (label, value, max) in fields)
@@ -223,6 +245,11 @@ public static class ParametresEndpoints
             if (value is { Length: > 0 } && value.Trim().Length > max)
                 return Results.BadRequest(new ApiError($"{label} ne peut pas dépasser {max} caractères."));
         }
+
+        // Refused rather than clamped: a mistyped 192.5 instead of 19.25 would otherwise print
+        // a plausible-looking but wrong tax line on every invoice.
+        if (r.TvaRate is { } rate && (rate < 0 || rate > 100))
+            return Results.BadRequest(new ApiError("Le taux de TVA doit être compris entre 0 et 100 %."));
 
         return null;
     }
@@ -269,7 +296,17 @@ public static class ParametresEndpoints
         ReceiptTitleFontSize: ReceiptSettingsDefaults.ClampTitleFontSize(
             p?.ReceiptTitleFontSize ?? ReceiptSettingsDefaults.TitleFontSize),
         FactureTitleFontSize: ReceiptSettingsDefaults.ClampTitleFontSize(
-            p?.FactureTitleFontSize ?? ReceiptSettingsDefaults.TitleFontSize));
+            p?.FactureTitleFontSize ?? ReceiptSettingsDefaults.TitleFontSize),
+        ReceiptTemplate: ReceiptTemplates.Normalise(p?.ReceiptTemplate),
+        FactureTemplate: ReceiptTemplates.Normalise(p?.FactureTemplate),
+        ReceiptHiddenSections: ReceiptSections.Parse(p?.ReceiptHiddenSections),
+        FactureHiddenSections: ReceiptSections.Parse(p?.FactureHiddenSections),
+        CompanyAddress: Blank(p?.CompanyAddress),
+        CompanyPhone: Blank(p?.CompanyPhone),
+        CompanyEmail: Blank(p?.CompanyEmail),
+        CompanyLegalInfo: Blank(p?.CompanyLegalInfo),
+        LegalFooterText: Blank(p?.LegalFooterText),
+        TvaRate: p?.TvaRate is > 0 ? p.TvaRate : null);
 
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 

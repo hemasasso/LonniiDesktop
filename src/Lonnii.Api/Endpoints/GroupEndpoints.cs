@@ -355,6 +355,7 @@ public static class GroupEndpoints
 
         var groupe = await db.Groupes.FirstAsync(g => g.Id == scope.GroupId, ct);
         groupe.CurrencyLabel = label;
+        groupe.CurrencyBefore = request.CurrencyBefore;
         await db.SaveChangesAsync(ct);
 
         var memberCount = await db.GroupMembers.CountAsync(m => m.IdGroupe == scope.GroupId, ct);
@@ -363,5 +364,5 @@ public static class GroupEndpoints
 
     private static GroupeDto ToDto(Groupe g, string role, bool isAdminGeneral, int memberCount) => new(
         g.Id, g.Nom, isAdminGeneral, role, g.GestionAccess,
-        g.PrestationsEnabled, g.PrestationsLocation, memberCount, g.CreatedAt, g.CurrencyLabel);
+        g.PrestationsEnabled, g.PrestationsLocation, memberCount, g.CreatedAt, g.CurrencyLabel, g.CurrencyBefore);
 }

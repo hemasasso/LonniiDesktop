@@ -136,4 +136,115 @@ public class CaisseTests : IAsyncLifetime
         Assert.Equal(0m, closed.Ecart);
         Assert.Equal(14_000m, closed.TotalEncaisse);
     }
+
+    /// <summary>Opens a session with a 10 000 cash + 2 000 mobile float and one sale paid
+    /// 5 000 cash and 3 000 mobile: 15 000 cash and 5 000 mobile expected at closing.</summary>
+    private async Task<Session> OpenWithMixedSaleAsync()
+    {
+        var session = await SignUpOwnerAsync();
+        await SendAsync(session, HttpMethod.Post, "/api/caisse/ouvrir",
+            new OpenCaisseRequest(MontantInitialCash: 10_000m, MontantInitialMobile: 2_000m));
+
+        var saleTime = DateTime.UtcNow;
+        await SeedAsync(db =>
+        {
+            var vente = new Vente
+            {
+                GroupId = session.GroupId, NumeroVente = "V-TEST-0002", DateVente = saleTime,
+                StatutPaiement = StatutPaiement.Paye, MontantTotal = 8_000m, CreatedBy = session.UserId,
+            };
+            vente.Paiements.Add(new PaiementVente
+            {
+                VenteId = vente.Id, Montant = 5_000m, ModePaiement = ModePaiement.Cash, DatePaiement = saleTime,
+            });
+            vente.Paiements.Add(new PaiementVente
+            {
+                VenteId = vente.Id, Montant = 3_000m, ModePaiement = ModePaiement.MobileMoney, DatePaiement = saleTime,
+            });
+            db.Ventes.Add(vente);
+        });
+
+        return session;
+    }
+
+    [Fact]
+    public async Task Closing_with_a_mobile_count_puts_both_differences_in_the_ecart()
+    {
+        var session = await OpenWithMixedSaleAsync();
+
+        // 500 cash missing, 200 mobile extra: -300 overall, each side still readable.
+        var closed = (await (await SendAsync(session, HttpMethod.Post, "/api/caisse/fermer",
+            new CloseCaisseRequest(MontantFinal: 14_500m, MontantFinalMobile: 5_200m)))
+            .Content.ReadFromJsonAsync<CaisseDto>())!;
+
+        Assert.Equal(15_000m, closed.ExpectedCash);
+        Assert.Equal(5_000m, closed.ExpectedMobile);
+        Assert.Equal(-300m, closed.Ecart);
+        Assert.Equal(-500m, closed.EcartCash);
+        Assert.Equal(200m, closed.EcartMobile);
+        Assert.Equal(20_000m, closed.ExpectedTotal);
+        Assert.Equal(19_700m, closed.CountedTotal);
+
+        // "Ajusté" corrects each count by its own share.
+        var resolved = (await (await SendAsync(session, HttpMethod.Post, $"/api/caisse/{closed.Id}/resolve-ecart",
+            new ResolveEcartRequest(EcartResolutionTypes.Adjusted)))
+            .Content.ReadFromJsonAsync<CaisseDto>())!;
+
+        Assert.Equal(0m, resolved.Ecart);
+        Assert.Equal(15_000m, resolved.MontantFinal);
+        Assert.Equal(5_000m, resolved.MontantFinalMobile);
+    }
+
+    [Fact]
+    public async Task Closing_with_cash_alone_keeps_a_cash_only_ecart()
+    {
+        var session = await OpenWithMixedSaleAsync();
+
+        var closed = (await (await SendAsync(session, HttpMethod.Post, "/api/caisse/fermer",
+            new CloseCaisseRequest(MontantFinal: 15_000m)))
+            .Content.ReadFromJsonAsync<CaisseDto>())!;
+
+        Assert.Equal(0m, closed.Ecart);
+        Assert.False(closed.MobileCounted);
+        Assert.Equal(15_000m, closed.ExpectedTotal);
+    }
+
+    [Fact]
+    public async Task A_mobile_retrait_comes_out_of_mobile_not_cash()
+    {
+        var session = await OpenWithMixedSaleAsync();
+
+        // 5 000 mobile expected before any withdrawal.
+        var beforeStatus = (await (await SendAsync(session, HttpMethod.Get, "/api/caisse/status"))
+            .Content.ReadFromJsonAsync<CaisseStatusResponse>())!.Caisse!;
+        Assert.Equal(5_000m, beforeStatus.ExpectedMobile);
+        Assert.Equal(15_000m, beforeStatus.ExpectedCash);
+
+        // Pulling more mobile money than is there is refused - built by hand since SendAsync
+        // throws on a non-2xx response.
+        using var overdrawnRequest = new HttpRequestMessage(HttpMethod.Post, "/api/caisse/retrait")
+        {
+            Content = JsonContent.Create(new WithdrawCaisseRequest(Montant: 6_000m, Motif: "Test", ModePaiement: "mobile_money")),
+        };
+        overdrawnRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", session.Token);
+        overdrawnRequest.Headers.Add("x-group-session", session.GroupSession);
+        var overdrawn = await _client.SendAsync(overdrawnRequest);
+        Assert.False(overdrawn.IsSuccessStatusCode);
+
+        // ...but a valid mobile retrait leaves cash untouched.
+        var afterRetrait = (await (await SendAsync(session, HttpMethod.Post, "/api/caisse/retrait",
+            new WithdrawCaisseRequest(Montant: 2_000m, Motif: "Recharge fournisseur", ModePaiement: "mobile_money")))
+            .Content.ReadFromJsonAsync<CaisseDto>())!;
+
+        Assert.Equal(3_000m, afterRetrait.ExpectedMobile);
+        Assert.Equal(15_000m, afterRetrait.ExpectedCash);
+        Assert.Equal(2_000m, afterRetrait.TotalRetraits);
+        Assert.Equal("mobile_money", Assert.Single(afterRetrait.Retraits!).ModePaiement);
+
+        var closed = (await (await SendAsync(session, HttpMethod.Post, "/api/caisse/fermer",
+            new CloseCaisseRequest(MontantFinal: 15_000m, MontantFinalMobile: 3_000m)))
+            .Content.ReadFromJsonAsync<CaisseDto>())!;
+
+        Assert.Equal(0m, closed.Ecart);
+    }
 }

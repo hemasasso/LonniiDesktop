@@ -70,7 +70,7 @@ public partial class PrivilegeDialog : Window
         InitializeComponent();
 
         MemberName.Text = member.Email;
-        MemberHint.Text = $"Rôle : {member.Role}";
+        MemberHint.Text = $"Rôle : {GroupRoles.DisplayName(member.Role, member.IsAdminGeneral)}";
 
         Loaded += async (_, _) => await LoadAsync();
     }
@@ -88,13 +88,23 @@ public partial class PrivilegeDialog : Window
                 return;
             }
 
+            // Prestations has ~19 privileges of its own - clutter for the common case, since
+            // the module itself is hidden everywhere else in the app until an admin turns the
+            // group's Prestations toggle on (see AppMenu's RequiresPrestationsEnabled). Left
+            // out here entirely rather than just left unchecked, so the list an admin who does
+            // not use Prestations sees matches what their shop actually has.
+            var prestationsOn = _session.Groupe?.PrestationsEnabled == true;
+            var gestion = prestationsOn ? data.Gestion : data.Gestion.Where(p => p.Module != "prestations").ToList();
+
             Tabs.Items.Clear();
-            Tabs.Items.Add(BuildTab("Gestion", data.Gestion, isGestion: true));
+            Tabs.Items.Add(BuildTab("Gestion", gestion, isGestion: true));
             Tabs.Items.Add(BuildTab("Espace", data.Option, isGestion: false));
             Tabs.SelectedIndex = 0;
 
-            var granted = data.Gestion.Count(p => p.IsGranted) + data.Option.Count(p => p.IsGranted);
-            StatusText.Text = $"{granted} privilège(s) accordé(s).";
+            var granted = gestion.Count(p => p.IsGranted) + data.Option.Count(p => p.IsGranted);
+            var hidden = data.Gestion.Count - gestion.Count;
+            StatusText.Text = $"{granted} privilège(s) accordé(s)."
+                + (hidden > 0 ? $" ({hidden} privilège(s) Prestations masqué(s) - module non activé pour cet espace.)" : string.Empty);
         }
         catch (ApiException ex)
         {

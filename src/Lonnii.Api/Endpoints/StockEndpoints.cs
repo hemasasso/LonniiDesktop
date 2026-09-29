@@ -70,6 +70,8 @@ public static class StockEndpoints
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.ViewStock);
         stock.MapPost("/suppliers", CreateSupplierAsync)
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageSuppliers);
+        stock.MapPut("/suppliers/{id}", UpdateSupplierAsync)
+            .RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageSuppliers);
     }
 
     /// <summary>
@@ -163,6 +165,7 @@ public static class StockEndpoints
             VenteLibre = request.VenteLibre,
             StockIllimite = request.StockIllimite,
             UniteAffichage = Blank(request.UniteAffichage),
+            TypeProduit = NormaliseType(request.TypeProduit),
             StorageLocation = request.StorageLocation,
             ExpiryDate = request.ExpiryDate,
             CreatedBy = scope.UserId,
@@ -232,6 +235,7 @@ public static class StockEndpoints
         product.VenteLibre = request.VenteLibre;
         product.StockIllimite = request.StockIllimite;
         product.UniteAffichage = Blank(request.UniteAffichage);
+        product.TypeProduit = NormaliseType(request.TypeProduit);
         product.StorageLocation = request.StorageLocation;
         product.ExpiryDate = request.ExpiryDate;
         product.UpdatedBy = scope.UserId;
@@ -352,7 +356,7 @@ public static class StockEndpoints
     /// two stay in sync when narrowed to one category.
     /// </summary>
     private static async Task<IResult> MovementStatsAsync(
-        DateOnly? dateDebut, DateOnly? dateFin, string? categoryId,
+        DateOnly? dateDebut, DateOnly? dateFin, string? categoryId, string? supplierId,
         GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
         var query = db.StockHistories.AsNoTracking().Where(h => h.GroupId == scope.GroupId);
@@ -363,6 +367,8 @@ public static class StockEndpoints
             query = query.Where(h => h.CreatedAt < end.ToDateTime(TimeOnly.MinValue).AddDays(1));
         if (!string.IsNullOrWhiteSpace(categoryId))
             query = query.Where(h => h.Product!.CategoryId == categoryId);
+        if (!string.IsNullOrWhiteSpace(supplierId))
+            query = query.Where(h => h.Product!.SupplierId == supplierId);
 
         var movements = await query
             .GroupBy(h => h.MovementType)
@@ -382,7 +388,7 @@ public static class StockEndpoints
     /// des Mouvements" table right below the per-type summary.
     /// </summary>
     private static async Task<IResult> MovementDetailsAsync(
-        DateOnly? dateDebut, DateOnly? dateFin, string? categoryId,
+        DateOnly? dateDebut, DateOnly? dateFin, string? categoryId, string? supplierId,
         GroupScope scope, LonniiDbContext db, CancellationToken ct, int limit = 100)
     {
         var query = db.StockHistories.AsNoTracking()
@@ -394,12 +400,15 @@ public static class StockEndpoints
             query = query.Where(h => h.CreatedAt < end.ToDateTime(TimeOnly.MinValue).AddDays(1));
         if (!string.IsNullOrWhiteSpace(categoryId))
             query = query.Where(h => h.Product!.CategoryId == categoryId);
+        if (!string.IsNullOrWhiteSpace(supplierId))
+            query = query.Where(h => h.Product!.SupplierId == supplierId);
 
         var movements = await query
             .OrderByDescending(h => h.CreatedAt)
             .Take(Math.Clamp(limit, 1, 500))
             .Select(h => new StockMovementDetailDto(
                 h.Id, h.ProductId, h.Product!.Name, h.Product.Category != null ? h.Product.Category.Name : null,
+                h.Product.Supplier != null ? h.Product.Supplier.Name : null,
                 h.MovementType, h.QuantityChanged, h.TotalCost, h.Reason, h.CreatedAt))
             .ToListAsync(ct);
 
@@ -601,39 +610,82 @@ public static class StockEndpoints
         var suppliers = await db.Suppliers
             .Where(s => s.GroupId == scope.GroupId)
             .OrderBy(s => s.Name)
-            .Select(s => new SupplierDto(s.Id, s.Name, s.ContactPerson, s.Email, s.Phone, s.City, s.Rating, s.IsActive))
+            .Select(s => new SupplierDto(
+                s.Id, s.Name, s.ContactPerson, s.Email, s.Phone, s.Address, s.City, s.Country,
+                s.PaymentTerms, s.Notes, s.Rating, s.IsActive))
             .ToListAsync(ct);
 
         return Results.Ok(suppliers);
     }
 
     private static async Task<IResult> CreateSupplierAsync(
-        SupplierDto request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
+        SaveSupplierRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(request.Name))
-            return Results.BadRequest(new ApiError("Le nom du fournisseur est requis"));
+        var validationError = ValidateSupplier(request);
+        if (validationError is not null) return Results.BadRequest(new ApiError(validationError));
 
-        if (request.Rating is { } rating && rating is < 1 or > 5)
-            return Results.BadRequest(new ApiError("La note doit être comprise entre 1 et 5"));
+        var name = request.Name.Trim();
+        if (await db.Suppliers.AnyAsync(s => s.GroupId == scope.GroupId && s.Name == name, ct))
+            return Results.Conflict(new ApiError("Ce fournisseur existe déjà"));
 
-        var supplier = new Supplier
-        {
-            GroupId = scope.GroupId,
-            Name = request.Name.Trim(),
-            ContactPerson = request.ContactPerson,
-            Email = request.Email,
-            Phone = request.Phone,
-            City = request.City,
-            Rating = request.Rating,
-        };
+        var supplier = new Supplier { GroupId = scope.GroupId };
+        ApplySupplier(supplier, request);
 
         db.Suppliers.Add(supplier);
         await db.SaveChangesAsync(ct);
 
-        return Results.Created($"/api/stock/suppliers/{supplier.Id}",
-            new SupplierDto(supplier.Id, supplier.Name, supplier.ContactPerson, supplier.Email,
-                supplier.Phone, supplier.City, supplier.Rating, supplier.IsActive));
+        return Results.Created($"/api/stock/suppliers/{supplier.Id}", ToDto(supplier));
     }
+
+    private static async Task<IResult> UpdateSupplierAsync(
+        string id, SaveSupplierRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
+    {
+        var validationError = ValidateSupplier(request);
+        if (validationError is not null) return Results.BadRequest(new ApiError(validationError));
+
+        var supplier = await db.Suppliers.FirstOrDefaultAsync(s => s.Id == id && s.GroupId == scope.GroupId, ct);
+        if (supplier is null) return Results.NotFound(new ApiError("Fournisseur introuvable"));
+
+        var name = request.Name.Trim();
+        if (await db.Suppliers.AnyAsync(s => s.GroupId == scope.GroupId && s.Name == name && s.Id != id, ct))
+            return Results.Conflict(new ApiError("Ce fournisseur existe déjà"));
+
+        ApplySupplier(supplier, request);
+        supplier.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(ToDto(supplier));
+    }
+
+    private static string? ValidateSupplier(SaveSupplierRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Name))
+            return "Le nom du fournisseur est requis";
+
+        if (request.Rating is { } rating && rating is < 1 or > 5)
+            return "La note doit être comprise entre 1 et 5";
+
+        return null;
+    }
+
+    private static void ApplySupplier(Supplier supplier, SaveSupplierRequest request)
+    {
+        supplier.Name = request.Name.Trim();
+        supplier.ContactPerson = Blank(request.ContactPerson);
+        supplier.Email = Blank(request.Email);
+        supplier.Phone = Blank(request.Phone);
+        supplier.Address = Blank(request.Address);
+        supplier.City = Blank(request.City);
+        supplier.Country = Blank(request.Country);
+        supplier.PaymentTerms = Blank(request.PaymentTerms);
+        supplier.Notes = Blank(request.Notes);
+        supplier.Rating = request.Rating;
+        supplier.IsActive = request.IsActive;
+    }
+
+    private static SupplierDto ToDto(Supplier s) => new(
+        s.Id, s.Name, s.ContactPerson, s.Email, s.Phone, s.Address, s.City, s.Country,
+        s.PaymentTerms, s.Notes, s.Rating, s.IsActive);
 
     /// <summary>
     /// Checks SKU and barcode uniqueness within the group before the database does, so the
@@ -727,5 +779,11 @@ public static class StockEndpoints
         p.SupplierId, p.Supplier != null ? p.Supplier.Name : null,
         p.Quantity, p.MinimumThreshold, p.CostPrice, p.Price, p.PrixFixe,
         p.VenteLibre, p.StockIllimite, p.UniteAffichage,
-        p.IsActive, p.StorageLocation, p.ExpiryDate, p.ImageUrl, p.UpdatedAt);
+        p.IsActive, p.StorageLocation, p.ExpiryDate, p.ImageUrl, p.UpdatedAt,
+        NormaliseType(p.TypeProduit));
+
+    /// <summary>An unknown or missing type is stored and reported as produit fini - the only
+    /// value that keeps a product sellable, which is what it was before the column existed.</summary>
+    private static string NormaliseType(string? type) =>
+        type is not null && ProductTypes.All.Contains(type) ? type : ProductTypes.ProduitFini;
 }

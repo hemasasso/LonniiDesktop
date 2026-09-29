@@ -61,13 +61,15 @@ public sealed record GroupeDto(
     string? PrestationsLocation,
     int MemberCount,
     DateTime CreatedAt,
-    string CurrencyLabel);
+    string CurrencyLabel,
+    bool CurrencyBefore = false);
 
 /// <summary>Request to create a group. The caller becomes its Admin Général.</summary>
 public sealed record CreateGroupeRequest(string Nom, bool GestionAccess = true);
 
-/// <summary>Changes the currency label shown after every amount in this workspace.</summary>
-public sealed record UpdateCurrencyRequest(string CurrencyLabel);
+/// <summary>Changes the currency label shown with every amount in this workspace, and
+/// whether it goes before the amount (<c>$ 1 000</c>) or after it (<c>1 000 FCFA</c>).</summary>
+public sealed record UpdateCurrencyRequest(string CurrencyLabel, bool CurrencyBefore = false);
 
 /// <summary>
 /// A scoped session for one group. The client sends <paramref name="SessionToken"/>
@@ -158,6 +160,31 @@ public sealed record MenuResponse(
 
 // --- Stock ---
 
+/// <summary>
+/// Values of <see cref="ProductDto.TypeProduit"/>. Only a <see cref="ProduitFini"/> appears in
+/// the Ventes catalogue; the other two are stocked, adjusted and valued like any product but
+/// never offered for sale - flour at a bakery, packaging, cleaning supplies.
+/// </summary>
+public static class ProductTypes
+{
+    public const string ProduitFini = "produit_fini";
+    public const string MatierePremiere = "matiere_premiere";
+    public const string Autre = "autre";
+
+    public static readonly IReadOnlyList<string> All = [ProduitFini, MatierePremiere, Autre];
+
+    public static string DisplayName(string? type) => type switch
+    {
+        MatierePremiere => "Matière première",
+        Autre => "Autre (usage interne)",
+        _ => "Produit fini",
+    };
+
+    /// <summary>A missing or unknown value counts as sellable, which is what every product
+    /// created before this column existed - and every product Lonnii Business creates - is.</summary>
+    public static bool IsSellable(string? type) => type is null or ProduitFini || !All.Contains(type);
+}
+
 /// <summary>A product row, as shown in the Gestion de Stock grid.</summary>
 public sealed record ProductDto(
     string Id,
@@ -181,8 +208,11 @@ public sealed record ProductDto(
     string? StorageLocation,
     DateTime? ExpiryDate,
     string? ImageUrl,
-    DateTime UpdatedAt)
+    DateTime UpdatedAt,
+    string TypeProduit = ProductTypes.ProduitFini)
 {
+    public string TypeProduitDisplay => ProductTypes.DisplayName(TypeProduit);
+
     /// <summary>True when stock has fallen to or below the alert threshold. A product sold
     /// without stock tracking or with unlimited stock is never low.</summary>
     public bool IsLowStock => !VenteLibre && !StockIllimite && Quantity <= MinimumThreshold;
@@ -214,7 +244,8 @@ public sealed record SaveProductRequest(
     bool StockIllimite = false,
     string? UniteAffichage = null,
     string? StorageLocation = null,
-    DateTime? ExpiryDate = null);
+    DateTime? ExpiryDate = null,
+    string TypeProduit = ProductTypes.ProduitFini);
 
 /// <summary>Adjusts stock by a signed amount, recording why.</summary>
 public sealed record AdjustStockRequest(int QuantityChanged, string MovementType, string? Reason = null);
@@ -251,7 +282,7 @@ public sealed record StockMovementStatsResponse(IReadOnlyList<StockMovementStatD
 /// category) each movement actually happened to.
 /// </summary>
 public sealed record StockMovementDetailDto(
-    string Id, string ProductId, string ProductName, string? CategoryName,
+    string Id, string ProductId, string ProductName, string? CategoryName, string? SupplierName,
     string MovementType, int QuantityChanged, decimal? TotalCost, string? Reason, DateTime CreatedAt);
 
 /// <summary>Response of <c>GET /api/stock/movements/detail</c>.</summary>
@@ -277,7 +308,33 @@ public sealed record SaveCategoryRequest(
     bool IsActive = true);
 
 /// <summary>A supplier.</summary>
-public sealed record SupplierDto(string Id, string Name, string? ContactPerson, string? Email, string? Phone, string? City, int? Rating, bool IsActive);
+public sealed record SupplierDto(
+    string Id,
+    string Name,
+    string? ContactPerson,
+    string? Email,
+    string? Phone,
+    string? Address,
+    string? City,
+    string? Country,
+    string? PaymentTerms,
+    string? Notes,
+    int? Rating,
+    bool IsActive);
+
+/// <summary>Creates or updates a supplier.</summary>
+public sealed record SaveSupplierRequest(
+    string Name,
+    string? ContactPerson = null,
+    string? Email = null,
+    string? Phone = null,
+    string? Address = null,
+    string? City = null,
+    string? Country = null,
+    string? PaymentTerms = null,
+    string? Notes = null,
+    int? Rating = null,
+    bool IsActive = true);
 
 // --- Ventes ---
 
@@ -467,13 +524,45 @@ public sealed record CaisseDto(
     string? EcartResolutionNote,
     string Status,
     string? Notes,
-    IReadOnlyList<CaisseRetraitDto>? Retraits = null)
+    IReadOnlyList<CaisseRetraitDto>? Retraits = null,
+    decimal? MontantFinalMobile = null)
 {
     public decimal TotalRetraits => Retraits?.Sum(r => r.Montant) ?? 0;
+
+    /// <summary>The cash share of <see cref="TotalRetraits"/> - everything not explicitly
+    /// tagged mobile money, so a withdrawal recorded before the split existed still counts here.</summary>
+    public decimal TotalRetraitsCash => Retraits?.Where(r => r.ModePaiement != "mobile_money").Sum(r => r.Montant) ?? 0;
+
+    public decimal TotalRetraitsMobile => Retraits?.Where(r => r.ModePaiement == "mobile_money").Sum(r => r.Montant) ?? 0;
+
+    /// <summary>Cash the drawer should hold: cash float + cash taken − cash withdrawals.</summary>
+    public decimal ExpectedCash => MontantInitialCash + PaiementCash - TotalRetraitsCash;
+
+    /// <summary>Mobile money the till's account should hold: mobile float + mobile payments
+    /// − mobile withdrawals.</summary>
+    public decimal ExpectedMobile => MontantInitialMobile + PaiementMobile - TotalRetraitsMobile;
+
+    /// <summary>False for a session closed with a cash count alone - every session closed
+    /// before the mobile count existed, or by Lonnii Business. Its écart is cash only.</summary>
+    public bool MobileCounted => MontantFinalMobile is not null;
+
+    /// <summary>The mobile share of <see cref="Ecart"/>; the rest is cash.</summary>
+    public decimal EcartMobile => MontantFinalMobile is { } mobile ? mobile - ExpectedMobile : 0;
+
+    public decimal EcartCash => Ecart - EcartMobile;
+
+    /// <summary>What the till should hold in all, measured the same way <see cref="Ecart"/>
+    /// was: a session closed on cash alone is expected to hold its cash alone.</summary>
+    public decimal ExpectedTotal => ExpectedCash + (Status == "closed" && !MobileCounted ? 0 : ExpectedMobile);
+
+    /// <summary>What was counted in all at closing; null while open.</summary>
+    public decimal? CountedTotal => MontantFinal is { } cash ? cash + (MontantFinalMobile ?? 0) : null;
 }
 
-/// <summary>One manual cash withdrawal ("Retirer de la caisse") from a session.</summary>
-public sealed record CaisseRetraitDto(decimal Montant, string Motif, DateTime Date);
+/// <summary>One manual withdrawal ("Retirer de la caisse") from a session. <paramref name="ModePaiement"/>
+/// is <c>cash</c> or <c>mobile_money</c> - which pool it came out of - defaulting to <c>cash</c>
+/// for a row written before this distinction existed, since every withdrawal was cash then.</summary>
+public sealed record CaisseRetraitDto(decimal Montant, string Motif, DateTime Date, string ModePaiement = "cash");
 
 /// <summary>Response of <c>GET /api/caisse/status</c> - null when the caller has no open
 /// session right now.</summary>
@@ -487,9 +576,12 @@ public sealed record CaisseStatusResponse(CaisseDto? Caisse);
 public sealed record OpenCaisseRequest(
     decimal MontantInitialCash, decimal MontantInitialMobile = 0, string? Notes = null);
 
-/// <summary>Closes the caller's open session; <paramref name="MontantFinal"/> is the cash
-/// actually counted in the drawer, compared against what the session's sales expect.</summary>
-public sealed record CloseCaisseRequest(decimal MontantFinal, string? Notes = null);
+/// <summary>Closes the caller's open session. <paramref name="MontantFinal"/> is the cash
+/// counted in the drawer; <paramref name="MontantFinalMobile"/> the mobile-money balance
+/// found on the till's account. Both are compared against what the session expects and the
+/// écart is the sum of the two differences. Mobile is optional so an older client that only
+/// sends cash still closes, with a cash-only écart as before.</summary>
+public sealed record CloseCaisseRequest(decimal MontantFinal, string? Notes = null, decimal? MontantFinalMobile = null);
 
 /// <summary>Response of <c>GET /api/caisse/historique</c>.</summary>
 public sealed record CaisseHistoryResponse(IReadOnlyList<CaisseDto> Caisses, int Total);
@@ -523,7 +615,9 @@ public sealed record ResolveEcartRequest(string ResolutionType, string? Notes = 
 /// expected to hold, via <see cref="CaisseDto.TotalRetraits"/>.
 /// <paramref name="Motif"/> is required - it is what the till's history shows for the
 /// withdrawal, since "cash left the drawer" alone explains nothing.</summary>
-public sealed record WithdrawCaisseRequest(decimal Montant, string Motif);
+/// <param name="ModePaiement"><c>cash</c> or <c>mobile_money</c> - which pool the withdrawal
+/// comes out of, and which one it is checked against and deducted from.</param>
+public sealed record WithdrawCaisseRequest(decimal Montant, string Motif, string ModePaiement = "cash");
 
 // --- Paramètres: reçu et facture ---
 
@@ -572,6 +666,117 @@ public static class ReceiptSettingsDefaults
     public static int ClampFontSize(int size) => Math.Clamp(size, MinFontSize, MaxFontSize);
 
     public static int ClampTitleFontSize(int size) => Math.Clamp(size, MinTitleFontSize, MaxTitleFontSize);
+
+    /// <summary>What a document hides before the shop has chosen anything. Only the signature
+    /// zone: every other section either printed before templates existed, or has no content
+    /// until the shop fills in the field behind it, so this keeps an unconfigured workspace
+    /// printing exactly the ticket it always did.</summary>
+    public static readonly IReadOnlyList<string> DefaultHiddenSections = [ReceiptSections.Signature];
+
+    public const int MaxLegalTextLength = 1000;
+}
+
+/// <summary>
+/// The printed layouts a reçu or a facture can use. Each document picks its own, because a
+/// shop commonly hands out a till ticket as a receipt but an A4 invoice to business clients.
+/// </summary>
+public static class ReceiptTemplates
+{
+    /// <summary>The 80 mm till ticket - the only layout that existed before templates.</summary>
+    public const string Ticket = "ticket";
+
+    /// <summary>A 58 mm ticket: each item on two lines, so it fits the narrow roll.</summary>
+    public const string Compact = "compact";
+
+    /// <summary>A full page: sender and recipient blocks, a bordered item table, totals with
+    /// tax and down-payment lines, signature and legal footer.</summary>
+    public const string A4 = "a4";
+
+    public static readonly IReadOnlyList<string> All = [Ticket, Compact, A4];
+
+    public static string Label(string template) => template switch
+    {
+        Compact => "Ticket compact (58 mm)",
+        A4 => "A4 détaillé",
+        _ => "Ticket (80 mm)",
+    };
+
+    /// <summary>An unknown or missing value prints as the ticket rather than failing.</summary>
+    public static string Normalise(string? template) =>
+        All.FirstOrDefault(t => string.Equals(t, template?.Trim(), StringComparison.OrdinalIgnoreCase)) ?? Ticket;
+}
+
+/// <summary>
+/// The parts of a printed document a shop can switch off, to save paper or because its trade
+/// has no use for them. Stored as the list of <em>hidden</em> keys, so a section added later
+/// prints by default rather than silently missing from every configured shop.
+/// </summary>
+public static class ReceiptSections
+{
+    public const string Logo = "logo";
+    public const string Company = "company";
+    public const string CompanyContact = "company_contact";
+    public const string CompanyLegal = "company_legal";
+    public const string Client = "client";
+    public const string Seller = "seller";
+    public const string Cashier = "cashier";
+    public const string UnitPrice = "unit_price";
+    public const string Discounts = "discounts";
+    public const string Tva = "tva";
+    public const string PaymentInfo = "payment_info";
+    public const string PaymentHistory = "payment_history";
+    public const string Notice = "notice";
+    public const string Footer = "footer";
+    public const string Qr = "qr";
+    public const string Signature = "signature";
+    public const string LegalFooter = "legal_footer";
+
+    public static readonly IReadOnlyList<string> All =
+    [
+        Logo, Company, CompanyContact, CompanyLegal, Client, Seller, Cashier, UnitPrice, Discounts,
+        Tva, PaymentInfo, PaymentHistory, Notice, Footer, Qr, Signature, LegalFooter,
+    ];
+
+    /// <summary>The sections that can appear on a facture. An unpaid sale has no payment,
+    /// cashier or payment history to show, so offering those switches would do nothing.</summary>
+    public static readonly IReadOnlyList<string> Facture =
+        All.Where(s => s is not (PaymentInfo or PaymentHistory or Cashier)).ToList();
+
+    public static string Label(string section, bool facture) => section switch
+    {
+        Logo => "Logo",
+        Company => "Nom de l'entreprise",
+        CompanyContact => "Adresse, téléphone, email",
+        CompanyLegal => "Mentions légales (RCCM, NIU…)",
+        Client => "Client",
+        Seller => "Vendeur",
+        Cashier => "Caissier",
+        UnitPrice => "Colonne prix unitaire",
+        Discounts => "Sous-total et remises",
+        Tva => "Détail TVA",
+        PaymentInfo => "Paiement (mode, payé, reste)",
+        PaymentHistory => "Historique des paiements",
+        Notice => facture ? "Encadré « à régler »" : "Notice d'avoir",
+        Footer => "Message de fin",
+        Qr => "QR code de paiement",
+        Signature => "Signature / cachet",
+        LegalFooter => "Texte de bas de page",
+        _ => section,
+    };
+
+    /// <summary>Reads a stored list. Null means the shop never chose, so it gets the defaults;
+    /// an empty string means it chose to hide nothing.</summary>
+    public static IReadOnlyList<string> Parse(string? stored) =>
+        stored is null
+            ? ReceiptSettingsDefaults.DefaultHiddenSections
+            : Clean(stored.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+    /// <summary>Drops unknown keys and duplicates, so a typo or a key from a newer client
+    /// cannot be stored and then mean something different later.</summary>
+    public static IReadOnlyList<string> Clean(IEnumerable<string>? sections) =>
+        (sections ?? []).Select(s => s.Trim().ToLowerInvariant()).Where(All.Contains).Distinct().ToList();
+
+    public static string Serialize(IEnumerable<string>? sections) => string.Join(",", Clean(sections));
 }
 
 /// <summary>
@@ -599,7 +804,23 @@ public sealed record ReceiptSettingsDto(
     string FontFamily,
     int FontSize,
     int ReceiptTitleFontSize,
-    int FactureTitleFontSize);
+    int FactureTitleFontSize,
+    string ReceiptTemplate = ReceiptTemplates.Ticket,
+    string FactureTemplate = ReceiptTemplates.Ticket,
+    IReadOnlyList<string>? ReceiptHiddenSections = null,
+    IReadOnlyList<string>? FactureHiddenSections = null,
+    string? CompanyAddress = null,
+    string? CompanyPhone = null,
+    string? CompanyEmail = null,
+    string? CompanyLegalInfo = null,
+    string? LegalFooterText = null,
+    decimal? TvaRate = null)
+{
+    public IReadOnlyList<string> HiddenSections(bool facture) =>
+        (facture ? FactureHiddenSections : ReceiptHiddenSections) ?? ReceiptSettingsDefaults.DefaultHiddenSections;
+
+    public string Template(bool facture) => facture ? FactureTemplate : ReceiptTemplate;
+}
 
 /// <summary>
 /// Saves the text side of the receipt configuration. The logo and QR code are not here:
@@ -621,7 +842,17 @@ public sealed record UpdateReceiptSettingsRequest(
     string FontFamily,
     int FontSize,
     int ReceiptTitleFontSize,
-    int FactureTitleFontSize);
+    int FactureTitleFontSize,
+    string? ReceiptTemplate = null,
+    string? FactureTemplate = null,
+    IReadOnlyList<string>? ReceiptHiddenSections = null,
+    IReadOnlyList<string>? FactureHiddenSections = null,
+    string? CompanyAddress = null,
+    string? CompanyPhone = null,
+    string? CompanyEmail = null,
+    string? CompanyLegalInfo = null,
+    string? LegalFooterText = null,
+    decimal? TvaRate = null);
 
 // --- Images ---
 
@@ -1231,6 +1462,84 @@ public sealed record StockSnapshotRequest(int Annee, decimal StockValueDebut);
 
 /// <summary>Sets the hand-entered amount of a résultat account.</summary>
 public sealed record ResultatCompteSoldeRequest(decimal Solde);
+
+// --- Audit (présences) ---
+
+/// <summary>Sent by every signed-in client about once a minute: "I am still here, on this
+/// screen, at this machine". <paramref name="UtcOffsetMinutes"/> is the machine's offset from
+/// UTC, so the server files the stretch under the shop's calendar day, not its own.</summary>
+public sealed record PresenceHeartbeatRequest(string? Module, string? DeviceName, int UtcOffsetMinutes);
+
+/// <summary>Values of <see cref="AttendanceMemberDto.Status"/>, as the web app spells them.</summary>
+public static class AttendanceStatuses
+{
+    public const string EnLigne = "en-ligne";
+    public const string Inactif = "inactif";
+    public const string Retard = "retard";
+    public const string Absent = "absent";
+    public const string Repos = "repos";
+    public const string HorsLigne = "hors-ligne";
+}
+
+/// <summary>
+/// One member's attendance today and this week.
+/// </summary>
+/// <param name="ScheduleType">Today's Programme entry type (travail, reunion, repos), or null
+/// when nothing is planned for them today.</param>
+/// <param name="RetardMinutes">Minutes after the planned start of the first connection today,
+/// when beyond the 5-minute grace; otherwise null.</param>
+/// <param name="Productivity">Worked ÷ planned this week, capped at 100; null with nothing planned.</param>
+public sealed record AttendanceMemberDto(
+    string UserId,
+    string Name,
+    string? Email,
+    string Role,
+    string Status,
+    int? RetardMinutes,
+    DateTime? FirstLoginAt,
+    DateTime? LastSeenAt,
+    string? CurrentModule,
+    string? DeviceName,
+    string? IpAddress,
+    string? ScheduleType,
+    TimeSpan? ScheduleStart,
+    TimeSpan? ScheduleEnd,
+    int WeekMinutesWorked,
+    int WeekMinutesScheduled,
+    int? Productivity);
+
+public sealed record AttendanceResponse(DateOnly Date, IReadOnlyList<AttendanceMemberDto> Members);
+
+/// <summary>One connected stretch in a member's history.</summary>
+public sealed record WorkSessionDto(
+    DateTime LoginAt, DateTime? LogoutAt, int DurationMinutes, bool IsOpen, string? DeviceName, string? IpAddress);
+
+/// <summary>A day in a member's history, with its planned hours for comparison.</summary>
+public sealed record WorkDayDto(
+    DateOnly Date,
+    int TotalMinutes,
+    string? ScheduleType,
+    TimeSpan? ScheduleStart,
+    TimeSpan? ScheduleEnd,
+    IReadOnlyList<WorkSessionDto> Sessions);
+
+public sealed record MemberWorkHistoryResponse(string UserId, string Name, IReadOnlyList<WorkDayDto> Days);
+
+// --- Paramètres: consommation données ---
+
+/// <summary>One section of the data-consumption breakdown. <paramref name="Bytes"/> is the web
+/// app's per-row estimate, not a measurement.</summary>
+public sealed record DataConsumptionRowDto(string Key, string Label, string Section, int Count, long Bytes);
+
+public sealed record DataConsumptionResponse(
+    int? Year,
+    int TotalRecords,
+    long TotalBytes,
+    int Sections,
+    int SectionsWithData,
+    int TotalFiles,
+    int TotalMembers,
+    IReadOnlyList<DataConsumptionRowDto> Rows);
 
 // --- Errors ---
 

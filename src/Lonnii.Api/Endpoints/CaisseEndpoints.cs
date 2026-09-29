@@ -88,11 +88,12 @@ public static class CaisseEndpoints
     }
 
     /// <summary>"Fermer Caisse": stamps final live stats onto the session and records the
-    /// écart between what the drawer should hold in cash and what was actually counted.</summary>
+    /// écart between what the till should hold and what was counted - cash in the drawer, plus
+    /// the mobile-money balance when the client sends one, so a shortfall on either side shows.</summary>
     private static async Task<IResult> FermerAsync(
         CloseCaisseRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
-        if (request.MontantFinal < 0)
+        if (request.MontantFinal < 0 || request.MontantFinalMobile < 0)
             return Results.BadRequest(new ApiError("Le montant compté ne peut pas être négatif"));
 
         var caisse = await db.Caisses.FirstOrDefaultAsync(
@@ -104,6 +105,7 @@ public static class CaisseEndpoints
 
         caisse.DateFermeture = closingAt;
         caisse.MontantFinal = request.MontantFinal;
+        caisse.MontantFinalMobile = request.MontantFinalMobile;
         caisse.TotalVentes = stats.TotalVentes;
         caisse.TotalChiffreAffaires = stats.ChiffreAffaires;
         caisse.TotalAvoir = stats.TotalAvoir;
@@ -113,7 +115,8 @@ public static class CaisseEndpoints
         caisse.PaiementAutres = stats.PaiementAutres;
         caisse.TotalEncaisse = stats.TotalEncaisse;
         caisse.TotalRestant = Math.Max(0, stats.ChiffreAffaires - stats.TotalEncaisse);
-        caisse.Ecart = request.MontantFinal - stats.ExpectedCash(caisse);
+        caisse.Ecart = request.MontantFinal - stats.ExpectedCash(caisse)
+            + (request.MontantFinalMobile is { } mobile ? mobile - stats.ExpectedMobile(caisse) : 0);
         caisse.Notes = Blank(request.Notes) ?? caisse.Notes;
         caisse.Status = CaisseStatus.Closed;
         caisse.UpdatedAt = closingAt;
@@ -213,7 +216,16 @@ public static class CaisseEndpoints
 
         if (request.ResolutionType == EcartResolutionTypes.Adjusted)
         {
-            caisse.MontantFinal -= caisse.Ecart;
+            // Each count is corrected by its own share, so both still read as what the till
+            // should have held rather than the whole difference landing on the cash.
+            if (caisse.MontantFinalMobile is { } mobile)
+            {
+                var mobileEcart = mobile - (caisse.MontantInitialMobile + caisse.PaiementMobile);
+                caisse.MontantFinalMobile = mobile - mobileEcart;
+                caisse.MontantFinal -= caisse.Ecart - mobileEcart;
+            }
+            else caisse.MontantFinal -= caisse.Ecart;
+
             caisse.Ecart = 0;
         }
 
@@ -228,17 +240,20 @@ public static class CaisseEndpoints
         return Results.Ok(await ToDtoAsync(db, caisse, ct));
     }
 
-    /// <summary>"Retirer de la caisse": cash out for something other than a sale refund - the
-    /// motif is what makes it auditable later in the history, so it is required, not
-    /// optional like <see cref="CloseCaisseRequest.Notes"/>. Capped at what the drawer is
-    /// currently expected to hold, the same figure <see cref="LiveStats.ExpectedCash"/>
-    /// reports at close time, so a withdrawal can never push the session into a manufactured
-    /// shortfall.</summary>
+    /// <summary>"Retirer de la caisse": cash or mobile money out for something other than a
+    /// sale refund - the motif is what makes it auditable later in the history, so it is
+    /// required, not optional like <see cref="CloseCaisseRequest.Notes"/>. Capped at whichever
+    /// pool <paramref name="request"/> names, the same figure <see cref="LiveStats.ExpectedCash"/>
+    /// or <see cref="LiveStats.ExpectedMobile"/> reports at close time, so a withdrawal can
+    /// never push the session into a manufactured shortfall on either side.</summary>
     private static async Task<IResult> RetraitAsync(
         WithdrawCaisseRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
         if (request.Montant <= 0)
             return Results.BadRequest(new ApiError("Le montant du retrait doit être supérieur à zéro"));
+
+        if (request.ModePaiement is not (ModePaiement.Cash or ModePaiement.MobileMoney))
+            return Results.BadRequest(new ApiError("Mode de retrait invalide"));
 
         var motif = Blank(request.Motif);
         if (motif is null)
@@ -249,8 +264,14 @@ public static class CaisseEndpoints
         if (caisse is null) return Results.NotFound(new ApiError("Aucune caisse ouverte trouvée"));
 
         var stats = await ComputeLiveStatsAsync(db, caisse, DateTime.UtcNow, ct);
-        if (request.Montant > stats.ExpectedCash(caisse))
-            return Results.BadRequest(new ApiError("Le montant dépasse les espèces disponibles en caisse"));
+        var isMobile = request.ModePaiement == ModePaiement.MobileMoney;
+        var available = isMobile ? stats.ExpectedMobile(caisse) : stats.ExpectedCash(caisse);
+        if (request.Montant > available)
+        {
+            return Results.BadRequest(new ApiError(isMobile
+                ? "Le montant dépasse le mobile money disponible en caisse"
+                : "Le montant dépasse les espèces disponibles en caisse"));
+        }
 
         db.CaisseTransactions.Add(new CaisseTransaction
         {
@@ -260,7 +281,7 @@ public static class CaisseEndpoints
             Montant = request.Montant,
             Description = motif,
             Category = RetraitCategory,
-            ModePaiement = ModePaiement.Cash,
+            ModePaiement = request.ModePaiement,
             CreatedBy = scope.UserId,
         });
 
@@ -275,16 +296,20 @@ public static class CaisseEndpoints
     private readonly record struct LiveStats(
         int TotalVentes, decimal ChiffreAffaires, decimal TotalAvoir,
         decimal PaiementCash, decimal PaiementMobile, decimal PaiementCarte, decimal PaiementAutres,
-        decimal TotalEncaisse, decimal TotalRetraits)
+        decimal TotalEncaisse, decimal TotalRetraitsCash, decimal TotalRetraitsMobile)
     {
         /// <summary>Cash the drawer should hold: the float's cash portion (not
         /// <see cref="Caisse.MontantInitial"/>, which also carries the mobile-money float -
         /// nobody miscounts a mobile balance), plus cash sale payments and the facture/avoir
         /// <see cref="CaisseTransaction"/> movements already folded into <see cref="PaiementCash"/>
-        /// (see <see cref="ComputeLiveStatsAsync"/>), minus manual retraits - kept out of
+        /// (see <see cref="ComputeLiveStatsAsync"/>), minus cash retraits - kept out of
         /// <see cref="PaiementCash"/> itself so a withdrawal for something unrelated to a sale
         /// never makes "encaissements" read short of the sale that was actually paid in full.</summary>
-        public decimal ExpectedCash(Caisse caisse) => caisse.MontantInitialCash + PaiementCash - TotalRetraits;
+        public decimal ExpectedCash(Caisse caisse) => caisse.MontantInitialCash + PaiementCash - TotalRetraitsCash;
+
+        /// <summary>Mobile money the till's account should hold: the mobile float plus mobile
+        /// payments taken, minus mobile retraits.</summary>
+        public decimal ExpectedMobile(Caisse caisse) => caisse.MontantInitialMobile + PaiementMobile - TotalRetraitsMobile;
     }
 
     /// <summary>
@@ -336,13 +361,16 @@ public static class CaisseEndpoints
         // fully-paid sale's "Total encaissé" read short of its own chiffre d'affaires.
         var transactionsIn = transactions.Where(t => t.Type == "entree").Sum(t => t.Montant);
         var transactionsOut = transactions.Where(t => t.Type == "sortie" && t.Category != RetraitCategory).Sum(t => t.Montant);
-        var totalRetraits = transactions.Where(t => t.Type == "sortie" && t.Category == RetraitCategory).Sum(t => t.Montant);
+        var retraits = transactions.Where(t => t.Type == "sortie" && t.Category == RetraitCategory).ToList();
+        var totalRetraitsMobile = retraits.Where(t => t.ModePaiement == ModePaiement.MobileMoney).Sum(t => t.Montant);
+        var totalRetraitsCash = retraits.Sum(t => t.Montant) - totalRetraitsMobile;
 
         cash += transactionsIn - transactionsOut;
 
         var totalEncaisse = cash + mobile + carte + autres;
 
-        return new LiveStats(totalVentes, chiffreAffaires, totalAvoir, cash, mobile, carte, autres, totalEncaisse, totalRetraits);
+        return new LiveStats(totalVentes, chiffreAffaires, totalAvoir, cash, mobile, carte, autres,
+            totalEncaisse, totalRetraitsCash, totalRetraitsMobile);
     }
 
     /// <param name="retraits">Already-loaded withdrawals for this session, when the caller
@@ -363,7 +391,7 @@ public static class CaisseEndpoints
             stats.TotalVentes, stats.ChiffreAffaires, stats.TotalEncaisse, stats.TotalAvoir,
             stats.PaiementCash, stats.PaiementMobile, stats.PaiementCarte, stats.PaiementAutres,
             Ecart: 0, EcartResolved: false, EcartResolutionNote: null,
-            caisse.Status, caisse.Notes, retraits ?? []);
+            caisse.Status, caisse.Notes, retraits ?? [], caisse.MontantFinalMobile);
     }
 
     private static CaisseDto ToDto(Caisse caisse, List<CaisseRetraitDto>? retraits) => new(
@@ -373,7 +401,7 @@ public static class CaisseEndpoints
         caisse.TotalVentes, caisse.TotalChiffreAffaires, caisse.TotalEncaisse, caisse.TotalAvoir,
         caisse.PaiementCash, caisse.PaiementMobile, caisse.PaiementCarte, caisse.PaiementAutres,
         caisse.Ecart, caisse.EcartResolved, caisse.EcartResolutionNote,
-        caisse.Status, caisse.Notes, retraits ?? []);
+        caisse.Status, caisse.Notes, retraits ?? [], caisse.MontantFinalMobile);
 
     /// <summary>Manual withdrawals only - not the avoir refunds that share the same
     /// <c>sortie</c> type, which already show up as their own avoir figures.</summary>
@@ -384,7 +412,7 @@ public static class CaisseEndpoints
 
         var rows = await db.CaisseTransactions.AsNoTracking()
             .Where(t => caisseIds.Contains(t.CaisseId) && t.Type == "sortie" && t.Category == RetraitCategory)
-            .Select(t => new { t.CaisseId, t.Montant, t.Description, t.CreatedAt })
+            .Select(t => new { t.CaisseId, t.Montant, t.Description, t.CreatedAt, t.ModePaiement })
             .ToListAsync(ct);
 
         return rows
@@ -392,7 +420,8 @@ public static class CaisseEndpoints
             .ToDictionary(
                 g => g.Key,
                 g => g.OrderBy(r => r.CreatedAt)
-                    .Select(r => new CaisseRetraitDto(r.Montant, r.Description ?? string.Empty, r.CreatedAt))
+                    .Select(r => new CaisseRetraitDto(
+                        r.Montant, r.Description ?? string.Empty, r.CreatedAt, r.ModePaiement ?? ModePaiement.Cash))
                     .ToList());
     }
 

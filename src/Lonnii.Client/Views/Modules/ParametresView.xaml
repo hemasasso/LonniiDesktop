@@ -15,7 +15,7 @@
         </Border>
 
         <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,16">
-            <StackPanel MaxWidth="720" HorizontalAlignment="Left">
+            <StackPanel>
 
                 <!-- Workspace -->
                 <TextBlock Text="ESPACE" Style="{StaticResource SectionHeader}" Margin="0,0,0,6" />
@@ -57,20 +57,60 @@
                     </Grid>
                 </Border>
 
+                <!-- Members & privileges (admin only). Opens the full screen in its own
+                     resizable window (MembresDialog) rather than embedding it here - see that
+                     class's doc comment for why. -->
+                <StackPanel x:Name="MembersPanel" Visibility="Collapsed">
+                    <TextBlock Text="MEMBRES ET PRIVILÈGES" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Gérer" VerticalAlignment="Center"
+                                    Style="{StaticResource SecondaryButton}" Click="OpenMembers_Click" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Membres, rôles et privilèges" FontWeight="SemiBold" />
+                                <TextBlock Style="{StaticResource PageSubtitle}"
+                                           Text="Ajoutez des membres, changez leur rôle et accordez des privilèges individuels (Comptable, Financier, Caissier…)." />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                </StackPanel>
+
                 <!-- Currency (admin only) -->
                 <StackPanel x:Name="CurrencyPanel" Visibility="Collapsed">
                     <TextBlock Text="DEVISE" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
                     <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
                             BorderThickness="1" CornerRadius="3" Padding="16,12">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="Libellé affiché après chaque montant"
-                                       Foreground="{DynamicResource TextSecondary}" VerticalAlignment="Center"
-                                       Width="260" />
-                            <TextBox x:Name="CurrencyBox" Width="120" MaxLength="12" />
-                            <Button Content="Enregistrer" Margin="10,0,0,0"
-                                    Style="{StaticResource SecondaryButton}" Click="SaveCurrency_Click" />
-                            <TextBlock x:Name="CurrencyStatusText" Margin="12,0,0,0"
-                                       VerticalAlignment="Center" FontSize="12" />
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Libellé de la devise"
+                                           Foreground="{DynamicResource TextSecondary}" VerticalAlignment="Center"
+                                           Width="200" />
+                                <TextBox x:Name="CurrencyBox" Width="120" MaxLength="12"
+                                         TextChanged="CurrencyInput_Changed" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                <TextBlock Text="Position"
+                                           Foreground="{DynamicResource TextSecondary}" VerticalAlignment="Center"
+                                           Width="200" />
+                                <RadioButton x:Name="CurrencyAfterRadio" GroupName="CurrencyPosition"
+                                             Content="Après le montant (1 000 F CFA)" IsChecked="True"
+                                             VerticalAlignment="Center" Checked="CurrencyInput_Changed" />
+                                <RadioButton x:Name="CurrencyBeforeRadio" GroupName="CurrencyPosition"
+                                             Content="Avant le montant ($1 000)" Margin="18,0,0,0"
+                                             VerticalAlignment="Center" Checked="CurrencyInput_Changed" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                <TextBlock Text="Aperçu"
+                                           Foreground="{DynamicResource TextSecondary}" VerticalAlignment="Center"
+                                           Width="200" />
+                                <TextBlock x:Name="CurrencyPreviewText" FontWeight="SemiBold"
+                                           VerticalAlignment="Center" MinWidth="120" />
+                                <Button Content="Enregistrer" Margin="10,0,0,0"
+                                        Style="{StaticResource SecondaryButton}" Click="SaveCurrency_Click" />
+                                <TextBlock x:Name="CurrencyStatusText" Margin="12,0,0,0"
+                                           VerticalAlignment="Center" FontSize="12" />
+                            </StackPanel>
                         </StackPanel>
                     </Border>
                 </StackPanel>
@@ -90,6 +130,56 @@
                                            Text="Logo, QR Code, nom de l'entreprise, titre facture, notes." />
                             </StackPanel>
                         </DockPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Data consumption (admin only, as the API requires) -->
+                <StackPanel x:Name="ConsumptionPanel" Visibility="Collapsed">
+                    <DockPanel Margin="0,20,0,6">
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <ComboBox x:Name="ConsumptionYearCombo" Width="120"
+                                      SelectionChanged="ConsumptionYear_Changed" />
+                        </StackPanel>
+                        <TextBlock Text="CONSOMMATION DONNÉES" Style="{StaticResource SectionHeader}"
+                                   VerticalAlignment="Center" />
+                    </DockPanel>
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12">
+                        <StackPanel>
+                            <UniformGrid Columns="4">
+                                <StackPanel>
+                                    <TextBlock Text="Enregistrements" Foreground="{DynamicResource TextSecondary}" FontSize="12" />
+                                    <TextBlock x:Name="ConsumptionRecordsText" FontSize="18" FontWeight="Bold" />
+                                </StackPanel>
+                                <StackPanel>
+                                    <TextBlock Text="Volume estimé" Foreground="{DynamicResource TextSecondary}" FontSize="12" />
+                                    <TextBlock x:Name="ConsumptionVolumeText" FontSize="18" FontWeight="Bold"
+                                               Foreground="{DynamicResource Accent}" />
+                                </StackPanel>
+                                <StackPanel>
+                                    <TextBlock Text="Sections utilisées" Foreground="{DynamicResource TextSecondary}" FontSize="12" />
+                                    <TextBlock x:Name="ConsumptionSectionsText" FontSize="18" FontWeight="Bold" />
+                                </StackPanel>
+                                <StackPanel>
+                                    <TextBlock Text="Images produits" Foreground="{DynamicResource TextSecondary}" FontSize="12" />
+                                    <TextBlock x:Name="ConsumptionFilesText" FontSize="18" FontWeight="Bold" />
+                                </StackPanel>
+                            </UniformGrid>
+                            <Border BorderBrush="{DynamicResource Border}" BorderThickness="1" CornerRadius="3" Margin="0,12,0,0">
+                                <DataGrid x:Name="ConsumptionGrid" MaxHeight="340" BorderThickness="0"
+                                          AutoGenerateColumns="False" IsReadOnly="True">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Module" Binding="{Binding Section}" Width="120" />
+                                        <DataGridTextColumn Header="Données" Binding="{Binding Label}" Width="*" />
+                                        <DataGridTextColumn Header="Enregistrements" Binding="{Binding CountDisplay}" Width="120" />
+                                        <DataGridTextColumn Header="Volume estimé" Binding="{Binding BytesDisplay}" Width="110" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </Border>
+                            <TextBlock x:Name="ConsumptionNoteText" Style="{StaticResource PageSubtitle}"
+                                       Margin="0,8,0,0" TextWrapping="Wrap"
+                                       Text="Volume estimé à partir d'une taille moyenne par enregistrement (500 Ko par image produit), comme sur Lonnii Business : ce n'est pas la taille réelle de la base." />
+                        </StackPanel>
                     </Border>
                 </StackPanel>
 

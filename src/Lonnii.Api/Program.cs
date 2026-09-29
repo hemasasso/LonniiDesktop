@@ -135,6 +135,8 @@ app.MapAmortissementEndpoints();
 app.MapBilanEndpoints();
 app.MapProgrammeEndpoints();
 app.MapParametresEndpoints();
+app.MapConsommationEndpoints();
+app.MapAuditEndpoints();
 app.MapImageEndpoints();
 
 /// <summary>Lets a client confirm it is talking to a Lonnii host before signing in.</summary>

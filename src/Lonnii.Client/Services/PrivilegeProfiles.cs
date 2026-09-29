@@ -44,9 +44,15 @@ public static class PrivilegeSections
         Overrides.TryGetValue(privilege.Name, out var section) ? section : privilege.Module;
 }
 
-/// <summary>A ready-made bundle of Caisse/Ventes/Stock privileges for a typical job.</summary>
-/// <param name="Grants">The privileges to grant; null means every one in scope.</param>
-public sealed record PrivilegeProfile(string Name, string Description, IReadOnlySet<string>? Grants)
+/// <summary>A ready-made bundle of privileges for a typical job.</summary>
+/// <param name="Grants">The privileges to grant; null means every one in <see cref="Additive"/>'s
+/// scope (Caisse/Ventes/Stock only - no non-additive profile spans wider than that).</param>
+/// <param name="Additive">False (the default): the profile is a job swap - every Caisse/Ventes/
+/// Stock privilege not listed is revoked, so assigning one erases whichever came before it.
+/// True: the profile only grants what it lists and never revokes anything, so it can be layered
+/// onto whatever a member already holds - including another additive profile, or a manually
+/// granted privilege - without a second admin having to re-tick boxes an earlier one set.</param>
+public sealed record PrivilegeProfile(string Name, string Description, IReadOnlySet<string>? Grants, bool Additive = false)
 {
     public override string ToString() => $"{Name} — {Description}";
 }
@@ -85,23 +91,63 @@ public static class PrivilegeProfiles
         new("Gestionnaire de stock", "produits, catégories, inventaire", new HashSet<string>
         {
             Priv.Gestion.ViewStock, Priv.Gestion.AddProducts, Priv.Gestion.EditProducts,
-            Priv.Gestion.ManageCategories, Priv.Gestion.AdjustStock, Priv.Gestion.ViewStockHistory,
+            Priv.Gestion.ManageCategories, Priv.Gestion.ManageSuppliers, Priv.Gestion.AdjustStock, Priv.Gestion.ViewStockHistory,
             Priv.Gestion.ExportStockData, Priv.Gestion.ViewAnalytics, Priv.Gestion.ViewStockAnalytics,
         }),
         new("Responsable", "tout Caisse, Ventes et Stock", Grants: null),
+
+        // Additive, unlike the four above: these delegate a finance responsibility on top of
+        // whatever commerce profile (or manual grants) a member already has, rather than
+        // replacing it - see PrivilegeProfile.Additive. Admin-only privileges (delete an
+        // écriture, manage the chart of accounts, edit résultat données) are never included,
+        // same reason PrivilegeDialog locks their checkbox: the resolver ignores a grant of
+        // those for anyone but the Admin Général.
+        new("Comptable", "saisit les écritures : amortissements et bilan", new HashSet<string>
+        {
+            Priv.Gestion.ViewAmortissement, Priv.Gestion.AddImmobilisation, Priv.Gestion.EditImmobilisation,
+            Priv.Gestion.CederImmobilisation, Priv.Gestion.ExportAmortissement,
+            Priv.Gestion.ViewBilan, Priv.Gestion.AddBilanEcriture, Priv.Gestion.EditBilanEcriture,
+            Priv.Gestion.ExportBilan, Priv.Gestion.ViewResultat,
+        }, Additive: true),
+        new("Financier", "consulte et exporte marges, bilan, amortissements et charges", new HashSet<string>
+        {
+            Priv.Gestion.ViewMarges, Priv.Gestion.ExportMarges,
+            Priv.Gestion.ViewBilan, Priv.Gestion.ViewResultat, Priv.Gestion.ExportBilan,
+            Priv.Gestion.ViewAmortissement, Priv.Gestion.ExportAmortissement,
+            Priv.Gestion.ViewCharges, Priv.Gestion.ViewChargesAnalytics, Priv.Gestion.ExportCharges,
+        }, Additive: true),
     ];
 
     private static readonly HashSet<string> Scope =
         [PrivilegeSections.Caisse, PrivilegeSections.Ventes, PrivilegeSections.Stock];
 
-    /// <summary>Sets the member's Caisse/Ventes/Stock privileges to match
-    /// <paramref name="profile"/>. Returns how many privileges changed.</summary>
+    /// <summary>
+    /// Applies <paramref name="profile"/> to the member and returns how many privileges
+    /// changed. A non-additive profile sets every Caisse/Ventes/Stock privilege to match it
+    /// exactly (granted if listed, revoked otherwise) - a job swap. An additive one only grants
+    /// what it lists and never revokes, so it can be layered on top of anything the member
+    /// already has - see <see cref="PrivilegeProfile.Additive"/>.
+    /// </summary>
     public static async Task<int> ApplyAsync(AppSession session, string userId, PrivilegeProfile profile)
     {
         if (ReferenceEquals(profile, None)) return 0;
 
         var current = await session.Api.GetMemberPrivilegesAsync(userId);
         var changed = 0;
+
+        if (profile.Additive)
+        {
+            foreach (var name in profile.Grants ?? Enumerable.Empty<string>())
+            {
+                var privilege = current.Gestion.FirstOrDefault(p => p.Name == name);
+                if (privilege is null || privilege.IsAdminOnly || privilege.IsGranted) continue;
+
+                foreach (var alias in PrivilegeAliases.GroupOf(name))
+                    await session.Api.SetGestionPrivilegeAsync(new SetPrivilegeRequest(userId, alias, true));
+                changed++;
+            }
+            return changed;
+        }
 
         // Canonical entries only: applying to every alias too (below) already covers its
         // legacy pair, and processing both separately would either write the same request

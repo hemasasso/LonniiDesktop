@@ -21,9 +21,32 @@ public static class Money
 {
     public static string Label { get; set; } = "FCFA";
 
+    /// <summary>True when <see cref="Label"/> goes before the amount (<c>$1 000</c>), false
+    /// when it follows it (<c>1 000 FCFA</c>). A workspace setting, like the label.</summary>
+    public static bool LabelBefore { get; set; }
+
     public static int DecimalDigits { get; set; } = 0;
 
-    public static string Format(decimal amount) => $"{FormatPlain(amount)} {Label}";
+    public static string Format(decimal amount) => WithLabel(amount, FormatPlain(Math.Abs(amount)));
+
+    /// <summary>
+    /// Attaches <see cref="Label"/> to an already-formatted figure on the configured side.
+    /// Takes the unsigned figure so a negative prefixed amount reads <c>-$1 000</c> rather than
+    /// <c>$-1 000</c>. A single-character symbol such as <c>$</c> or <c>€</c> sits against the
+    /// digits the way it is normally written; a word such as <c>USD</c> keeps its space.
+    /// </summary>
+    public static string WithLabel(decimal amount, string unsignedFigure) =>
+        WithLabel(amount, unsignedFigure, Label, LabelBefore);
+
+    /// <summary>The same, for a label and position not yet applied - Paramètres' preview.</summary>
+    public static string WithLabel(decimal amount, string unsignedFigure, string label, bool before)
+    {
+        var sign = amount < 0 ? "-" : string.Empty;
+        if (!before) return $"{sign}{unsignedFigure} {label}";
+
+        var gap = label.Length == 1 && !char.IsLetter(label[0]) ? string.Empty : " ";
+        return $"{sign}{label}{gap}{unsignedFigure}";
+    }
 
     /// <summary>The same grouping as <see cref="Format"/>, without the currency label - for
     /// editable fields (price, quantity) where a suffix would get in the way of typing.</summary>

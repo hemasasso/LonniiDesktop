@@ -77,11 +77,26 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <!-- Name spans both columns -->
-                <StackPanel Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3">
-                    <TextBlock Text="Nom du produit *" Style="{StaticResource FieldLabel}" />
-                    <TextBox x:Name="NameBox" />
-                </StackPanel>
+                <!-- Name and product type share the first row -->
+                <Grid Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="16" />
+                        <ColumnDefinition Width="190" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Nom du produit *" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="NameBox" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Type" Style="{StaticResource FieldLabel}" />
+                        <ComboBox x:Name="TypeBox" SelectionChanged="Type_Changed"
+                                  ToolTip="Seuls les produits finis apparaissent dans Ventes" />
+                        <TextBlock x:Name="TypeHint" Style="{StaticResource PageSubtitle}" Margin="0,4,0,0"
+                                   Visibility="Collapsed" TextWrapping="Wrap" FontSize="11"
+                                   Text="Hors vente : reste en stock, absent de Ventes." />
+                    </StackPanel>
+                </Grid>
 
                 <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,12,0,0">
                     <TextBlock Text="Description" Style="{StaticResource FieldLabel}" />
@@ -152,6 +167,17 @@
                     <TextBlock x:Name="VenteLibreHint" Margin="20,4,0,0" FontSize="12"
                                Foreground="{DynamicResource TextMuted}" Visibility="Collapsed"
                                Text="ℹ Quantité illimitée - aucun suivi de stock pour ce produit." />
+                </StackPanel>
+
+                <StackPanel Grid.Row="8" Grid.Column="0" Margin="0,12,0,0">
+                    <TextBlock Text="Fournisseur" Style="{StaticResource FieldLabel}" />
+                    <ComboBox x:Name="SupplierBox" SelectedValuePath="Id">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Name}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
                 </StackPanel>
 
                 <StackPanel Grid.Row="9" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,12,0,0">

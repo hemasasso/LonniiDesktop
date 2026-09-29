@@ -77,6 +77,13 @@ public class Groupe
     /// </summary>
     public string CurrencyLabel { get; set; } = "FCFA";
 
+    /// <summary>
+    /// True when <see cref="CurrencyLabel"/> is written before the amount (<c>$ 1 000</c>)
+    /// rather than after it (<c>1 000 FCFA</c>). New to the desktop; defaults to after, which
+    /// is how every existing workspace already displays.
+    /// </summary>
+    public bool CurrencyBefore { get; set; }
+
     public bool IsBlocked { get; set; }
     public string? BlockReason { get; set; }
     public DateTime? BlockedAt { get; set; }

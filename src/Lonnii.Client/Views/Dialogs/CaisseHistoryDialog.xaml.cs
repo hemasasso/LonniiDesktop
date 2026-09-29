@@ -36,7 +36,42 @@ public partial class CaisseHistoryDialog : Window
         /// are none, so a session without withdrawals shows no tooltip at all.</summary>
         public string? RetraitsTooltip => Caisse.Retraits is not { Count: > 0 } retraits ? null
             : string.Join(Environment.NewLine, retraits.Select(r =>
-                $"{r.Date.ToLocalTime():HH:mm}  {Money.Format(r.Montant)}  —  {r.Motif}"));
+                $"{r.Date.ToLocalTime():HH:mm}  {Money.Format(r.Montant)} " +
+                $"({(r.ModePaiement == "mobile_money" ? "mobile" : "espèces")})  —  {r.Motif}"));
+
+        /// <summary>What the till should hold, espèces + mobile money, measured exactly as the
+        /// écart was - so Total en caisse − Montant attendu reads as the Écart column. A session
+        /// closed on a cash count alone (before mobile was counted) is expected to hold cash alone.</summary>
+        public decimal MontantAttendu => Caisse.ExpectedTotal;
+
+        public string MontantAttenduDisplay => Money.Format(MontantAttendu);
+
+        /// <summary>What was counted at closing, both together; nothing yet while open.</summary>
+        public string MontantEnCaisseDisplay => Caisse.CountedTotal is { } total ? Money.Format(total) : "—";
+
+        public string MontantAttenduTooltip
+        {
+            get
+            {
+                var cash = $"Espèces : fonds {Money.Format(Caisse.MontantInitialCash)}"
+                    + $" + encaissements {Money.Format(Caisse.PaiementCash)}"
+                    + (Caisse.TotalRetraitsCash > 0 ? $" − retraits {Money.Format(Caisse.TotalRetraitsCash)}" : string.Empty)
+                    + $" = {Money.Format(Caisse.ExpectedCash)}";
+                if (Caisse.Status == "closed" && !Caisse.MobileCounted)
+                    return cash + Environment.NewLine + "Mobile money non compté à la fermeture";
+                return cash + Environment.NewLine
+                    + $"Mobile money : fonds {Money.Format(Caisse.MontantInitialMobile)}"
+                    + $" + encaissements {Money.Format(Caisse.PaiementMobile)}"
+                    + (Caisse.TotalRetraitsMobile > 0 ? $" − retraits {Money.Format(Caisse.TotalRetraitsMobile)}" : string.Empty)
+                    + $" = {Money.Format(Caisse.ExpectedMobile)}";
+            }
+        }
+
+        public string? MontantEnCaisseTooltip => Caisse.MontantFinal is not { } cash ? null
+            : $"Espèces comptées : {Money.Format(cash)}" + Environment.NewLine
+              + (Caisse.MontantFinalMobile is { } mobile
+                  ? $"Mobile money constaté : {Money.Format(mobile)}"
+                  : "Mobile money non compté");
 
         public string EcartDisplay => Caisse.Status != "closed" ? "—"
             : Caisse.Ecart == 0 ? "Aucun"
@@ -179,7 +214,7 @@ public partial class CaisseHistoryDialog : Window
         sb.AppendLine(string.Join(';', "Ouverture", "Fermeture", "Vendeur", "Ventes",
             "Chiffre d'affaires", "Encaissé", "Retraits", "Motifs des retraits",
             "Fonds initial (espèces)", "Fonds initial (mobile)",
-            "Montant compté", "Écart", "Statut"));
+            "Montant attendu", "Espèces comptées", "Mobile money constaté", "Écart", "Statut"));
 
         foreach (var c in _caisses)
         {
@@ -191,10 +226,13 @@ public partial class CaisseHistoryDialog : Window
                 Money.FormatPlain(c.TotalChiffreAffaires, 2),
                 Money.FormatPlain(c.TotalEncaisse, 2),
                 Money.FormatPlain(c.TotalRetraits, 2),
-                Csv(string.Join(" | ", (c.Retraits ?? []).Select(r => $"{Money.FormatPlain(r.Montant, 2)} : {r.Motif}"))),
+                Csv(string.Join(" | ", (c.Retraits ?? []).Select(r =>
+                    $"{Money.FormatPlain(r.Montant, 2)} ({(r.ModePaiement == "mobile_money" ? "mobile" : "espèces")}) : {r.Motif}"))),
                 Money.FormatPlain(c.MontantInitialCash, 2),
                 Money.FormatPlain(c.MontantInitialMobile, 2),
+                Money.FormatPlain(new HistoryRow(c).MontantAttendu, 2),
                 c.MontantFinal is { } final ? Money.FormatPlain(final, 2) : "",
+                c.MontantFinalMobile is { } finalMobile ? Money.FormatPlain(finalMobile, 2) : "",
                 Money.FormatPlain(c.Ecart, 2),
                 Csv(c.Status)));
         }

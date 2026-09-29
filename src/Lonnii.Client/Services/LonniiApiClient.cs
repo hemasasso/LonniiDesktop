@@ -175,8 +175,8 @@ public class LonniiApiClient
             new ResetMemberPasswordRequest(newPassword), ct);
 
     /// <summary>Renames the currency shown after every amount. Group-admin only.</summary>
-    public Task<GroupeDto> UpdateCurrencyAsync(string currencyLabel, CancellationToken ct = default) =>
-        SendAsync<GroupeDto>(HttpMethod.Put, "api/groupe/currency", new UpdateCurrencyRequest(currencyLabel), ct);
+    public Task<GroupeDto> UpdateCurrencyAsync(string currencyLabel, bool currencyBefore, CancellationToken ct = default) =>
+        SendAsync<GroupeDto>(HttpMethod.Put, "api/groupe/currency", new UpdateCurrencyRequest(currencyLabel, currencyBefore), ct);
 
     /// <summary>
     /// Changes the signed-in user's own password. The returned token replaces the current
@@ -248,26 +248,30 @@ public class LonniiApiClient
     /// <summary>"Mouvements de stock" on the Analyse tab - every movement in the group, grouped
     /// by type. <paramref name="categoryId"/> mirrors Analyse's own category filter.</summary>
     public Task<StockMovementStatsResponse> GetStockMovementStatsAsync(
-        DateOnly? dateDebut = null, DateOnly? dateFin = null, string? categoryId = null, CancellationToken ct = default)
+        DateOnly? dateDebut = null, DateOnly? dateFin = null, string? categoryId = null,
+        string? supplierId = null, CancellationToken ct = default)
     {
         var query = new List<string>();
         if (dateDebut is { } debut) query.Add($"dateDebut={debut:yyyy-MM-dd}");
         if (dateFin is { } fin) query.Add($"dateFin={fin:yyyy-MM-dd}");
         if (!string.IsNullOrWhiteSpace(categoryId)) query.Add($"categoryId={Uri.EscapeDataString(categoryId)}");
+        if (!string.IsNullOrWhiteSpace(supplierId)) query.Add($"supplierId={Uri.EscapeDataString(supplierId)}");
 
         var url = "api/stock/movements/stats" + (query.Count > 0 ? "?" + string.Join("&", query) : string.Empty);
         return GetAsync<StockMovementStatsResponse>(url, ct);
     }
 
     /// <summary>The individual movements behind <see cref="GetStockMovementStatsAsync"/>'s
-    /// totals, newest first, each naming its product and category.</summary>
+    /// totals, newest first, each naming its product, category and supplier.</summary>
     public Task<StockMovementDetailsResponse> GetStockMovementDetailsAsync(
-        DateOnly? dateDebut = null, DateOnly? dateFin = null, string? categoryId = null, CancellationToken ct = default)
+        DateOnly? dateDebut = null, DateOnly? dateFin = null, string? categoryId = null,
+        string? supplierId = null, CancellationToken ct = default)
     {
         var query = new List<string>();
         if (dateDebut is { } debut) query.Add($"dateDebut={debut:yyyy-MM-dd}");
         if (dateFin is { } fin) query.Add($"dateFin={fin:yyyy-MM-dd}");
         if (!string.IsNullOrWhiteSpace(categoryId)) query.Add($"categoryId={Uri.EscapeDataString(categoryId)}");
+        if (!string.IsNullOrWhiteSpace(supplierId)) query.Add($"supplierId={Uri.EscapeDataString(supplierId)}");
 
         var url = "api/stock/movements/detail" + (query.Count > 0 ? "?" + string.Join("&", query) : string.Empty);
         return GetAsync<StockMovementDetailsResponse>(url, ct);
@@ -285,8 +289,11 @@ public class LonniiApiClient
     public Task<List<SupplierDto>> GetSuppliersAsync(CancellationToken ct = default) =>
         GetAsync<List<SupplierDto>>("api/stock/suppliers", ct);
 
-    public Task<SupplierDto> CreateSupplierAsync(SupplierDto request, CancellationToken ct = default) =>
+    public Task<SupplierDto> CreateSupplierAsync(SaveSupplierRequest request, CancellationToken ct = default) =>
         PostAsync<SupplierDto>("api/stock/suppliers", request, ct);
+
+    public Task<SupplierDto> UpdateSupplierAsync(string id, SaveSupplierRequest request, CancellationToken ct = default) =>
+        SendAsync<SupplierDto>(HttpMethod.Put, $"api/stock/suppliers/{id}", request, ct);
 
     // --- Ventes ---
 
@@ -548,6 +555,32 @@ public class LonniiApiClient
 
     public Task DeleteProgrammeAnnouncementAsync(int id, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Delete, $"api/programme/announcements/{id}", null, ct);
+
+    // --- Audit (présences) ---
+
+    /// <summary>This machine's offset from UTC right now, so the server files attendance
+    /// under the shop's calendar day and reads Programme hours as local time.</summary>
+    private static int UtcOffsetMinutes => (int)TimeZoneInfo.Local.GetUtcOffset(DateTime.Now).TotalMinutes;
+
+    public Task SendPresenceAsync(string? module, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, "api/audit/presence",
+            new PresenceHeartbeatRequest(module, Environment.MachineName, UtcOffsetMinutes), ct);
+
+    public Task EndPresenceAsync(CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, "api/audit/presence/end", null, ct);
+
+    public Task<AttendanceResponse> GetAttendanceAsync(CancellationToken ct = default) =>
+        GetAsync<AttendanceResponse>($"api/audit/attendance?offset={UtcOffsetMinutes}", ct);
+
+    public Task<MemberWorkHistoryResponse> GetMemberWorkHistoryAsync(string userId, CancellationToken ct = default) =>
+        GetAsync<MemberWorkHistoryResponse>(
+            $"api/audit/attendance/{Uri.EscapeDataString(userId)}/history?offset={UtcOffsetMinutes}", ct);
+
+    // --- Paramètres: consommation données ---
+
+    public Task<DataConsumptionResponse> GetDataConsumptionAsync(int? year, CancellationToken ct = default) =>
+        GetAsync<DataConsumptionResponse>(
+            "api/parametres/consommation" + (year is { } y ? $"?year={y}" : string.Empty), ct);
 
     // --- Paramètres: reçu et facture ---
 

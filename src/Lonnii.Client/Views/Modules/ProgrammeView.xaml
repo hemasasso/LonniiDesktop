@@ -40,6 +40,11 @@
                     <Button Content="›" Width="32" Style="{StaticResource SecondaryButton}" Click="NextMonth_Click" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <TextBlock Text="Aller au" VerticalAlignment="Center" Margin="0,0,8,0"
+                               Foreground="{DynamicResource TextSecondary}" />
+                    <DatePicker x:Name="GoToDatePicker" Width="130" Margin="0,0,12,0" VerticalAlignment="Center"
+                                ToolTip="Choisissez une date pour afficher son mois"
+                                SelectedDateChanged="GoToDate_Changed" />
                     <Button x:Name="AddAnnouncementButton" Content="＋ Annonce" Margin="0,0,8,0"
                             Style="{StaticResource SecondaryButton}" Click="AddAnnouncement_Click" />
                     <Button Content="Aujourd'hui" Style="{StaticResource SecondaryButton}" Click="Today_Click" />

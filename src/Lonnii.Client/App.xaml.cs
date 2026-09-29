@@ -13,6 +13,23 @@ namespace Lonnii.Client;
 /// </summary>
 public partial class App : Application
 {
+    /// <summary>
+    /// Every DatePicker shows and parses dates with the machine's short date pattern, so a
+    /// Windows set to English (United States) showed 09/28/2026 - read as the 9th of the 28th
+    /// month by anyone used to day first. Only the date patterns are overridden: numbers and
+    /// everything else keep the machine's culture, so no parsing or number formatting shifts.
+    /// </summary>
+    private static void UseDayMonthYearDates()
+    {
+        var culture = (System.Globalization.CultureInfo)System.Globalization.CultureInfo.CurrentCulture.Clone();
+        culture.DateTimeFormat.ShortDatePattern = "dd/MM/yyyy";
+        culture.DateTimeFormat.DateSeparator = "/";
+        culture.DateTimeFormat.FirstDayOfWeek = DayOfWeek.Monday;
+
+        System.Globalization.CultureInfo.CurrentCulture = culture;
+        System.Globalization.CultureInfo.DefaultThreadCurrentCulture = culture;
+    }
+
     /// <summary>Shared for the lifetime of the process. The app is single-user per machine.</summary>
     public static AppSession Session { get; } = new(new LonniiApiClient());
 
@@ -21,6 +38,7 @@ public partial class App : Application
 
     protected override async void OnStartup(StartupEventArgs e)
     {
+        UseDayMonthYearDates();
         base.OnStartup(e);
 
         // A crash dialog is friendlier than a silent disappearance on a shop counter,

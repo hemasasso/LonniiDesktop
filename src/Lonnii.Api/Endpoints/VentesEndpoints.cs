@@ -128,8 +128,12 @@ public static class VentesEndpoints
 
         var ventes = await query.OrderByDescending(v => v.DateVente).Take(1000).ToListAsync(ct);
 
-        // Vendeur names, resolved once per distinct seller rather than once per row.
-        var vendeurIds = ventes.Select(v => v.CreatedBy).Where(id => id is not null).Distinct().ToList();
+        // Vendeur and caissier names, resolved once per distinct user rather than once per row.
+        // The caissier is whoever recorded a payment - in the préparateur/caissier flow, not
+        // the person who rang the sale up.
+        var vendeurIds = ventes.Select(v => v.CreatedBy)
+            .Concat(ventes.SelectMany(v => v.Paiements.Select(p => p.CreatedBy)))
+            .Where(id => id is not null).Distinct().ToList();
         var vendeurNames = await db.Users.AsNoTracking()
             .Where(u => vendeurIds.Contains(u.IdUser))
             .Select(u => new { u.IdUser, u.FirstName, u.LastName, u.Username, u.Email })
@@ -149,10 +153,13 @@ public static class VentesEndpoints
             {
                 "client" => ventes.Where(v => v.ClientNom?.Contains(term, StringComparison.OrdinalIgnoreCase) == true),
                 "vendeur" => ventes.Where(v => NameFor(v.CreatedBy)?.Contains(term, StringComparison.OrdinalIgnoreCase) == true),
+                "caissier" => ventes.Where(v => v.Paiements.Any(p =>
+                    NameFor(p.CreatedBy)?.Contains(term, StringComparison.OrdinalIgnoreCase) == true)),
                 _ => ventes.Where(v =>
                     v.NumeroVente.Contains(term, StringComparison.OrdinalIgnoreCase)
                     || v.ClientNom?.Contains(term, StringComparison.OrdinalIgnoreCase) == true
-                    || NameFor(v.CreatedBy)?.Contains(term, StringComparison.OrdinalIgnoreCase) == true),
+                    || NameFor(v.CreatedBy)?.Contains(term, StringComparison.OrdinalIgnoreCase) == true
+                    || v.Paiements.Any(p => NameFor(p.CreatedBy)?.Contains(term, StringComparison.OrdinalIgnoreCase) == true)),
             }).ToList();
         }
 
@@ -555,6 +562,12 @@ public static class VentesEndpoints
 
         if (productIds.Any(id => !products.ContainsKey(id)))
             return Results.BadRequest(new ApiError("Un des produits du panier est introuvable"));
+
+        // The catalogue already hides these; this stops a stale cart (or another client)
+        // selling a matière première or an internal-use item anyway.
+        if (products.Values.FirstOrDefault(p => !ProductTypes.IsSellable(p.TypeProduit)) is { } notForSale)
+            return Results.BadRequest(new ApiError(
+                $"« {notForSale.Name} » ({ProductTypes.DisplayName(notForSale.TypeProduit)}) n'est pas un produit fini et ne peut pas être vendu"));
 
         var vente = new Vente
         {

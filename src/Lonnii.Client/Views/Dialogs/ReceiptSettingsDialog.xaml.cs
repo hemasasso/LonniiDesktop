@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Media;
+using Lonnii.Client.Printing;
 using Lonnii.Client.Services;
 using Lonnii.Shared.Contracts;
 using Microsoft.Win32;
@@ -54,16 +55,7 @@ public partial class ReceiptSettingsDialog : Window
     private string? _pendingQrName;
     private bool _qrRemoved;
 
-    /// <summary>Stand-in sale used by the preview - three lines, so wrapping and the
-    /// column widths are visible before anything is printed for real.</summary>
-    private static readonly (string Name, int Qty, decimal Price)[] SampleItems =
-    [
-        ("Chemise Oxford", 2, 8500m),
-        ("Pantalon Chino", 1, 12500m),
-        ("Ceinture Cuir", 1, 4000m),
-    ];
-
-    private const decimal SampleAvoir = 5000m;
+    private sealed record TemplateOption(string Value, string Label);
 
     public ReceiptSettingsDialog(AppSession session)
     {
@@ -79,6 +71,13 @@ public partial class ReceiptSettingsDialog : Window
         FactureTitleSizeSlider.Minimum = ReceiptSettingsDefaults.MinTitleFontSize;
         FactureTitleSizeSlider.Maximum = ReceiptSettingsDefaults.MaxTitleFontSize;
 
+        var templates = ReceiptTemplates.All.Select(t => new TemplateOption(t, ReceiptTemplates.Label(t))).ToList();
+        ReceiptTemplateBox.ItemsSource = templates;
+        FactureTemplateBox.ItemsSource = templates;
+
+        BuildSectionChecks(ReceiptSectionsPanel, ReceiptSections.All, facture: false);
+        BuildSectionChecks(FactureSectionsPanel, ReceiptSections.Facture, facture: true);
+
         HookLivePreview();
         ShowDocument(facture: false);
 
@@ -93,10 +92,13 @@ public partial class ReceiptSettingsDialog : Window
             CompanyNameBox, SellerLabelBox, NoteUnderQrBox,
             ReceiptTitleBox, ReceiptFooterBox, AvoirNoticeTitleBox, AvoirNoticeTextBox,
             FactureTitleBox, FactureNoticeTitleBox, FactureNoticeTextBox, FactureFooterBox,
+            CompanyAddressBox, CompanyPhoneBox, CompanyEmailBox, CompanyLegalInfoBox, LegalFooterBox, TvaRateBox,
         ];
         foreach (var box in boxes) box.TextChanged += (_, _) => RenderPreview();
 
         FontFamilyBox.SelectionChanged += (_, _) => RenderPreview();
+        ReceiptTemplateBox.SelectionChanged += (_, _) => RenderPreview();
+        FactureTemplateBox.SelectionChanged += (_, _) => RenderPreview();
 
         Slider[] sliders = [FontSizeSlider, ReceiptTitleSizeSlider, FactureTitleSizeSlider];
         foreach (var slider in sliders) slider.ValueChanged += (_, _) => RenderPreview();
@@ -143,6 +145,18 @@ public partial class ReceiptSettingsDialog : Window
         FactureNoticeTitleBox.Text = s.FactureNoticeTitle;
         FactureNoticeTextBox.Text = s.FactureNoticeText;
         FactureFooterBox.Text = s.FactureFooterText;
+
+        CompanyAddressBox.Text = s.CompanyAddress ?? string.Empty;
+        CompanyPhoneBox.Text = s.CompanyPhone ?? string.Empty;
+        CompanyEmailBox.Text = s.CompanyEmail ?? string.Empty;
+        CompanyLegalInfoBox.Text = s.CompanyLegalInfo ?? string.Empty;
+        LegalFooterBox.Text = s.LegalFooterText ?? string.Empty;
+        TvaRateBox.Text = s.TvaRate is { } rate ? rate.ToString("0.##", French) : string.Empty;
+
+        ReceiptTemplateBox.SelectedValue = s.ReceiptTemplate;
+        FactureTemplateBox.SelectedValue = s.FactureTemplate;
+        SetSectionChecks(ReceiptSectionsPanel, s.HiddenSections(facture: false));
+        SetSectionChecks(FactureSectionsPanel, s.HiddenSections(facture: true));
 
         FontFamilyBox.SelectedItem = ReceiptSettingsDefaults.FontFamilies
             .FirstOrDefault(f => string.Equals(f, s.FontFamily, StringComparison.OrdinalIgnoreCase))
@@ -293,6 +307,13 @@ public partial class ReceiptSettingsDialog : Window
 
     private async void Save_Click(object sender, RoutedEventArgs e)
     {
+        if (!TryReadTvaRate(out _))
+        {
+            ShowStatus("Le taux de TVA doit être un nombre entre 0 et 100, ex. 19,25.", error: true);
+            TvaRateBox.Focus();
+            return;
+        }
+
         SetBusy(true);
         ShowStatus(null);
 
@@ -363,117 +384,141 @@ public partial class ReceiptSettingsDialog : Window
         FontFamily: FontFamilyBox.SelectedItem as string ?? ReceiptSettingsDefaults.FontFamily,
         FontSize: (int)FontSizeSlider.Value,
         ReceiptTitleFontSize: (int)ReceiptTitleSizeSlider.Value,
-        FactureTitleFontSize: (int)FactureTitleSizeSlider.Value);
+        FactureTitleFontSize: (int)FactureTitleSizeSlider.Value,
+        ReceiptTemplate: SelectedTemplate(ReceiptTemplateBox),
+        FactureTemplate: SelectedTemplate(FactureTemplateBox),
+        ReceiptHiddenSections: HiddenSections(ReceiptSectionsPanel),
+        FactureHiddenSections: HiddenSections(FactureSectionsPanel),
+        CompanyAddress: Blank(CompanyAddressBox.Text),
+        CompanyPhone: Blank(CompanyPhoneBox.Text),
+        CompanyEmail: Blank(CompanyEmailBox.Text),
+        CompanyLegalInfo: Blank(CompanyLegalInfoBox.Text),
+        LegalFooterText: Blank(LegalFooterBox.Text),
+        TvaRate: TryReadTvaRate(out var rate) ? rate : null);
+
+    // --- Sections ----------------------------------------------------------------
+
+    private void BuildSectionChecks(WrapPanel panel, IReadOnlyList<string> sections, bool facture)
+    {
+        foreach (var section in sections)
+        {
+            var check = new CheckBox
+            {
+                Content = ReceiptSections.Label(section, facture),
+                Tag = section,
+                Width = 210,
+                Margin = new Thickness(0, 0, 8, 6),
+                ToolTip = SectionHint(section, facture),
+            };
+            check.Checked += (_, _) => RenderPreview();
+            check.Unchecked += (_, _) => RenderPreview();
+            panel.Children.Add(check);
+        }
+    }
+
+    /// <summary>Why a checked section might still not print - otherwise ticking "Détail TVA"
+    /// with no rate set looks like the switch is broken.</summary>
+    private static string? SectionHint(string section, bool facture) => section switch
+    {
+        ReceiptSections.CompanyContact => "Imprimé seulement si l'adresse, le téléphone ou l'email est rempli.",
+        ReceiptSections.CompanyLegal => "Imprimé seulement si les mentions légales sont remplies.",
+        ReceiptSections.Tva => "Imprimé seulement si un taux de TVA est renseigné.",
+        ReceiptSections.LegalFooter => "Imprimé seulement si le texte de bas de page est rempli.",
+        ReceiptSections.Qr => "Imprimé seulement si un QR code ou une note est configuré.",
+        ReceiptSections.Cashier => "Imprimé seulement quand l'encaissement a été fait par une autre personne que le vendeur.",
+        ReceiptSections.PaymentHistory => "Imprimé seulement quand la vente a été réglée en plusieurs fois.",
+        ReceiptSections.Notice when !facture => "Imprimé seulement quand le client a trop payé et repart avec un avoir.",
+        _ => null,
+    };
+
+    private static void SetSectionChecks(WrapPanel panel, IReadOnlyList<string> hidden)
+    {
+        foreach (var check in panel.Children.OfType<CheckBox>())
+            check.IsChecked = !hidden.Contains((string)check.Tag);
+    }
+
+    private static List<string> HiddenSections(WrapPanel panel) =>
+        panel.Children.OfType<CheckBox>().Where(c => c.IsChecked != true).Select(c => (string)c.Tag).ToList();
+
+    private static string SelectedTemplate(ComboBox box) => box.SelectedValue as string ?? ReceiptTemplates.Ticket;
+
+    /// <summary>Accepts "19,25" as well as "19.25". Blank is valid and means no TVA.</summary>
+    private bool TryReadTvaRate(out decimal? rate)
+    {
+        rate = null;
+        var text = TvaRateBox.Text.Trim().Replace(" ", string.Empty);
+        if (text.Length == 0) return true;
+
+        if (!decimal.TryParse(text.Replace('.', ','), NumberStyles.Number, French, out var value)
+            || value < 0 || value > 100)
+            return false;
+
+        rate = value;
+        return true;
+    }
 
     // --- Live preview ------------------------------------------------------------
 
+    /// <summary>The configuration as the form currently stands, unsaved - what the preview
+    /// and the full-size test print show.</summary>
+    private ReceiptSettingsDto Draft() => _loaded with
+    {
+        CompanyName = Blank(CompanyNameBox.Text),
+        NoteUnderQr = Blank(NoteUnderQrBox.Text),
+        SellerLabel = Blank(SellerLabelBox.Text) ?? ReceiptSettingsDefaults.SellerLabel,
+        ReceiptTitle = Blank(ReceiptTitleBox.Text) ?? ReceiptSettingsDefaults.ReceiptTitle,
+        ReceiptFooterText = ReceiptFooterBox.Text,
+        AvoirNoticeTitle = AvoirNoticeTitleBox.Text,
+        AvoirNoticeText = AvoirNoticeTextBox.Text,
+        FactureTitle = Blank(FactureTitleBox.Text) ?? ReceiptSettingsDefaults.FactureTitle,
+        FactureNoticeTitle = FactureNoticeTitleBox.Text,
+        FactureNoticeText = FactureNoticeTextBox.Text,
+        FactureFooterText = FactureFooterBox.Text,
+        FontFamily = FontFamilyBox.SelectedItem as string ?? ReceiptSettingsDefaults.FontFamily,
+        FontSize = (int)FontSizeSlider.Value,
+        ReceiptTitleFontSize = (int)ReceiptTitleSizeSlider.Value,
+        FactureTitleFontSize = (int)FactureTitleSizeSlider.Value,
+        ReceiptTemplate = SelectedTemplate(ReceiptTemplateBox),
+        FactureTemplate = SelectedTemplate(FactureTemplateBox),
+        ReceiptHiddenSections = HiddenSections(ReceiptSectionsPanel),
+        FactureHiddenSections = HiddenSections(FactureSectionsPanel),
+        CompanyAddress = Blank(CompanyAddressBox.Text),
+        CompanyPhone = Blank(CompanyPhoneBox.Text),
+        CompanyEmail = Blank(CompanyEmailBox.Text),
+        CompanyLegalInfo = Blank(CompanyLegalInfoBox.Text),
+        LegalFooterText = Blank(LegalFooterBox.Text),
+        TvaRate = TryReadTvaRate(out var rate) ? rate : null,
+    };
+
     /// <summary>
     /// Redraws the sample document from the current form values. Cheap enough to run on
-    /// every keystroke: a few dozen TextBlocks, no layout the printer will ever see.
+    /// every keystroke: a few dozen elements, nothing the printer will ever see.
     /// </summary>
     private void RenderPreview()
     {
         if (_loading) return;
 
-        var fontSize = (int)FontSizeSlider.Value;
-        var titleSize = (int)(_showingFacture ? FactureTitleSizeSlider.Value : ReceiptTitleSizeSlider.Value);
-        var family = new FontFamily(FontFamilyBox.SelectedItem as string ?? ReceiptSettingsDefaults.FontFamily);
-
-        // Attached property: the paper is a Border, which has no FontFamily of its own.
-        TextElement.SetFontFamily(PreviewPaper, family);
-
         // Sliders carry their current value in the label, the way the web app's do - a bare
         // slider gives no way to tell 12 from 13.
-        FontSizeLabel.Text = $"Taille du texte ({fontSize} px)";
+        FontSizeLabel.Text = $"Taille du texte ({(int)FontSizeSlider.Value} px)";
         ReceiptTitleSizeLabel.Text = $"Taille du titre ({(int)ReceiptTitleSizeSlider.Value} px)";
         FactureTitleSizeLabel.Text = $"Taille du titre ({(int)FactureTitleSizeSlider.Value} px)";
 
-        PreviewLogo.Source = _logoBytes is null ? null : ImageHelper.FromBytes(_logoBytes);
-        PreviewLogo.Visibility = _logoBytes is null ? Visibility.Collapsed : Visibility.Visible;
-
-        PreviewCompany.Text = Blank(CompanyNameBox.Text) ?? _session.Groupe?.Nom ?? "Lonnii";
-        PreviewCompany.FontSize = ReceiptTypography.Company(fontSize);
-
-        PreviewTitle.Text = _showingFacture ? FactureTitleBox.Text : ReceiptTitleBox.Text;
-        PreviewTitle.FontSize = titleSize;
-
-        var now = DateTime.Now;
-        PreviewNumero.Text = "N° V2026-00042";
-        PreviewDate.Text = $"{now.ToString("d MMMM yyyy", French)} à {now:HH:mm}";
-        PreviewNumero.FontSize = PreviewDate.FontSize = ReceiptTypography.Meta(fontSize);
-
-        PreviewSellerLabel.Text = $"{Blank(SellerLabelBox.Text) ?? ReceiptSettingsDefaults.SellerLabel}:";
-        foreach (var block in new[] { PreviewClientLabel, PreviewClient, PreviewSellerLabel, PreviewSeller })
-            block.FontSize = ReceiptTypography.Body(fontSize);
-
-        foreach (var block in new[] { PreviewColArticle, PreviewColQte, PreviewColPu, PreviewColTotal })
-            block.FontSize = ReceiptTypography.Table(fontSize);
-
-        RenderPreviewItems(fontSize);
-
-        var total = SampleItems.Sum(i => i.Price * i.Qty);
-        PreviewTotal.Text = Money.Format(total);
-        PreviewTotalLabel.FontSize = PreviewTotal.FontSize = ReceiptTypography.Total(fontSize);
-
-        PreviewFactureNotice.Visibility = _showingFacture ? Visibility.Visible : Visibility.Collapsed;
-        PreviewFactureNoticeTitle.Text = FactureNoticeTitleBox.Text;
-        PreviewFactureNoticeText.Text = FactureNoticeTextBox.Text;
-        PreviewFactureNoticeTitle.FontSize = ReceiptTypography.Body(fontSize);
-        PreviewFactureNoticeText.FontSize = ReceiptTypography.Table(fontSize);
-
-        // Shown on the receipt side only, and only as a sample - a real receipt carries it
-        // just when the client actually overpaid.
-        PreviewAvoirNotice.Visibility = _showingFacture ? Visibility.Collapsed : Visibility.Visible;
-        PreviewAvoirNoticeTitle.Text = AvoirNoticeTitleBox.Text;
-        PreviewAvoirNoticeText.Text = $"{AvoirNoticeTextBox.Text} {Money.Format(SampleAvoir)}";
-        PreviewAvoirNoticeTitle.FontSize = ReceiptTypography.Body(fontSize);
-        PreviewAvoirNoticeText.FontSize = ReceiptTypography.Table(fontSize);
-
-        PreviewFooter.Text = _showingFacture ? FactureFooterBox.Text : ReceiptFooterBox.Text;
-        PreviewFooter.FontSize = ReceiptTypography.Body(fontSize);
-
-        var note = Blank(NoteUnderQrBox.Text);
-        PreviewQrPanel.Visibility = _qrBytes is null && note is null ? Visibility.Collapsed : Visibility.Visible;
-        PreviewQr.Source = _qrBytes is null ? null : ImageHelper.FromBytes(_qrBytes);
-        PreviewQr.Visibility = _qrBytes is null ? Visibility.Collapsed : Visibility.Visible;
-        PreviewQrNote.Text = note ?? string.Empty;
-        PreviewQrNote.FontSize = ReceiptTypography.Table(fontSize);
+        PreviewBox.Child = ReceiptDocument.Build(
+            ReceiptData.Sample(_showingFacture), Draft(), _logoBytes, _qrBytes, FallbackCompany, forPrint: false);
     }
 
-    private void RenderPreviewItems(int fontSize)
+    private void FullPreview_Click(object sender, RoutedEventArgs e)
     {
-        PreviewItems.Items.Clear();
+        if (_loading) return;
 
-        foreach (var (name, qty, price) in SampleItems)
+        new VenteReceiptDialog(ReceiptData.Sample(_showingFacture), Draft(), _logoBytes, _qrBytes, FallbackCompany)
         {
-            var grid = new Grid { Margin = new Thickness(0, 0, 0, 4) };
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(66) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(74) });
-
-            Add(grid, 0, name, TextAlignment.Left);
-            Add(grid, 1, qty.ToString(), TextAlignment.Center);
-            Add(grid, 2, Money.FormatPlain(price), TextAlignment.Right);
-            Add(grid, 3, Money.FormatPlain(price * qty), TextAlignment.Right);
-
-            PreviewItems.Items.Add(grid);
-        }
-
-        void Add(Grid grid, int column, string text, TextAlignment alignment)
-        {
-            var block = new TextBlock
-            {
-                Text = text,
-                FontSize = ReceiptTypography.Table(fontSize),
-                Foreground = Brushes.Black,
-                TextAlignment = alignment,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-            };
-            Grid.SetColumn(block, column);
-            grid.Children.Add(block);
-        }
+            Owner = this,
+        }.ShowDialog();
     }
+
+    private string FallbackCompany => _session.Groupe?.Nom ?? "Lonnii";
 
     // --- Chrome ------------------------------------------------------------------
 

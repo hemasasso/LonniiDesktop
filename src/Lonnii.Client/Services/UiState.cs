@@ -20,6 +20,10 @@ public sealed class ScreenState
     public List<SavedCartLine> Cart { get; set; } = [];
 
     public string? RemiseGlobale { get; set; }
+
+    /// <summary>True once the user folded Analyse des Marges' estimated-cost notice down to its
+    /// ⚠ icon; it stays folded until they open it again.</summary>
+    public bool MargesEstimateNoticeCollapsed { get; set; }
 }
 
 /// <summary>

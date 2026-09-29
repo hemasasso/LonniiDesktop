@@ -17,33 +17,12 @@ public class MenuVisibilityTests
             .ToDictionary(n => n, _ => true, StringComparer.Ordinal);
 
     [Fact]
-    public void Member_DoesNotSeeOptions()
+    public void Member_SeesTheEspaceEntries()
     {
         var visible = AppMenu.Visible(
             AppMenu.Espace, AllGranted(),
             gestionAccess: true, prestationsEnabled: true, isAdmin: false);
 
-        Assert.DoesNotContain(visible, e => e.Key == "options");
-    }
-
-    [Fact]
-    public void Admin_SeesOptions()
-    {
-        var visible = AppMenu.Visible(
-            AppMenu.Espace, AllGranted(),
-            gestionAccess: true, prestationsEnabled: true, isAdmin: true);
-
-        Assert.Contains(visible, e => e.Key == "options");
-    }
-
-    [Fact]
-    public void Member_StillSeesTheOtherEspaceEntries()
-    {
-        var visible = AppMenu.Visible(
-            AppMenu.Espace, AllGranted(),
-            gestionAccess: true, prestationsEnabled: true, isAdmin: false);
-
-        // Hiding Options must not take the rest of the workspace with it.
         Assert.Contains(visible, e => e.Key == "program");
         Assert.Contains(visible, e => e.Key == "prestations");
     }

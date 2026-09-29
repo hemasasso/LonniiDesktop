@@ -74,24 +74,29 @@ public partial class CaisseReportDialog : Window
             Section("RETRAITS");
             foreach (var r in retraits)
             {
-                Row($"{r.Date.ToLocalTime():HH:mm}  {r.Motif}", $"-{Money.Format(r.Montant)}", color: Loss, wrapLabel: true);
+                var mode = r.ModePaiement == "mobile_money" ? "Mobile" : "Espèces";
+                Row($"{r.Date.ToLocalTime():HH:mm}  {r.Motif} ({mode})", $"-{Money.Format(r.Montant)}", color: Loss, wrapLabel: true);
             }
             Row("Total retraits", $"-{Money.Format(c.TotalRetraits)}", bold: true, color: Loss);
         }
 
         Divider();
-        Section("CONTRÔLE DES ESPÈCES");
-        // For a closed session the écart is stored as counted - expected, so expected is
-        // recovered from the two stored figures rather than recomputed from ones that may
-        // have been corrected since (an "Ajusté" résolution moves MontantFinal).
-        var expected = isOpen || c.MontantFinal is null
-            ? c.MontantInitialCash + c.PaiementCash - c.TotalRetraits
-            : c.MontantFinal.Value - c.Ecart;
-        Row("Espèces attendues", Money.Format(expected));
+        Section("CONTRÔLE DE CAISSE");
+        // Expected figures come from the session's stored totals (CaisseDto.ExpectedCash /
+        // ExpectedMobile); an "Ajusté" résolution moves the counts to match them, not the reverse.
+        Row("Espèces attendues", Money.Format(c.ExpectedCash));
+        if (isOpen || c.MobileCounted)
+            Row("Mobile money attendu", Money.Format(c.ExpectedMobile));
 
         if (!isOpen && c.MontantFinal is { } counted)
         {
             Row("Espèces comptées", Money.Format(counted));
+            if (c.MontantFinalMobile is { } countedMobile)
+            {
+                Row("Mobile money constaté", Money.Format(countedMobile));
+                if (c.EcartCash != 0) Row("  dont écart espèces", Signed(c.EcartCash), color: Loss);
+                if (c.EcartMobile != 0) Row("  dont écart mobile", Signed(c.EcartMobile), color: Loss);
+            }
             var ecartText = c.Ecart switch
             {
                 0 => "Aucun",
@@ -117,6 +122,9 @@ public partial class CaisseReportDialog : Window
         Centered($"Imprimé le {DateTime.Now:dd/MM/yyyy à HH:mm}", 10, FontWeights.Normal, Muted);
         Centered("Signature du caissier : ____________________", 11, FontWeights.Normal, Ink, top: 18);
     }
+
+    private static string Signed(decimal amount) =>
+        amount > 0 ? $"+{Money.Format(amount)}" : Money.Format(amount);
 
     private void Centered(string text, double size, FontWeight weight, Brush brush, double top = 0) =>
         PaperContent.Children.Add(new TextBlock

@@ -56,7 +56,7 @@ public partial class MargesView : UserControl
 
     // --- Formatting: every amount reads "1 000,25 FCFA", every rate "12,50 %" ---
 
-    private static string Amount(decimal value) => $"{Money.FormatPlain(value, 2)} {Money.Label}";
+    private static string Amount(decimal value) => Money.WithLabel(value, Money.FormatPlain(Math.Abs(value), 2));
     private static string Percent(decimal value) => $"{Money.FormatPlain(value, 2)} %";
     private static string SignedPercent(decimal value) => (value > 0 ? "+" : string.Empty) + Percent(value);
 
@@ -275,7 +275,9 @@ public partial class MargesView : UserControl
     {
         if (_data is not { } data) return;
 
-        EstimateNotice.Visibility = data.EstimatedLines > 0 ? Visibility.Visible : Visibility.Collapsed;
+        ApplyEstimateNoticeVisibility();
+        EstimateNoticeIconText.Text = $"{data.EstimatedLines} coût(s) estimé(s)";
+        EstimateNoticeIcon.ToolTip = $"{data.EstimatedLines} ligne(s) de vente sans prix d'achat connu - cliquez pour le détail";
         EstimateNoticeText.Text =
             $"{data.EstimatedLines} ligne(s) de vente, soit {Amount(data.EstimatedRevenue)} de chiffre d'affaires, " +
             "n'ont pas de prix d'achat connu (non renseigné, ou produit supprimé ou renommé depuis la vente) : " +
@@ -478,6 +480,29 @@ public partial class MargesView : UserControl
 
     private void ShowEstimated_Click(object sender, RoutedEventArgs e) => ShowProducts("estimated");
 
+    // --- Estimated-cost notice: full banner, or folded to a ⚠ beside Actualiser ---
+
+    private void CollapseEstimateNotice_Click(object sender, RoutedEventArgs e) => SetEstimateNoticeCollapsed(true);
+
+    private void ExpandEstimateNotice_Click(object sender, RoutedEventArgs e) => SetEstimateNoticeCollapsed(false);
+
+    private void SetEstimateNoticeCollapsed(bool collapsed)
+    {
+        UiState.For(_session).MargesEstimateNoticeCollapsed = collapsed;
+        UiState.Save();
+        ApplyEstimateNoticeVisibility();
+    }
+
+    /// <summary>Neither shows when every cost is known; otherwise exactly one of the two does.</summary>
+    private void ApplyEstimateNoticeVisibility()
+    {
+        var applies = _data is { EstimatedLines: > 0 };
+        var collapsed = UiState.For(_session).MargesEstimateNoticeCollapsed;
+
+        EstimateNotice.Visibility = applies && !collapsed ? Visibility.Visible : Visibility.Collapsed;
+        EstimateNoticeIcon.Visibility = applies && collapsed ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     private void ShowProducts(string filterTag)
     {
         ProductFilterCombo.SelectedItem = ProductFilterCombo.Items.Cast<ComboBoxItem>().First(i => (string)i.Tag == filterTag);
@@ -649,8 +674,10 @@ public partial class MargesView : UserControl
         TopProductsEmptyText.Visibility = top.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         SKColor CategoryColor(string categorie) => categoryColors.GetValueOrDefault(categorie, SKColors.Gray);
         TopProductsChart.Series = top
+            // Named after the product alone, as Ventes' "Produits les Plus Vendus" is; the
+            // margin rate goes with the amount instead of lengthening the name.
             .Select((p, i) => (ISeries)Bar(i, top.Count, (double)p.Profit, CategoryColor(p.Categorie),
-                $"{p.Nom} ({p.Categorie}) — {Percent(p.Margin)}", horizontal: true))
+                p.Nom, horizontal: true, tooltip: v => $"{Amount((decimal)v)} ({Percent(p.Margin)})"))
             .ToArray();
         TopProductsChart.YAxes = [LabelAxis(top.Select(p => Shorten(p.Nom, 28)).ToArray(), 10)];
         TopProductsChart.XAxes = [ValueAxis(top.Count == 0 ? 0 : (double)top.Max(p => p.Profit), top.Count == 0 ? 0 : (double)top.Min(p => p.Profit))];
@@ -847,7 +874,6 @@ public partial class MargesView : UserControl
             {
                 Values = values, Name = name, IgnoresBarPosition = true, Fill = new SolidColorPaint(color),
                 MaxBarWidth = 22,
-                XToolTipLabelFormatter = point => Format(point.Coordinate.PrimaryValue),
                 YToolTipLabelFormatter = point => Format(point.Coordinate.PrimaryValue),
             }
             : new ColumnSeries<double>

@@ -56,6 +56,8 @@
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Background" Value="{DynamicResource Surface}" />
         <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <!-- The caret is drawn black unless told otherwise, invisible on the dark palette. -->
+        <Setter Property="CaretBrush" Value="{DynamicResource TextPrimary}" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Style.Triggers>
             <Trigger Property="IsKeyboardFocusWithin" Value="True">
@@ -75,6 +77,8 @@
         <Setter Property="BorderBrush" Value="{DynamicResource BorderStrong}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Background" Value="{DynamicResource Surface}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <Setter Property="CaretBrush" Value="{DynamicResource TextPrimary}" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Style.Triggers>
             <Trigger Property="IsKeyboardFocusWithin" Value="True">
@@ -443,6 +447,9 @@
              from PART_ContentHost's - relying on inheritance alone left the typed date
              rendering in Control's black default rather than the palette's TextPrimary. -->
         <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+        <!-- Not inherited from the TextBox style above: an implicit style applies to its exact
+             type only, so this subclass kept the black default caret. -->
+        <Setter Property="CaretBrush" Value="{DynamicResource TextPrimary}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="DatePickerTextBox">
@@ -792,6 +799,43 @@
         </Setter>
     </Style>
 
+    <!-- Tabs. The built-in TabItem chrome is drawn by the OS theme (always light), while its
+         header text inherits the palette's TextPrimary - near-white in dark mode - so the
+         tab labels vanished. This replaces the chrome with palette brushes. -->
+    <Style TargetType="TabItem">
+        <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TabItem">
+                    <Border x:Name="Chrome" Padding="16,8" Margin="0,0,2,0" Cursor="Hand"
+                            Background="{DynamicResource SurfaceAlt}"
+                            BorderBrush="{DynamicResource Border}" BorderThickness="1,1,1,0"
+                            CornerRadius="4,4,0,0">
+                        <Grid>
+                            <ContentPresenter ContentSource="Header" HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                            <Border x:Name="Underline" Height="2" VerticalAlignment="Bottom" Margin="-16,0,-16,-8"
+                                    Background="{DynamicResource Accent}" Visibility="Collapsed" />
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource Surface}" />
+                            <Setter TargetName="Underline" Property="Visibility" Value="Visible" />
+                            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+                            <Setter Property="FontWeight" Value="SemiBold" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Foreground" Value="{DynamicResource TextPrimary}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- Data grid -->
     <Style TargetType="DataGrid">
         <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
@@ -829,10 +873,25 @@
         <Setter Property="HorizontalContentAlignment" Value="Left" />
     </Style>
 
+    <!-- The template is replaced because DataGridCell's built-in one ignores both Padding and
+         VerticalContentAlignment: a text column's TextBlock stretched and sat at the top of
+         the row while NumericCell columns centred themselves, so one row read at two heights. -->
     <Style TargetType="DataGridCell">
-        <Setter Property="Padding" Value="10,0" />
+        <Setter Property="Padding" Value="6,0" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="DataGridCell">
+                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" SnapsToDevicePixels="True">
+                        <ContentPresenter Margin="{TemplateBinding Padding}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                          SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
         <Style.Triggers>
             <Trigger Property="IsSelected" Value="True">
                 <Setter Property="Background" Value="{DynamicResource AccentLight}" />

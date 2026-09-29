@@ -47,22 +47,115 @@ public partial class ParametresView : UserControl
         HostText.Text = _session.Api.BaseAddress ?? "—";
         MachineText.Text = Environment.MachineName;
 
+        // Gated the same way as Currency/Ventes below, and for the same reason.
+        MembersPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
+
         CurrencyPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
         CurrencyBox.Text = groupe?.CurrencyLabel ?? Money.Label;
+        (groupe?.CurrencyBefore == true ? CurrencyBeforeRadio : CurrencyAfterRadio).IsChecked = true;
+        UpdateCurrencyPreview();
 
         // Gated the same way, and for the same reason: the API refuses these writes to
         // anyone but an admin, so showing the entry to a member only advertises a locked door.
         VentesSettingsPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
 
         PopulatePrivileges();
+        PopulateConsumptionYears();
     }
+
+    // --- Consommation données ---
+
+    /// <summary>"Toutes les années" plus the last five, as the web app's picker offers. The
+    /// selection fires the first load.</summary>
+    private void PopulateConsumptionYears()
+    {
+        if (!_session.IsAdmin) return;
+        ConsumptionPanel.Visibility = Visibility.Visible;
+
+        var items = new List<ComboBoxItem> { new() { Content = "Toutes les années", Tag = null } };
+        for (var year = DateTime.Today.Year; year > DateTime.Today.Year - 5; year--)
+            items.Add(new ComboBoxItem { Content = year.ToString(), Tag = year });
+
+        ConsumptionYearCombo.ItemsSource = items;
+        ConsumptionYearCombo.SelectedIndex = 0;
+    }
+
+    private async void ConsumptionYear_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        var year = (ConsumptionYearCombo.SelectedItem as ComboBoxItem)?.Tag as int?;
+        try
+        {
+            var data = await _session.Api.GetDataConsumptionAsync(year);
+
+            ConsumptionRecordsText.Text = Money.FormatPlain(data.TotalRecords);
+            ConsumptionVolumeText.Text = FormatBytes(data.TotalBytes);
+            ConsumptionSectionsText.Text = $"{data.SectionsWithData} / {data.Sections}";
+            ConsumptionFilesText.Text = Money.FormatPlain(data.TotalFiles);
+
+            ConsumptionGrid.ItemsSource = data.Rows
+                .OrderByDescending(r => r.Bytes)
+                .Select(r => new
+                {
+                    r.Section,
+                    r.Label,
+                    CountDisplay = Money.FormatPlain(r.Count),
+                    BytesDisplay = FormatBytes(r.Bytes),
+                })
+                .ToList();
+
+            ConsumptionNoteText.Foreground = (Brush)FindResource("TextSecondary");
+        }
+        catch (ApiException ex)
+        {
+            ConsumptionNoteText.Text = ex.Message;
+            ConsumptionNoteText.Foreground = (Brush)FindResource("Danger");
+        }
+    }
+
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} o",
+        < 1024 * 1024 => $"{bytes / 1024.0:0.#} Ko",
+        < 1024L * 1024 * 1024 => $"{bytes / (1024.0 * 1024):0.##} Mo",
+        _ => $"{bytes / (1024.0 * 1024 * 1024):0.##} Go",
+    };
 
     /// <summary>Opens the reçu/facture editor. Its own Enregistrer does the saving and
     /// refreshes the session's cached settings, so there is nothing to do on return.</summary>
     private void OpenReceiptSettings_Click(object sender, RoutedEventArgs e) =>
         new ReceiptSettingsDialog(_session) { Owner = Window.GetWindow(this) }.ShowDialog();
 
-    /// <summary>Saves the new currency label and applies it immediately across the app.</summary>
+    /// <summary>Opens the members/roles/privileges screen. Refreshes afterwards so a member
+    /// added or removed there is reflected in this screen's own "Membres" count above, and so
+    /// the shell picks up a change to the signed-in user's own privileges immediately.</summary>
+    private async void OpenMembers_Click(object sender, RoutedEventArgs e)
+    {
+        new MembresDialog(_session) { Owner = Window.GetWindow(this) }.ShowDialog();
+
+        try { await _session.RefreshAsync(); }
+        catch (ApiException) { /* best-effort refresh; the dialog already reported any error */ }
+        Populate();
+    }
+
+    /// <summary>Fires while the view is still being built (the radio's IsChecked in XAML), before
+    /// every control exists - hence the null check.</summary>
+    private void CurrencyInput_Changed(object sender, RoutedEventArgs e)
+    {
+        if (CurrencyPreviewText is null || CurrencyBox is null) return;
+        UpdateCurrencyPreview();
+        if (CurrencyStatusText is not null) CurrencyStatusText.Text = string.Empty;
+    }
+
+    private void UpdateCurrencyPreview()
+    {
+        var label = CurrencyBox.Text.Trim();
+        CurrencyPreviewText.Text = label.Length == 0
+            ? "—"
+            : Money.WithLabel(1500, Money.FormatPlain(1500m), label, CurrencyBeforeRadio.IsChecked == true);
+    }
+
+    /// <summary>Saves the new currency label and position and applies them immediately
+    /// across the app.</summary>
     private async void SaveCurrency_Click(object sender, RoutedEventArgs e)
     {
         var label = CurrencyBox.Text.Trim();
@@ -75,7 +168,7 @@ public partial class ParametresView : UserControl
 
         try
         {
-            var updated = await _session.Api.UpdateCurrencyAsync(label);
+            var updated = await _session.Api.UpdateCurrencyAsync(label, CurrencyBeforeRadio.IsChecked == true);
             _session.ApplyCurrencyChange(updated);
             CurrencyBox.Text = updated.CurrencyLabel;
             CurrencyStatusText.Text = "Enregistré.";

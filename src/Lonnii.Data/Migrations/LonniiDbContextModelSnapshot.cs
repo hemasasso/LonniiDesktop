@@ -254,6 +254,10 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("montant_final");
 
+                    b.Property<long?>("MontantFinalMobile")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("montant_final_mobile");
+
                     b.Property<long>("MontantInitial")
                         .HasColumnType("INTEGER")
                         .HasColumnName("montant_initial");
@@ -1022,6 +1026,10 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at");
 
+                    b.Property<bool>("CurrencyBefore")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("currency_before");
+
                     b.Property<string>("CurrencyLabel")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -1248,6 +1256,77 @@ namespace Lonnii.Data.Migrations
                     b.HasIndex("Statut");
 
                     b.ToTable("immobilisations");
+                });
+
+            modelBuilder.Entity("Lonnii.Data.Entities.MemberWorkLog", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CurrentModule")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("current_module");
+
+                    b.Property<string>("DeviceName")
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("device_name");
+
+                    b.Property<int?>("DurationMinutes")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("duration_minutes");
+
+                    b.Property<string>("GroupId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("group_id");
+
+                    b.Property<string>("IpAddress")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("ip_address");
+
+                    b.Property<DateTime?>("LastSeenAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("last_seen_at");
+
+                    b.Property<DateTime>("LoginAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("login_at");
+
+                    b.Property<DateTime?>("LogoutAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("logout_at");
+
+                    b.Property<DateTime>("SessionDate")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("session_date");
+
+                    b.Property<string>("SessionToken")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("session_token");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(36)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GroupId", "SessionDate");
+
+                    b.HasIndex("UserId", "GroupId", "SessionDate");
+
+                    b.ToTable("member_work_log");
                 });
 
             modelBuilder.Entity("Lonnii.Data.Entities.OptionPrivilege", b =>
@@ -1721,6 +1800,14 @@ namespace Lonnii.Data.Migrations
                     b.Property<string>("Tags")
                         .HasColumnType("TEXT")
                         .HasColumnName("tags");
+
+                    b.Property<string>("TypeProduit")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("produit_fini")
+                        .HasColumnName("type_produit");
 
                     b.Property<string>("UniteAffichage")
                         .HasColumnType("TEXT")
@@ -2643,13 +2730,33 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("avoir_notice_title");
 
+                    b.Property<string>("CompanyAddress")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("company_address");
+
+                    b.Property<string>("CompanyEmail")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("company_email");
+
+                    b.Property<string>("CompanyLegalInfo")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("company_legal_info");
+
                     b.Property<string>("CompanyName")
                         .HasColumnType("TEXT")
                         .HasColumnName("company_name");
 
+                    b.Property<string>("CompanyPhone")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("company_phone");
+
                     b.Property<string>("FactureFooterText")
                         .HasColumnType("TEXT")
                         .HasColumnName("facture_footer_text");
+
+                    b.Property<string>("FactureHiddenSections")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("facture_hidden_sections");
 
                     b.Property<string>("FactureNoticeText")
                         .HasColumnType("TEXT")
@@ -2659,6 +2766,10 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("facture_notice_title");
 
+                    b.Property<string>("FactureTemplate")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("facture_template");
+
                     b.Property<string>("FactureTitle")
                         .HasColumnType("TEXT")
                         .HasColumnName("facture_title");
@@ -2666,6 +2777,10 @@ namespace Lonnii.Data.Migrations
                     b.Property<int?>("FactureTitleFontSize")
                         .HasColumnType("INTEGER")
                         .HasColumnName("facture_title_font_size");
+
+                    b.Property<string>("LegalFooterText")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("legal_footer_text");
 
                     b.Property<string>("LogoPath")
                         .HasColumnType("TEXT")
@@ -2691,6 +2806,14 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("receipt_footer_text");
 
+                    b.Property<string>("ReceiptHiddenSections")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("receipt_hidden_sections");
+
+                    b.Property<string>("ReceiptTemplate")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("receipt_template");
+
                     b.Property<string>("ReceiptTitle")
                         .HasColumnType("TEXT")
                         .HasColumnName("receipt_title");
@@ -2702,6 +2825,10 @@ namespace Lonnii.Data.Migrations
                     b.Property<string>("SellerLabel")
                         .HasColumnType("TEXT")
                         .HasColumnName("seller_label");
+
+                    b.Property<long?>("TvaRate")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("tva_rate");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("TEXT")

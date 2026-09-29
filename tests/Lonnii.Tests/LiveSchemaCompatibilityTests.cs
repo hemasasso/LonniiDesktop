@@ -156,6 +156,18 @@ public class LiveSchemaCompatibilityTests
     }
 
     /// <summary>
+    /// The product type is Lonnii Business's own <c>stock_type</c>, which its Bilan already
+    /// splits stock by. The desktop once added a parallel <c>type_produit</c>; mapping by the
+    /// property's own name would bring that duplicate back.
+    /// </summary>
+    [Fact]
+    public void The_product_type_is_the_web_apps_stock_type_column()
+    {
+        using var db = Context();
+        Assert.Equal("stock_type", ColumnOf<Product>(db, nameof(Product.TypeProduit)));
+    }
+
+    /// <summary>
     /// The live table's primary key is a SERIAL <c>id</c>, but the model keys on
     /// <c>groupe_id</c> - which is UNIQUE there and the only column anything looks a row up
     /// by. Leaving <c>id</c> off the model is what makes an INSERT omit it so the sequence

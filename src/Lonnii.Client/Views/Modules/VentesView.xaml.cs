@@ -231,9 +231,16 @@ public partial class VentesView : UserControl
         }
 
         ClientNomBox.TextChanged += (_, _) =>
+        {
             ClientNomPlaceholder.Visibility = ClientNomBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (!_fillingClient) SuggestClients();
+            UpdateClientDue();
+        };
         ClientTelephoneBox.TextChanged += (_, _) =>
+        {
             ClientTelephonePlaceholder.Visibility = ClientTelephoneBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+            UpdateClientDue();
+        };
         ClientEmailBox.TextChanged += (_, _) =>
             ClientEmailPlaceholder.Visibility = ClientEmailBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
 
@@ -391,6 +398,7 @@ public partial class VentesView : UserControl
     {
         SetBusy(true);
         await RefreshReceiptSettingsAsync();
+        await RefreshClientsAsync();
         try
         {
             if (_categories.Count == 0)
@@ -763,6 +771,153 @@ public partial class VentesView : UserControl
         ValidateButton.IsEnabled = _cart.Count > 0 && hasCheckoutMode && _session.Can(Priv.Gestion.CreateVente);
 
         if (_cartRestored) SaveCart();
+    }
+
+    // --- Clients -----------------------------------------------------------------
+
+    /// <summary>Every known customer with what they owe, for the name suggestions and the
+    /// "doit encore" warning. Empty if the list could not be read - the till still works.</summary>
+    private List<ClientDto> _clients = [];
+
+    /// <summary>Set while a suggestion fills the boxes, so filling them does not reopen the list.</summary>
+    private bool _fillingClient;
+
+    private sealed record ClientSuggestion(ClientDto Client)
+    {
+        public string Nom => Client.Nom;
+        public string Detail => string.Join("  •  ", new[]
+        {
+            Client.Telephone,
+            Client.NombreAchats > 0 ? $"{Client.NombreAchats} achat(s)" : null,
+            Client.ResteDu > 0 ? $"doit {Money.Format(Client.ResteDu)}" : null,
+        }.Where(s => !string.IsNullOrWhiteSpace(s)));
+    }
+
+    private async Task RefreshClientsAsync()
+    {
+        try
+        {
+            _clients = await _session.Api.GetClientsAsync();
+        }
+        catch (ApiException)
+        {
+            // Suggestions are a convenience; a failed read must not stop a sale.
+        }
+    }
+
+    private void SuggestClients()
+    {
+        var text = ClientNomBox.Text.Trim();
+        if (text.Length == 0 || !ClientNomBox.IsKeyboardFocusWithin)
+        {
+            ClientSuggestPopup.IsOpen = false;
+            return;
+        }
+
+        var matches = _clients
+            .Where(c => c.IsActive && c.Nom.Contains(text, StringComparison.CurrentCultureIgnoreCase))
+            .Where(c => !string.Equals(c.Nom, text, StringComparison.CurrentCultureIgnoreCase))
+            .Take(8)
+            .Select(c => new ClientSuggestion(c))
+            .ToList();
+
+        ClientSuggestList.ItemsSource = matches;
+        ClientSuggestPopup.IsOpen = matches.Count > 0;
+    }
+
+    private void ClientNom_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (!ClientSuggestPopup.IsOpen) return;
+
+        if (e.Key == Key.Down)
+        {
+            ClientSuggestList.SelectedIndex = 0;
+            (ClientSuggestList.ItemContainerGenerator.ContainerFromIndex(0) as ListBoxItem)?.Focus();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            ClientSuggestPopup.IsOpen = false;
+            e.Handled = true;
+        }
+    }
+
+    private void ClientSuggest_MouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (ClientSuggestList.SelectedItem is ClientSuggestion pick) PickClient(pick.Client);
+    }
+
+    private void ClientSuggest_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && ClientSuggestList.SelectedItem is ClientSuggestion pick)
+        {
+            PickClient(pick.Client);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            ClientSuggestPopup.IsOpen = false;
+            ClientNomBox.Focus();
+        }
+    }
+
+    private void PickClient(ClientDto client)
+    {
+        _fillingClient = true;
+        ClientNomBox.Text = client.Nom;
+        if (!string.IsNullOrWhiteSpace(client.Telephone)) ClientTelephoneBox.Text = client.Telephone;
+        if (!string.IsNullOrWhiteSpace(client.Email)) ClientEmailBox.Text = client.Email;
+        _fillingClient = false;
+
+        ClientSuggestPopup.IsOpen = false;
+        ClientNomBox.Focus();
+        ClientNomBox.CaretIndex = ClientNomBox.Text.Length;
+        UpdateClientDue();
+    }
+
+    /// <summary>The client the typed phone or name designates, matched the way the server
+    /// attributes sales - phone first, then the exact name ignoring case and spacing.</summary>
+    private ClientDto? CurrentClient()
+    {
+        var phone = new string(ClientTelephoneBox.Text.Where(char.IsDigit).ToArray());
+        if (phone.Length >= 6
+            && _clients.FirstOrDefault(c => c.Telephone is { } t && new string(t.Where(char.IsDigit).ToArray()) == phone) is { } byPhone)
+            return byPhone;
+
+        var name = string.Join(' ', ClientNomBox.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        return name.Length == 0 ? null
+            : _clients.FirstOrDefault(c => string.Equals(c.Nom, name, StringComparison.CurrentCultureIgnoreCase));
+    }
+
+    private void UpdateClientDue()
+    {
+        if (CurrentClient() is { ResteDu: > 0 } client)
+        {
+            ClientDueText.Text = $"⚠ {client.Nom} doit encore {Money.Format(client.ResteDu)} "
+                                 + $"({client.FacturesImpayees} vente(s) non soldée(s)).";
+            ClientDuePanel.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            ClientDuePanel.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private async void Clients_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new ClientManagerDialog(_session) { Owner = Window.GetWindow(this) };
+        dialog.ShowDialog();
+
+        await RefreshClientsAsync();
+        UpdateClientDue();
+
+        if (dialog.ShowSalesFor is { } nom && _canViewVentesListTab)
+        {
+            VenteSearchTypeCombo.SelectedIndex = 1;
+            VenteSearchBox.Text = nom;
+            await SetActiveTabAsync("liste");
+            await LoadVentesAsync();
+        }
     }
 
     /// <summary>Read for the TVA rule and the print-after-sale switches. Null only until the

@@ -91,7 +91,7 @@
                     <StackPanel Grid.Column="2">
                         <TextBlock Text="Type" Style="{StaticResource FieldLabel}" />
                         <ComboBox x:Name="TypeBox" SelectionChanged="Type_Changed"
-                                  ToolTip="Seuls les produits finis apparaissent dans Ventes" />
+                                  ToolTip="Marchandises et produits finis apparaissent dans Ventes ; le type décide aussi du compte de stock au Bilan" />
                         <TextBlock x:Name="TypeHint" Style="{StaticResource PageSubtitle}" Margin="0,4,0,0"
                                    Visibility="Collapsed" TextWrapping="Wrap" FontSize="11"
                                    Text="Hors vente : reste en stock, absent de Ventes." />

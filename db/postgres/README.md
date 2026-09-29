@@ -41,7 +41,7 @@ psql -h <host> -p 5432 -U <user> -d <database> -f 001_groupes_desktop_columns.sq
 | `002_desktop_columns.sql` | `users.password_changed_at`, `categories.image_url`, `products`: stock_illimite, unite_affichage, deleted_at, deleted_by | yes, 2026-09-24 |
 | `006_ventes_parametres.sql` | `ventes_parametres`: the whole table and every receipt/facture column | no — see below |
 | `007_amortissement_bilan.sql` | `immobilisations`, `amortissement_echeances`, `bilan_comptes`, `bilan_ecritures`, `resultat_comptes`, `stock_snapshots`; the `can_edit_resultat_donnees` privilege | no — `stock_snapshots` is inferred, see the script header |
-| `008_audit_currency_position.sql` | `groupes.currency_before`; `caisses.montant_final_mobile`; `products.type_produit`; `member_work_log` (the web app's table) plus desktop heartbeat columns last_seen_at, current_module, device_name | no — `member_work_log.ip_address` is inferred from groupSessions.js |
+| `008_audit_currency_position.sql` | `groupes.currency_before`; `caisses.montant_final_mobile`; `products.stock_type` (only if missing — it is Lonnii Business's column); `member_work_log` (the web app's table) plus desktop heartbeat columns last_seen_at, current_module, device_name | no — `member_work_log.ip_address` is inferred from groupSessions.js |
 | `009_receipt_templates.sql` | `ventes_parametres`: receipt/facture layout, hidden sections, company address/phone/email, legal info, legal footer, TVA rate — desktop-only columns | no — new columns, nothing to compare |
 | `010_tva_ajoutee.sql` | `ventes_parametres`: tva_mode, receipt/facture_print_after_sale; `ventes`: tva_rate, tva_amount — desktop-only columns | no — new columns, nothing to compare |
 

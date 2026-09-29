@@ -29,9 +29,9 @@ namespace Lonnii.Api.Endpoints;
 /// <item>The year's net result is carried into account 12 (Résultat de l'exercice) - the
 /// link between the two statements - and trésorerie passif counts toward total passif.</item>
 /// </list>
-/// Not ported: prestations revenue (the desktop has no Prestations module yet) and the
-/// source's split of stock by <c>products.stock_type</c>, a column the desktop model does not
-/// carry - all stock is valued as marchandises (account 37).
+/// Not ported: prestations revenue (the desktop has no Prestations module yet). Stock is split
+/// by <c>products.stock_type</c> as the source does - matières premières 31, produits finis 33,
+/// marchandises 37.
 /// </summary>
 public static class BilanEndpoints
 {
@@ -227,12 +227,27 @@ public static class BilanEndpoints
         Inject(TypesCompteBilan.ActifImmobilise, "incorporelles", brutIncorporelles);
         Inject(TypesCompteBilan.ActifImmobilise, SousTypesCompte.Amortissements, -amortissements);
 
-        // Stock: live for the year in progress; for a closed year, the next year's opening value.
-        var stock = ex.EnCours
-            ? await StockActuelAsync(db, groupId, ct)
-            : (await db.StockSnapshots.AsNoTracking()
+        // Stock: live for the year in progress, split by product type the way Lonnii Business's
+        // gestionBilan.js does (31 / 33 / 37). A closed year only has the next year's opening
+        // total in its snapshot, with no split, so it stays under marchandises.
+        decimal stock;
+        if (ex.EnCours)
+        {
+            var parType = await StockParTypeAsync(db, groupId, ct);
+            stock = parType.Values.Sum();
+            Inject(TypesCompteBilan.ActifCirculant, SousTypesCompte.StocksMatieres,
+                parType.GetValueOrDefault(SousTypesCompte.StocksMatieres));
+            Inject(TypesCompteBilan.ActifCirculant, SousTypesCompte.StocksProduits,
+                parType.GetValueOrDefault(SousTypesCompte.StocksProduits));
+            Inject(TypesCompteBilan.ActifCirculant, SousTypesCompte.StocksMarchandises,
+                parType.GetValueOrDefault(SousTypesCompte.StocksMarchandises));
+        }
+        else
+        {
+            stock = (await db.StockSnapshots.AsNoTracking()
                 .FirstOrDefaultAsync(s => s.GroupId == groupId && s.Annee == ex.Annee + 1, ct))?.StockValueDebut ?? 0m;
-        Inject(TypesCompteBilan.ActifCirculant, SousTypesCompte.StocksMarchandises, stock);
+            Inject(TypesCompteBilan.ActifCirculant, SousTypesCompte.StocksMarchandises, stock);
+        }
 
         var creances = await CreancesClientsAsync(db, groupId, ex.FinUtc, ct);
         Inject(TypesCompteBilan.ActifCirculant, SousTypesCompte.Clients, creances);
@@ -277,16 +292,32 @@ public static class BilanEndpoints
 
     /// <summary>Stock at cost: every active product's purchase price × quantity on hand, as
     /// the source values it. Products with no purchase price, or none in stock, count nothing.</summary>
-    private static async Task<decimal> StockActuelAsync(LonniiDbContext db, string groupId, CancellationToken ct)
+    private static async Task<decimal> StockActuelAsync(LonniiDbContext db, string groupId, CancellationToken ct) =>
+        (await StockParTypeAsync(db, groupId, ct)).Values.Sum();
+
+    /// <summary>The same valuation, keyed by the stock sub-account each product belongs to.
+    /// Internal-use items (autre) have no account of their own here and stay with the
+    /// marchandises, as all stock did before the split.</summary>
+    private static async Task<Dictionary<string, decimal>> StockParTypeAsync(
+        LonniiDbContext db, string groupId, CancellationToken ct)
     {
         // Multiplied in C#: under SQLite both columns go through the money converter, and a
         // product of two converted columns would be scaled twice (see LonniiDbContext).
         var rows = await db.Products.AsNoTracking()
             .Where(p => p.GroupId == groupId && p.IsActive && p.DeletedAt == null && !p.StockIllimite
                         && p.Quantity > 0 && p.CostPrice != null)
-            .Select(p => new { p.Quantity, p.CostPrice })
+            .Select(p => new { p.Quantity, p.CostPrice, p.TypeProduit })
             .ToListAsync(ct);
-        return rows.Where(r => r.CostPrice > 0).Sum(r => r.Quantity * r.CostPrice!.Value);
+
+        return rows
+            .Where(r => r.CostPrice > 0)
+            .GroupBy(r => r.TypeProduit switch
+            {
+                ProductTypes.MatierePremiere => SousTypesCompte.StocksMatieres,
+                ProductTypes.ProduitFini => SousTypesCompte.StocksProduits,
+                _ => SousTypesCompte.StocksMarchandises,
+            })
+            .ToDictionary(g => g.Key, g => g.Sum(r => r.Quantity * r.CostPrice!.Value));
     }
 
     /// <summary>What customers still owed at <paramref name="finUtc"/>: every non-cancelled

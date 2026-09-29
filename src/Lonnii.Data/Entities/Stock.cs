@@ -107,12 +107,12 @@ public class Product
     public string? UniteAffichage { get; set; }
 
     /// <summary>
-    /// One of <c>Lonnii.Shared.Contracts.ProductTypes</c>: produit fini (sold), matière première
-    /// or autre (stocked but never offered in Ventes). New to the desktop - Lonnii Business has
-    /// no such column and sells every product - so it defaults to produit fini and an existing
-    /// catalogue is unchanged.
+    /// One of <c>Lonnii.Shared.Contracts.ProductTypes</c>. Maps to Lonnii Business's own
+    /// <c>stock_type</c> column (marchandise, produit_fini, matiere_premiere), which its Bilan
+    /// already uses to split stock across accounts 37, 33 and 31; <c>autre</c> is the desktop's
+    /// addition for internal-use items. Matière première and autre are never offered in Ventes.
     /// </summary>
-    public string TypeProduit { get; set; } = "produit_fini";
+    public string TypeProduit { get; set; } = "marchandise";
 
     // Physical properties
     public decimal? Weight { get; set; }

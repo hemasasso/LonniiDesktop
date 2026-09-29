@@ -785,5 +785,5 @@ public static class StockEndpoints
     /// <summary>An unknown or missing type is stored and reported as produit fini - the only
     /// value that keeps a product sellable, which is what it was before the column existed.</summary>
     private static string NormaliseType(string? type) =>
-        type is not null && ProductTypes.All.Contains(type) ? type : ProductTypes.ProduitFini;
+        type is not null && ProductTypes.All.Contains(type) ? type : ProductTypes.Marchandise;
 }

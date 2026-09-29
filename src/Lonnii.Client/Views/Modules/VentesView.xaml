@@ -72,6 +72,16 @@
                         <TextBlock Text="Statistiques" Style="{StaticResource ButtonContentText}" />
                     </StackPanel>
                 </Button>
+                <Rectangle Width="1" Margin="6,4,12,4" Fill="{DynamicResource Border}" />
+                <!-- Not a tab: the client space opens in its own window, like Fournisseurs in Stock. -->
+                <Button x:Name="ClientsButton" Style="{StaticResource SecondaryButton}" Click="Clients_Click"
+                        ToolTip="Clients : classement par achats, créances, fiches">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE716;" FontFamily="Segoe MDL2 Assets"
+                                   Style="{StaticResource ButtonContentText}" Margin="0,0,6,0" />
+                        <TextBlock Text="Clients" Style="{StaticResource ButtonContentText}" />
+                    </StackPanel>
+                </Button>
             </StackPanel>
         </Border>
 
@@ -609,11 +619,32 @@
                              same reason: nothing would be done with what is typed here. -->
                         <StackPanel x:Name="ClientFieldsPanel">
                             <Grid Margin="0,0,0,8">
-                                <TextBox x:Name="ClientNomBox" />
+                                <TextBox x:Name="ClientNomBox" PreviewKeyDown="ClientNom_PreviewKeyDown" />
                                 <TextBlock x:Name="ClientNomPlaceholder" Text="Nom client (optionnel)"
                                            Foreground="{DynamicResource TextMuted}" Margin="9,0,0,0"
                                            VerticalAlignment="Center" IsHitTestVisible="False" />
                             </Grid>
+                            <!-- Known clients matching what is typed, best customers first. -->
+                            <Popup x:Name="ClientSuggestPopup" PlacementTarget="{Binding ElementName=ClientNomBox}"
+                                   Placement="Bottom" StaysOpen="False" AllowsTransparency="True"
+                                   Width="{Binding ActualWidth, ElementName=ClientNomBox}">
+                                <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Border}"
+                                        BorderThickness="1">
+                                    <ListBox x:Name="ClientSuggestList" MaxHeight="240" BorderThickness="0"
+                                             PreviewMouseLeftButtonUp="ClientSuggest_MouseUp"
+                                             KeyDown="ClientSuggest_KeyDown">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Margin="2">
+                                                    <TextBlock Text="{Binding Nom}" FontWeight="SemiBold" />
+                                                    <TextBlock Text="{Binding Detail}" FontSize="11"
+                                                               Foreground="{DynamicResource TextMuted}" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </Border>
+                            </Popup>
                             <Grid Margin="0,0,0,6">
                                 <TextBox x:Name="ClientTelephoneBox" ToolTip="Téléphone du client" />
                                 <TextBlock x:Name="ClientTelephonePlaceholder" Text="Téléphone client (optionnel)"
@@ -626,6 +657,13 @@
                                            Foreground="{DynamicResource TextMuted}" Margin="9,0,0,0"
                                            VerticalAlignment="Center" IsHitTestVisible="False" />
                             </Grid>
+                            <!-- Shown as soon as the name or phone matches a client who still owes. -->
+                            <Border x:Name="ClientDuePanel" Visibility="Collapsed" Margin="0,0,0,10" Padding="10,6"
+                                    Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Warning}"
+                                    BorderThickness="1" CornerRadius="3">
+                                <TextBlock x:Name="ClientDueText" TextWrapping="Wrap" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource Warning}" />
+                            </Border>
                         </StackPanel>
 
                         <!-- Only meaningful when money is actually changing hands: hidden for

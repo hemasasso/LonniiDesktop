@@ -70,7 +70,7 @@ public partial class ProductDialog : Window
         TypeBox.ItemsSource = ProductTypes.All.Select(t => new TypeOption(t, ProductTypes.DisplayName(t))).ToList();
         TypeBox.DisplayMemberPath = nameof(TypeOption.Label);
         TypeBox.SelectedValuePath = nameof(TypeOption.Value);
-        TypeBox.SelectedValue = existing?.TypeProduit ?? ProductTypes.ProduitFini;
+        TypeBox.SelectedValue = existing?.TypeProduit ?? ProductTypes.Marchandise;
 
         if (existing is null)
         {
@@ -210,7 +210,7 @@ public partial class ProductDialog : Window
 
     private sealed record TypeOption(string Value, string Label);
 
-    private string SelectedType => TypeBox.SelectedValue as string ?? ProductTypes.ProduitFini;
+    private string SelectedType => TypeBox.SelectedValue as string ?? ProductTypes.Marchandise;
 
     /// <summary>A product that is not for sale has no use for the till-only options, so the
     /// hint says why it will vanish from Ventes.</summary>

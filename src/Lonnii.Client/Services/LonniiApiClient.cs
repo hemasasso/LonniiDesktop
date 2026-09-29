@@ -295,6 +295,17 @@ public class LonniiApiClient
     public Task<SupplierDto> UpdateSupplierAsync(string id, SaveSupplierRequest request, CancellationToken ct = default) =>
         SendAsync<SupplierDto>(HttpMethod.Put, $"api/stock/suppliers/{id}", request, ct);
 
+    // --- Clients ---
+
+    public Task<List<ClientDto>> GetClientsAsync(CancellationToken ct = default) =>
+        GetAsync<List<ClientDto>>("api/ventes/clients", ct);
+
+    public Task<ClientDto> CreateClientAsync(SaveClientRequest request, CancellationToken ct = default) =>
+        PostAsync<ClientDto>("api/ventes/clients", request, ct);
+
+    public Task<ClientDto> UpdateClientAsync(string id, SaveClientRequest request, CancellationToken ct = default) =>
+        SendAsync<ClientDto>(HttpMethod.Put, $"api/ventes/clients/{id}", request, ct);
+
     // --- Ventes ---
 
     public Task<VenteDto> CreateVenteAsync(CreateVenteRequest request, CancellationToken ct = default) =>

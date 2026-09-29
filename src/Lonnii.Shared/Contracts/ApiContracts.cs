@@ -167,22 +167,31 @@ public sealed record MenuResponse(
 /// </summary>
 public static class ProductTypes
 {
+    /// <summary>Bought to be resold as is - Lonnii Business's default, and the Bilan's account 37.</summary>
+    public const string Marchandise = "marchandise";
+
+    /// <summary>Made by the business itself - account 33.</summary>
     public const string ProduitFini = "produit_fini";
+
+    /// <summary>Used to make something else, never sold as is - account 31.</summary>
     public const string MatierePremiere = "matiere_premiere";
+
+    /// <summary>Desktop-only: stocked for the shop's own use, never sold.</summary>
     public const string Autre = "autre";
 
-    public static readonly IReadOnlyList<string> All = [ProduitFini, MatierePremiere, Autre];
+    public static readonly IReadOnlyList<string> All = [Marchandise, ProduitFini, MatierePremiere, Autre];
 
     public static string DisplayName(string? type) => type switch
     {
+        ProduitFini => "Produit fini (fabriqué)",
         MatierePremiere => "Matière première",
         Autre => "Autre (usage interne)",
-        _ => "Produit fini",
+        _ => "Marchandise (achat-revente)",
     };
 
-    /// <summary>A missing or unknown value counts as sellable, which is what every product
-    /// created before this column existed - and every product Lonnii Business creates - is.</summary>
-    public static bool IsSellable(string? type) => type is null or ProduitFini || !All.Contains(type);
+    /// <summary>A missing or unknown value counts as a marchandise, which is what Lonnii
+    /// Business stores by default and what every older product is.</summary>
+    public static bool IsSellable(string? type) => type is not (MatierePremiere or Autre);
 }
 
 /// <summary>A product row, as shown in the Gestion de Stock grid.</summary>
@@ -245,7 +254,7 @@ public sealed record SaveProductRequest(
     string? UniteAffichage = null,
     string? StorageLocation = null,
     DateTime? ExpiryDate = null,
-    string TypeProduit = ProductTypes.ProduitFini);
+    string TypeProduit = ProductTypes.Marchandise);
 
 /// <summary>Adjusts stock by a signed amount, recording why.</summary>
 public sealed record AdjustStockRequest(int QuantityChanged, string MovementType, string? Reason = null);
@@ -416,6 +425,41 @@ public sealed record VenteDto(
     IReadOnlyList<PaiementDto>? Paiements = null,
     decimal? TvaRate = null,
     decimal? TvaAmount = null);
+
+/// <summary>
+/// A customer and what they have bought. Sales carry the customer's name and phone as text,
+/// not a link to a client row, so the figures come from matching sales by phone, then by
+/// name. A customer who appears on sales but was never saved as a client is listed too,
+/// with a null <paramref name="Id"/>, so the ranking covers everyone who bought.
+/// </summary>
+/// <param name="ResteDu">What is still owed across their unpaid and part-paid sales.</param>
+public sealed record ClientDto(
+    string? Id,
+    string Nom,
+    string? Telephone,
+    string? Email,
+    string? Adresse,
+    string? Ville,
+    string? Notes,
+    bool IsActive,
+    int NombreAchats,
+    decimal TotalAchats,
+    decimal ResteDu,
+    int FacturesImpayees,
+    DateTime? DernierAchat)
+{
+    public bool IsRegistered => Id is not null;
+}
+
+/// <summary>Creates or updates a saved client.</summary>
+public sealed record SaveClientRequest(
+    string Nom,
+    string? Telephone = null,
+    string? Email = null,
+    string? Adresse = null,
+    string? Ville = null,
+    string? Notes = null,
+    bool IsActive = true);
 
 /// <summary>One row of the "Liste des Ventes" table - lighter than <see cref="VenteDto"/>,
 /// since a list of up to a thousand sales does not need every line item loaded.</summary>

@@ -22,10 +22,12 @@ ALTER TABLE groupes ADD COLUMN IF NOT EXISTS currency_before BOOLEAN NOT NULL DE
 -- which the desktop reads as "closed on a cash count alone" - their écart stays cash only.
 ALTER TABLE caisses ADD COLUMN IF NOT EXISTS montant_final_mobile DECIMAL(15, 2);
 
--- Product type: produit_fini (sold), matiere_premiere or autre (stocked, never offered in
--- Ventes). New to the desktop; every existing row becomes produit_fini, so nothing a shop
--- sells today disappears. Lonnii Business ignores the column and keeps selling everything.
-ALTER TABLE products ADD COLUMN IF NOT EXISTS type_produit VARCHAR(32) NOT NULL DEFAULT 'produit_fini';
+-- Product type: the desktop maps it onto Lonnii Business's own products.stock_type
+-- (marchandise / produit_fini / matiere_premiere, default 'marchandise'), which the live
+-- database already has. An earlier version of this script added a separate type_produit
+-- column instead; if it was applied, that column is unused and harmless. Added here only
+-- for a database that predates stock_type.
+ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_type VARCHAR(50) DEFAULT 'marchandise';
 
 CREATE TABLE IF NOT EXISTS member_work_log (
   id              SERIAL       PRIMARY KEY,

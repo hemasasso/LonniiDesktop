@@ -178,6 +178,7 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
     private static readonly Dictionary<(Type, string), string> ColumnNames = new()
     {
         [(typeof(User), nameof(User.IdUser))] = "iduser",
+        [(typeof(Product), nameof(Product.TypeProduit))] = "stock_type",
         [(typeof(Groupe), nameof(Groupe.IdUserAdmin))] = "iduser_admin",
         // Live column is prestations_access; the property keeps the clearer name.
         [(typeof(Groupe), nameof(Groupe.PrestationsEnabled))] = "prestations_access",
@@ -452,9 +453,9 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
             e.HasIndex(x => x.GroupId);
             e.HasIndex(x => new { x.GroupId, x.Sku }).IsUnique().HasFilter("sku IS NOT NULL");
             e.HasIndex(x => new { x.GroupId, x.Barcode }).IsUnique().HasFilter("barcode IS NOT NULL");
-            // Database default too, so rows that predate the column - or that Lonnii Business
-            // inserts without knowing it exists - read as sellable.
-            e.Property(x => x.TypeProduit).HasMaxLength(32).HasDefaultValue("produit_fini");
+            // Same default as Lonnii Business's stock_type, so a row either application
+            // inserts without a type reads as a marchandise.
+            e.Property(x => x.TypeProduit).HasMaxLength(32).HasDefaultValue("marchandise");
             e.HasOne(x => x.Category).WithMany()
                 .HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.SetNull);
             e.HasOne(x => x.Supplier).WithMany()

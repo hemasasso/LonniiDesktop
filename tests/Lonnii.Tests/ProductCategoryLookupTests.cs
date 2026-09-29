@@ -167,13 +167,13 @@ public class ProductCategoryLookupTests : IAsyncLifetime
     // --- Product type (produit fini / matière première / autre) ---
 
     [Fact]
-    public async Task A_product_defaults_to_produit_fini_and_keeps_the_type_it_is_given()
+    public async Task A_product_defaults_to_marchandise_and_keeps_the_type_it_is_given()
     {
         var owner = await SignUpOwnerAsync();
 
         var plain = await (await SendAsync(HttpMethod.Post, "/api/stock/products", owner,
             new SaveProductRequest("Pain", 500))).Content.ReadFromJsonAsync<ProductDto>();
-        Assert.Equal(ProductTypes.ProduitFini, plain!.TypeProduit);
+        Assert.Equal(ProductTypes.Marchandise, plain!.TypeProduit);
 
         var farine = await (await SendAsync(HttpMethod.Post, "/api/stock/products", owner,
             new SaveProductRequest("Farine", 0, Quantity: 50, TypeProduit: ProductTypes.MatierePremiere)))
@@ -183,7 +183,7 @@ public class ProductCategoryLookupTests : IAsyncLifetime
         // An unknown value is stored as sellable rather than hiding the product.
         var odd = await (await SendAsync(HttpMethod.Post, "/api/stock/products", owner,
             new SaveProductRequest("Divers", 100, TypeProduit: "n'importe quoi"))).Content.ReadFromJsonAsync<ProductDto>();
-        Assert.Equal(ProductTypes.ProduitFini, odd!.TypeProduit);
+        Assert.Equal(ProductTypes.Marchandise, odd!.TypeProduit);
     }
 
     [Fact]
@@ -200,6 +200,6 @@ public class ProductCategoryLookupTests : IAsyncLifetime
 
         Assert.Equal(System.Net.HttpStatusCode.BadRequest, sale.StatusCode);
         var error = await sale.Content.ReadFromJsonAsync<ApiError>();
-        Assert.Contains("produit fini", error!.Error);
+        Assert.Contains("pas destiné à la vente", error!.Error);
     }
 }

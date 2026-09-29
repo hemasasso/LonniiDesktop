@@ -567,7 +567,7 @@ public static class VentesEndpoints
         // selling a matière première or an internal-use item anyway.
         if (products.Values.FirstOrDefault(p => !ProductTypes.IsSellable(p.TypeProduit)) is { } notForSale)
             return Results.BadRequest(new ApiError(
-                $"« {notForSale.Name} » ({ProductTypes.DisplayName(notForSale.TypeProduit)}) n'est pas un produit fini et ne peut pas être vendu"));
+                $"« {notForSale.Name} » ({ProductTypes.DisplayName(notForSale.TypeProduit)}) n'est pas destiné à la vente"));
 
         var vente = new Vente
         {

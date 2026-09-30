@@ -133,6 +133,19 @@
                     </Border>
                 </StackPanel>
 
+                <StackPanel x:Name="BilanSettingsPanel" Visibility="Collapsed">
+                    <TextBlock Text="BILAN ET COMPTE DE RÉSULTAT" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12">
+                        <StackPanel>
+                            <CheckBox x:Name="CalculAutomatiqueCheck" Content="Calcul automatique"
+                                      Checked="CalculAutomatique_Changed" Unchecked="CalculAutomatique_Changed" />
+                            <TextBlock Style="{StaticResource PageSubtitle}" Margin="20,4,0,0" TextWrapping="Wrap"
+                                       Text="Activé (par défaut) : ventes, charges et amortissement alimentent les statuts automatiquement - seuls les produits et charges financiers/exceptionnels se saisissent en écriture. Désactivé : chaque compte se saisit en écriture, pour une entreprise qui tient ses comptes elle-même." />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
                 <!-- Data consumption (admin only, as the API requires) -->
                 <StackPanel x:Name="ConsumptionPanel" Visibility="Collapsed">
                     <DockPanel Margin="0,20,0,6">

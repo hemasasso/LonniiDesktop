@@ -188,6 +188,10 @@ public class VenteItem
     /// <summary>Either <c>percentage</c> or <c>amount</c>. Source: add_discount_type_to_ventes_items.sql.</summary>
     public string DiscountType { get; set; } = "percentage";
 
+    /// <summary>The unit this line was sold in - only set for a Vente Mixte product's bulk or
+    /// base unit (e.g. "Carton", "unité"). Null for every ordinary product.</summary>
+    public string? Unite { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public Vente? Vente { get; set; }
@@ -250,6 +254,11 @@ public class Caisse
     /// balance to work from (e.g. giving change on a mobile payment).</summary>
     public decimal MontantInitialMobile { get; set; }
 
+    /// <summary>The float's card-account portion, if the till also opens with a running card
+    /// balance to reconcile - same idea as <see cref="MontantInitialMobile"/>, just for the
+    /// card terminal's account rather than a mobile-money one.</summary>
+    public decimal MontantInitialCarte { get; set; }
+
     public DateTime? DateFermeture { get; set; }
 
     /// <summary>Cash counted at closing.</summary>
@@ -261,6 +270,10 @@ public class Caisse
     /// otherwise the écart covers both - see CaisseEndpoints.FermerAsync.
     /// </summary>
     public decimal? MontantFinalMobile { get; set; }
+
+    /// <summary>Card-account balance found at closing, same treatment as
+    /// <see cref="MontantFinalMobile"/> but for <see cref="MontantInitialCarte"/>.</summary>
+    public decimal? MontantFinalCarte { get; set; }
 
     public int TotalVentes { get; set; }
     public decimal TotalChiffreAffaires { get; set; }

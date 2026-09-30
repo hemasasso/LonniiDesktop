@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using Lonnii.Client.Printing;
 using Lonnii.Client.Services;
 using Lonnii.Client.Views.Dialogs;
 using Lonnii.Shared.Comptabilite;
@@ -39,7 +40,13 @@ public partial class BilanView : UserControl
     private BilanComptesResponse? _comptes;
     private List<BilanEcritureDto> _ecritures = [];
 
-    private sealed record Choice(int? Id, string Label)
+    /// <summary>True (the default) until the group turns it off in Paramètres - see
+    /// ComptabiliteParametres. Refreshed from <see cref="ResultatResponse.CalculAutomatique"/>
+    /// whenever that loads, and fetched directly by <see cref="EnsureComptesAsync"/> for the
+    /// Écritures/Comptes tabs, which may open without the Résultat tab ever having loaded.</summary>
+    private bool _calculAutomatique = true;
+
+    private sealed record Choice(int? Id, string Label, string TableType = TablesCompte.Bilan)
     {
         public override string ToString() => Label;
     }
@@ -144,6 +151,10 @@ public partial class BilanView : UserControl
         ComptesPanel.Visibility = _activeTab == "comptes" ? Visibility.Visible : Visibility.Collapsed;
 
         StatusBadge.Visibility = _activeTab is "bilan" or "resultat" ? Visibility.Visible : Visibility.Hidden;
+        // Print only makes sense for the two statements meant to be handed to someone else
+        // (the owner, an accountant) - Écritures and Plan comptable stay CSV-export-only.
+        PrintButton.Visibility = _canExport && _activeTab is "bilan" or "resultat"
+            ? Visibility.Visible : Visibility.Collapsed;
         UpdateStatusBadge();
     }
 
@@ -218,9 +229,16 @@ public partial class BilanView : UserControl
         if (_comptes is not null) return;
         _comptes = await _session.Api.GetBilanComptesAsync();
 
+        // Needed here too, not just by the Résultat tab, since Écritures/Comptes can be
+        // opened without it ever having loaded first.
+        _calculAutomatique = (await _session.Api.GetComptabiliteParametresAsync()).CalculAutomatique;
+
         var previous = (EcritureCompteFilter.SelectedItem as Choice)?.Id;
         var choices = new[] { new Choice(null, "Tous les comptes") }
             .Concat(_comptes.BilanComptes.Select(c => new Choice(c.Id, $"{c.NumeroCompte} — {c.Libelle}")))
+            .Concat(_comptes.ResultatComptes
+                .Where(c => TypesCompteResultat.IsManuel(c.TypeCompte) || !_calculAutomatique)
+                .Select(c => new Choice(c.Id, $"{c.NumeroCompte} — {c.Libelle}", TablesCompte.Resultat)))
             .ToList();
         EcritureCompteFilter.ItemsSource = choices;
         EcritureCompteFilter.SelectedItem = choices.FirstOrDefault(c => c.Id == previous) ?? choices[0];
@@ -287,6 +305,7 @@ public partial class BilanView : UserControl
 
     private void RenderResultat(ResultatResponse r)
     {
+        _calculAutomatique = r.CalculAutomatique;
         var i = r.Integration;
         IntegrationTitle.Text = $"Données intégrées automatiquement ({r.Annee})";
         IntegrationPanel.Children.Clear();
@@ -314,10 +333,11 @@ public partial class BilanView : UserControl
         }
         IntegrationPanel.Children.Add(stockTile);
 
-        IntegrationNote.Text =
-            "Le coût des marchandises vendues est calculé comme dans Marges, au prix d'achat en vigueur le jour de chaque vente. "
-            + "La variation de stocks est donnée pour information et n'entre pas dans le résultat : ce coût tient déjà compte de ce qui est sorti du stock. "
-            + "Les produits et charges financiers et exceptionnels se saisissent à la main (crayon).";
+        IntegrationNote.Text = _calculAutomatique
+            ? "Le coût des marchandises vendues est calculé comme dans Marges, au prix d'achat en vigueur le jour de chaque vente. "
+              + "La variation de stocks est donnée pour information et n'entre pas dans le résultat : ce coût tient déjà compte de ce qui est sorti du stock. "
+              + "Les produits et charges financiers et exceptionnels se saisissent en écritures (icône « livre »)."
+            : "Calcul automatique désactivé (Paramètres) : chaque compte se saisit en écritures (icône « livre »), y compris les ventes, les charges et l'amortissement.";
 
         ProduitsColumn.Children.Clear();
         ChargesColumn.Children.Clear();
@@ -377,30 +397,6 @@ public partial class BilanView : UserControl
         catch (ApiException ex)
         {
             MessageBox.Show(Owner, ex.Message, "Stock", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
-    }
-
-    private async Task EditManualAmountAsync(BilanCompteDto compte)
-    {
-        var text = PromptDialog.Show(Owner, "Montant",
-            $"{compte.NumeroCompte} — {compte.Libelle}\n\nCe montant n'est pas propre à un exercice : il s'affiche chaque année jusqu'à ce qu'il soit modifié.",
-            Money.FormatPlain(compte.SoldeManuel));
-        if (text is null) return;
-
-        if (!Money.TryParse(text, out decimal value))
-        {
-            MessageBox.Show(Owner, "Montant invalide.", "Montant", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        try
-        {
-            await _session.Api.SetResultatCompteSoldeAsync(compte.Id, value);
-            await LoadActiveTabAsync();
-        }
-        catch (ApiException ex)
-        {
-            MessageBox.Show(Owner, ex.Message, "Montant", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -560,16 +556,16 @@ public partial class BilanView : UserControl
               + (compte.Description is { } d ? $"\n\n{d}" : string.Empty)
             : compte.Description;
 
+        // Every Bilan account takes écritures; a Résultat account only once it is no longer
+        // fed automatically - always true for the four financial/exceptional ones, and true
+        // for every account once CalculAutomatique is off (see BilanEndpoints.EcritureEligible).
         Button? action = null;
-        if (tableType == TablesCompte.Resultat && TypesCompteResultat.IsManuel(compte.TypeCompte) && _canEditResultat)
-        {
-            action = IconButton("", "Saisir le montant");
-            action.Click += async (_, _) => await EditManualAmountAsync(compte);
-        }
-        else if (tableType == TablesCompte.Bilan)
+        var ecritureEligible = tableType == TablesCompte.Bilan
+            || TypesCompteResultat.IsManuel(compte.TypeCompte) || !_calculAutomatique;
+        if (ecritureEligible)
         {
             action = IconButton("", "Voir les écritures de ce compte");
-            action.Click += async (_, _) => await ShowEcrituresOfAsync(compte.Id);
+            action.Click += async (_, _) => await ShowEcrituresOfAsync(compte.Id, tableType);
         }
 
         if (action is not null)
@@ -594,19 +590,20 @@ public partial class BilanView : UserControl
 
     // --- Écritures ---
 
-    private async Task ShowEcrituresOfAsync(int compteId)
+    private async Task ShowEcrituresOfAsync(int compteId, string tableType)
     {
         await EnsureComptesAsync();
-        EcritureCompteFilter.SelectedItem = EcritureCompteFilter.Items.Cast<Choice>().FirstOrDefault(c => c.Id == compteId);
+        EcritureCompteFilter.SelectedItem = EcritureCompteFilter.Items.Cast<Choice>()
+            .FirstOrDefault(c => c.Id == compteId && c.TableType == tableType);
         await SetActiveTabAsync("ecritures");
     }
 
     private async Task LoadEcrituresAsync()
     {
-        var compteId = (EcritureCompteFilter.SelectedItem as Choice)?.Id;
+        var selected = EcritureCompteFilter.SelectedItem as Choice;
         var yearOnly = EcrituresYearOnly.IsChecked == true;
         _ecritures = await _session.Api.GetBilanEcrituresAsync(
-            compteId,
+            selected?.Id, selected?.Id is null ? null : selected.TableType,
             yearOnly ? new DateOnly(_annee, 1, 1) : null,
             yearOnly ? new DateOnly(_annee, 12, 31) : null);
     }
@@ -652,8 +649,9 @@ public partial class BilanView : UserControl
             return;
         }
 
-        var preselect = _activeTab == "ecritures" ? (EcritureCompteFilter.SelectedItem as Choice)?.Id : null;
-        var dialog = new BilanEcritureDialog(_comptes!.BilanComptes, null, preselect) { Owner = Owner };
+        var preselect = _activeTab == "ecritures" ? EcritureCompteFilter.SelectedItem as Choice : null;
+        var dialog = new BilanEcritureDialog(_comptes!, _calculAutomatique, null, preselect?.Id, preselect?.TableType)
+            { Owner = Owner };
         if (dialog.ShowDialog() != true || dialog.Result is not { } request) return;
 
         try
@@ -680,7 +678,7 @@ public partial class BilanView : UserControl
     private async Task EditEcritureAsync(BilanEcritureDto ecriture)
     {
         await EnsureComptesAsync();
-        var dialog = new BilanEcritureDialog(_comptes!.BilanComptes, ecriture) { Owner = Owner };
+        var dialog = new BilanEcritureDialog(_comptes!, _calculAutomatique, ecriture) { Owner = Owner };
         if (dialog.ShowDialog() != true || dialog.Result is not { } request) return;
 
         try
@@ -783,6 +781,23 @@ public partial class BilanView : UserControl
         {
             MessageBox.Show(Owner, ex.Message, "Supprimer", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+    }
+
+    // --- Print ---
+
+    private void Print_Click(object sender, RoutedEventArgs e)
+    {
+        var company = _session.Groupe?.Nom ?? "Lonnii";
+        var document = _activeTab switch
+        {
+            "bilan" when _bilan is not null => BilanDocument.BuildBilan(_bilan, company),
+            "resultat" when _resultat is not null => BilanDocument.BuildResultat(_resultat, company),
+            _ => null,
+        };
+        if (document is null) return;
+
+        var title = _activeTab == "bilan" ? "Bilan" : "Compte de résultat";
+        BilanDocument.Print(document, $"{title} {_annee}");
     }
 
     // --- Export ---

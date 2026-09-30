@@ -38,6 +38,12 @@ public static class PrivilegeSections
         // inert on the desktop (and in Lonnii Business itself; see that file's doc comment).
         // Sectioned with its siblings anyway rather than left in a one-row "sales" section.
         [Priv.Gestion.ProcessReturns] = Ventes,
+
+        // Catalogued under "finance" (Lonnii Business's Dépenses module), but what it
+        // actually gates on the desktop is Stock's own Fournisseurs manager - the rest of
+        // "finance" (can_view_expenses and siblings) has no desktop feature at all and is
+        // filtered out of the dialog entirely (see PrivilegeDialog.LoadAsync).
+        [Priv.Gestion.ManageSuppliers] = Stock,
     };
 
     public static string Of(PrivilegeDto privilege) =>

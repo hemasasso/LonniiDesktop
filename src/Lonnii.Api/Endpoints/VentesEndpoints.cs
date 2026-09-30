@@ -589,13 +589,31 @@ public static class VentesEndpoints
         {
             var product = products[line.ProductId];
 
+            // Vente Mixte sells by a second, bulk unit - line.VenteEnGros picks which one, and
+            // decides both the default price and how many base units stock moves by.
+            var enGros = product.VenteMixte && line.VenteEnGros;
+            var factor = enGros ? Math.Max(product.FacteurConversion ?? 1, 1) : 1;
+            var defaultPrice = enGros ? product.Price
+                : product.VenteMixte ? product.PrixVenteDetail ?? product.Price
+                : product.Price;
+            var unite = enGros ? product.UniteVente
+                : product.VenteMixte ? product.UniteAffichage ?? "unité"
+                : null;
+
             decimal unitPrice;
             if (product.PrixFixe)
             {
-                unitPrice = product.Price;
+                unitPrice = defaultPrice;
             }
             else if (line.UnitPrice is { } manual && manual >= 0)
             {
+                // Product.Price doubles as an optional négociable minimum (0 means none set):
+                // enforced here too, not just in the client's cart UI, since a request can
+                // reach this endpoint without going through that UI at all.
+                if (product.Price > 0 && manual < product.Price)
+                    return Results.BadRequest(new ApiError(
+                        $"Le prix de « {product.Name} » ne peut pas être inférieur au minimum ({product.Price})"));
+
                 unitPrice = manual;
             }
             else
@@ -620,14 +638,16 @@ public static class VentesEndpoints
                 PrixTotal = lineTotal,
                 Discount = line.Discount,
                 DiscountType = line.DiscountType,
+                Unite = unite,
             });
 
             if (product.VenteLibre || product.StockIllimite) continue;
 
-            var newQuantity = product.Quantity - line.Quantity;
+            var stockQuantity = line.Quantity * factor;
+            var newQuantity = product.Quantity - stockQuantity;
             if (newQuantity < 0)
                 return Results.BadRequest(new ApiError(
-                    $"Stock insuffisant pour « {product.Name} » : {product.Quantity} en stock, {line.Quantity} demandés"));
+                    $"Stock insuffisant pour « {product.Name} » : {product.Quantity} en stock, {stockQuantity} demandés"));
 
             var previous = product.Quantity;
             product.Quantity = newQuantity;
@@ -640,10 +660,10 @@ public static class VentesEndpoints
                 ProductId = product.Id,
                 MovementType = StockMovementTypes.Vente,
                 PreviousQuantity = previous,
-                QuantityChanged = -line.Quantity,
+                QuantityChanged = -stockQuantity,
                 NewQuantity = newQuantity,
                 UnitCost = product.CostPrice,
-                TotalCost = product.CostPrice * line.Quantity,
+                TotalCost = product.CostPrice * stockQuantity,
                 ReferenceId = vente.Id,
                 ReferenceType = "sale",
                 UserId = scope.UserId,
@@ -810,7 +830,7 @@ public static class VentesEndpoints
             StatutPaiement.Normalise(v.StatutPaiement), v.ModePaiement, v.Notes,
             vendeurNom,
             v.Items.Select(i => new VenteItemDto(
-                i.Id, i.ProductId, i.NomProduit, i.Quantite, i.PrixUnitaire, i.PrixTotal, i.Discount, i.DiscountType))
+                i.Id, i.ProductId, i.NomProduit, i.Quantite, i.PrixUnitaire, i.PrixTotal, i.Discount, i.DiscountType, i.Unite))
                 .ToList(),
             v.AvoirAmount, v.IsAvoirSolded, avoirSoldedByName, v.AvoirSoldedAt,
             v.CancellationReason, cancelledByName, v.CancelledAt, paiements, v.TvaRate, v.TvaAmount);

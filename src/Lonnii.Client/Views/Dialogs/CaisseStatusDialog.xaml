@@ -103,7 +103,9 @@
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="12" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="12" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0">
@@ -117,6 +119,13 @@
                         <TextBox x:Name="MontantFinalMobileBox" TextChanged="MontantFinal_Changed"
                                  ToolTip="Solde du compte mobile money de la caisse au moment de la fermeture" />
                         <TextBlock x:Name="ExpectedMobileText" Style="{StaticResource PageSubtitle}" Margin="0,6,0,0"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="4">
+                        <TextBlock Text="Carte constatée" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="MontantFinalCarteBox" TextChanged="MontantFinal_Changed"
+                                 ToolTip="Solde du compte carte de la caisse au moment de la fermeture" />
+                        <TextBlock x:Name="ExpectedCarteText" Style="{StaticResource PageSubtitle}" Margin="0,6,0,0"
                                    TextWrapping="Wrap" />
                     </StackPanel>
                 </Grid>

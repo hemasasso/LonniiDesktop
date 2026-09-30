@@ -247,4 +247,84 @@ public class CaisseTests : IAsyncLifetime
 
         Assert.Equal(0m, closed.Ecart);
     }
+
+    /// <summary>Opens a session with a 10 000 cash + 2 000 mobile + 1 000 carte float and one
+    /// sale paid 5 000 cash, 3 000 mobile and 4 000 carte: 15 000 cash, 5 000 mobile and
+    /// 5 000 carte expected at closing.</summary>
+    private async Task<Session> OpenWithThreeWaySaleAsync()
+    {
+        var session = await SignUpOwnerAsync();
+        await SendAsync(session, HttpMethod.Post, "/api/caisse/ouvrir",
+            new OpenCaisseRequest(MontantInitialCash: 10_000m, MontantInitialMobile: 2_000m, MontantInitialCarte: 1_000m));
+
+        var saleTime = DateTime.UtcNow;
+        await SeedAsync(db =>
+        {
+            var vente = new Vente
+            {
+                GroupId = session.GroupId, NumeroVente = "V-TEST-0003", DateVente = saleTime,
+                StatutPaiement = StatutPaiement.Paye, MontantTotal = 12_000m, CreatedBy = session.UserId,
+            };
+            vente.Paiements.Add(new PaiementVente
+            {
+                VenteId = vente.Id, Montant = 5_000m, ModePaiement = ModePaiement.Cash, DatePaiement = saleTime,
+            });
+            vente.Paiements.Add(new PaiementVente
+            {
+                VenteId = vente.Id, Montant = 3_000m, ModePaiement = ModePaiement.MobileMoney, DatePaiement = saleTime,
+            });
+            vente.Paiements.Add(new PaiementVente
+            {
+                VenteId = vente.Id, Montant = 4_000m, ModePaiement = ModePaiement.Carte, DatePaiement = saleTime,
+            });
+            db.Ventes.Add(vente);
+        });
+
+        return session;
+    }
+
+    [Fact]
+    public async Task Closing_with_a_card_count_puts_its_own_difference_in_the_ecart()
+    {
+        var session = await OpenWithThreeWaySaleAsync();
+
+        // 500 cash missing, 200 mobile extra, 100 carte extra: -200 overall, each side its own.
+        var closed = (await (await SendAsync(session, HttpMethod.Post, "/api/caisse/fermer",
+            new CloseCaisseRequest(MontantFinal: 14_500m, MontantFinalMobile: 5_200m, MontantFinalCarte: 5_100m)))
+            .Content.ReadFromJsonAsync<CaisseDto>())!;
+
+        Assert.Equal(15_000m, closed.ExpectedCash);
+        Assert.Equal(5_000m, closed.ExpectedMobile);
+        Assert.Equal(5_000m, closed.ExpectedCarte);
+        Assert.Equal(-200m, closed.Ecart);
+        Assert.Equal(-500m, closed.EcartCash);
+        Assert.Equal(200m, closed.EcartMobile);
+        Assert.Equal(100m, closed.EcartCarte);
+        Assert.Equal(25_000m, closed.ExpectedTotal);
+        Assert.Equal(24_800m, closed.CountedTotal);
+
+        // "Ajusté" corrects all three counts by their own share.
+        var resolved = (await (await SendAsync(session, HttpMethod.Post, $"/api/caisse/{closed.Id}/resolve-ecart",
+            new ResolveEcartRequest(EcartResolutionTypes.Adjusted)))
+            .Content.ReadFromJsonAsync<CaisseDto>())!;
+
+        Assert.Equal(0m, resolved.Ecart);
+        Assert.Equal(15_000m, resolved.MontantFinal);
+        Assert.Equal(5_000m, resolved.MontantFinalMobile);
+        Assert.Equal(5_000m, resolved.MontantFinalCarte);
+    }
+
+    [Fact]
+    public async Task Closing_without_a_card_count_keeps_the_card_pool_out_of_the_ecart()
+    {
+        var session = await OpenWithThreeWaySaleAsync();
+
+        var closed = (await (await SendAsync(session, HttpMethod.Post, "/api/caisse/fermer",
+            new CloseCaisseRequest(MontantFinal: 15_000m, MontantFinalMobile: 5_000m)))
+            .Content.ReadFromJsonAsync<CaisseDto>())!;
+
+        Assert.Equal(0m, closed.Ecart);
+        Assert.False(closed.CarteCounted);
+        Assert.Equal(20_000m, closed.ExpectedTotal);
+    }
 }

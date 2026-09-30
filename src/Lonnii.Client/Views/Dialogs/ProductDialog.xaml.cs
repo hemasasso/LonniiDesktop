@@ -17,6 +17,10 @@ public partial class ProductDialog : Window
     private readonly ProductDto? _existing;
     private readonly AppSession? _session;
 
+    /// <summary>Set while Cost/Price/Marge are being assigned programmatically, so one box's
+    /// recompute does not cross-trigger the other's and overwrite what was just loaded.</summary>
+    private bool _updatingPricing;
+
     /// <summary>Sentinel for the "no category" row.</summary>
     private static readonly CategoryDto NoCategory = new("", "— Aucune —", null, null, null, null, true, 0);
 
@@ -72,6 +76,11 @@ public partial class ProductDialog : Window
         TypeBox.SelectedValuePath = nameof(TypeOption.Value);
         TypeBox.SelectedValue = existing?.TypeProduit ?? ProductTypes.Marchandise;
 
+        // Guarded: Cost_Changed/Price_Changed/Marge_Changed would otherwise cross-recompute
+        // each other as these are populated below, clobbering the stored margin with a
+        // freshly derived one before it is even read.
+        _updatingPricing = true;
+
         if (existing is null)
         {
             Title = "Nouveau produit";
@@ -82,6 +91,7 @@ public partial class ProductDialog : Window
             CategoryBox.SelectedIndex = 0;
             SupplierBox.SelectedIndex = 0;
             PrixNegociableCheck.IsChecked = false;
+            MargeBox.Text = "30";
         }
         else
         {
@@ -95,7 +105,11 @@ public partial class ProductDialog : Window
             BarcodeBox.Text = existing.Barcode ?? string.Empty;
             LocationBox.Text = existing.StorageLocation ?? string.Empty;
             CostBox.Text = existing.CostPrice is { } cost ? Money.FormatPlain(cost) : string.Empty;
-            PriceBox.Text = Money.FormatPlain(existing.Price);
+            // A negociable product with no minimum set stores Price as 0 - shown blank here,
+            // not "0", so re-saving without touching the field keeps it free of a floor.
+            PriceBox.Text = existing.PrixFixe || existing.Price > 0
+                ? Money.FormatPlain(existing.Price) : string.Empty;
+            MargeBox.Text = existing.MarginPercentage is { } marge ? Money.FormatPlain(marge, 2) : string.Empty;
             ThresholdBox.Text = Money.FormatPlain(existing.MinimumThreshold);
             PrixNegociableCheck.IsChecked = !existing.PrixFixe;
             VenteLibreCheck.IsChecked = existing.VenteLibre;
@@ -112,7 +126,10 @@ public partial class ProductDialog : Window
             RemovePhotoButton.Visibility = existing.ImageUrl is null ? Visibility.Collapsed : Visibility.Visible;
         }
 
+        _updatingPricing = false;
+
         ApplySalesModeVisuals();
+        ApplyNegotiableVisuals();
 
         Loaded += async (_, _) =>
         {
@@ -204,9 +221,25 @@ public partial class ProductDialog : Window
 
         CostBox.IsEnabled = !venteLibre;
         if (venteLibre) CostBox.Text = string.Empty;
+
+        MargeBox.IsEnabled = !venteLibre;
+        if (venteLibre) MargeBox.Text = string.Empty;
     }
 
     private void VenteLibre_Changed(object sender, RoutedEventArgs e) => ApplySalesModeVisuals();
+
+    /// <summary>Négociable turns Prix de vente from a required fixed price into an optional
+    /// floor: left blank, the cashier can accept any amount at the till; filled in, it is the
+    /// least the product may sell for once the cashier negotiates it down (see VentesView's
+    /// cart pricing, which pre-fills and clamps to this value).</summary>
+    private void ApplyNegotiableVisuals()
+    {
+        var negociable = PrixNegociableCheck.IsChecked == true;
+        PriceLabel.Text = negociable ? "Prix de vente (minimum, optionnel)" : "Prix de vente *";
+        PriceMinimumHint.Visibility = negociable ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void PrixNegociable_Changed(object sender, RoutedEventArgs e) => ApplyNegotiableVisuals();
 
     private sealed record TypeOption(string Value, string Label);
 
@@ -217,7 +250,9 @@ public partial class ProductDialog : Window
     private void Type_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (TypeHint is null) return;
-        TypeHint.Visibility = ProductTypes.IsSellable(SelectedType) ? Visibility.Collapsed : Visibility.Visible;
+
+        var sellable = ProductTypes.IsSellable(SelectedType);
+        TypeHint.Visibility = sellable ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
@@ -229,7 +264,20 @@ public partial class ProductDialog : Window
             return;
         }
 
-        if (!Money.TryParse(PriceBox.Text, out decimal price) || price < 0)
+        var negociable = PrixNegociableCheck.IsChecked == true;
+
+        // Négociable makes this optional: left blank, it is stored as 0 and means "no floor -
+        // the cashier may accept any price." A fixed-price product still requires a real value.
+        decimal price = 0;
+        if (string.IsNullOrWhiteSpace(PriceBox.Text))
+        {
+            if (!negociable)
+            {
+                Fail("Le prix de vente doit être un nombre positif.", PriceBox);
+                return;
+            }
+        }
+        else if (!Money.TryParse(PriceBox.Text, out price) || price < 0)
         {
             Fail("Le prix de vente doit être un nombre positif.", PriceBox);
             return;
@@ -255,6 +303,17 @@ public partial class ProductDialog : Window
             return;
         }
 
+        decimal? margin = null;
+        if (!string.IsNullOrWhiteSpace(MargeBox.Text))
+        {
+            if (!Money.TryParse(MargeBox.Text, out decimal parsedMargin) || parsedMargin < 0)
+            {
+                Fail("La marge doit être un nombre positif.", MargeBox);
+                return;
+            }
+            margin = parsedMargin;
+        }
+
         var quantity = _existing?.Quantity ?? 0;
         if (_existing is null && !venteLibre)
         {
@@ -265,8 +324,10 @@ public partial class ProductDialog : Window
             }
         }
 
-        // A sale price below cost is legitimate (clearance), but worth a confirmation.
-        if (cost is { } c && c > price)
+        // A sale price below cost is legitimate (clearance), but worth a confirmation. Skipped
+        // for a négociable product with no minimum set (price is 0, meaning "not decided yet",
+        // not an actual sale price to compare against the cost).
+        if (cost is { } c && c > price && !(negociable && price == 0))
         {
             var confirm = MessageBox.Show(this,
                 $"Le prix de vente ({Money.Format(price)}) est inférieur au prix d'achat ({Money.Format(c)}).\n\n" +
@@ -290,7 +351,7 @@ public partial class ProductDialog : Window
             Quantity: quantity,
             MinimumThreshold: threshold,
             CostPrice: cost,
-            PrixFixe: PrixNegociableCheck.IsChecked != true,
+            PrixFixe: !negociable,
             VenteLibre: venteLibre,
             // No separate UI choice any more - Vente Libre alone always means unlimited
             // quantity, so the two flags are kept in lockstep here rather than exposing a
@@ -299,7 +360,16 @@ public partial class ProductDialog : Window
             UniteAffichage: Blank(UnitBox.Text),
             StorageLocation: Blank(LocationBox.Text),
             ExpiryDate: _existing?.ExpiryDate,
-            TypeProduit: SelectedType);
+            TypeProduit: SelectedType,
+            MarginPercentage: margin,
+            // Vente Mixte can no longer be turned on from here - the option was removed as
+            // too confusing (a shop can just open a bulk box and sell it one unit at a time).
+            // A product that already had it keeps its stored gros/détail data untouched, since
+            // there is no UI here to change it any more; a brand new product is never mixte.
+            VenteMixte: _existing?.VenteMixte ?? false,
+            UniteVente: _existing?.UniteVente,
+            FacteurConversion: _existing?.FacteurConversion,
+            PrixVenteDetail: _existing?.PrixVenteDetail);
 
         DialogResult = true;
     }
@@ -310,6 +380,37 @@ public partial class ProductDialog : Window
     {
         if (sender is not System.Windows.Controls.TextBox box) return;
         if (Money.TryParse(box.Text, out decimal value)) box.Text = Money.FormatPlain(value);
+    }
+
+    // --- Bidirectional marge: editing the cost or the margin recomputes the sale price;
+    // editing the sale price recomputes the margin. Either can be the one the user types. ---
+
+    private void Cost_Changed(object sender, System.Windows.Controls.TextChangedEventArgs e) => RecomputePriceFromMarge();
+
+    private void Marge_Changed(object sender, System.Windows.Controls.TextChangedEventArgs e) => RecomputePriceFromMarge();
+
+    private void Price_Changed(object sender, System.Windows.Controls.TextChangedEventArgs e) => RecomputeMargeFromPrice();
+
+    private void RecomputePriceFromMarge()
+    {
+        if (_updatingPricing) return;
+        if (!Money.TryParse(CostBox.Text, out decimal cost) || cost <= 0) return;
+        if (!Money.TryParse(MargeBox.Text, out decimal marge)) return;
+
+        _updatingPricing = true;
+        PriceBox.Text = Money.FormatPlain(cost + cost * marge / 100m, 2);
+        _updatingPricing = false;
+    }
+
+    private void RecomputeMargeFromPrice()
+    {
+        if (_updatingPricing) return;
+        if (!Money.TryParse(CostBox.Text, out decimal cost) || cost <= 0) return;
+        if (!Money.TryParse(PriceBox.Text, out decimal price)) return;
+
+        _updatingPricing = true;
+        MargeBox.Text = Money.FormatPlain((price - cost) / cost * 100m, 2);
+        _updatingPricing = false;
     }
 
     private void Fail(string message, System.Windows.Controls.Control focus)

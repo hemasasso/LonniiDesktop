@@ -1,3 +1,5 @@
+using Lonnii.Shared.Comptabilite;
+
 namespace Lonnii.Shared.Contracts;
 
 // --- Authentication ---
@@ -218,7 +220,12 @@ public sealed record ProductDto(
     DateTime? ExpiryDate,
     string? ImageUrl,
     DateTime UpdatedAt,
-    string TypeProduit = ProductTypes.ProduitFini)
+    string TypeProduit = ProductTypes.ProduitFini,
+    decimal? MarginPercentage = null,
+    bool VenteMixte = false,
+    string? UniteVente = null,
+    int? FacteurConversion = null,
+    decimal? PrixVenteDetail = null)
 {
     public string TypeProduitDisplay => ProductTypes.DisplayName(TypeProduit);
 
@@ -229,11 +236,31 @@ public sealed record ProductDto(
     /// <summary>"∞" for a product with no quantity concept at all, otherwise the quantity with
     /// its display unit (e.g. "12 page") when one is set. A Vente Libre product without Stock
     /// indéfini still carries a real reference quantity - only Stock indéfini itself (which
-    /// can only be set alongside Vente Libre) means there is no number to show.</summary>
-    public string QuantityDisplay =>
-        StockIllimite
-            ? "∞"
-            : string.IsNullOrEmpty(UniteAffichage) ? Quantity.ToString() : $"{Quantity} {UniteAffichage}";
+    /// can only be set alongside Vente Libre) means there is no number to show.
+    ///
+    /// A Vente Mixte product instead reads its base-unit quantity broken down into whole bulk
+    /// units and a remainder, e.g. 192 base units at a factor of 10 reads "19 paquets &amp; 2
+    /// unité" - what is actually sellable as a bulk unit, rather than a raw base-unit count
+    /// nobody can picture as cartons on a shelf.</summary>
+    public string QuantityDisplay
+    {
+        get
+        {
+            if (StockIllimite) return "∞";
+
+            if (VenteMixte && FacteurConversion is { } factor and > 1)
+            {
+                var detailUnit = string.IsNullOrEmpty(UniteAffichage) ? "unité" : UniteAffichage;
+                var gros = Quantity / factor;
+                var reste = Quantity % factor;
+                var grosPart = $"{gros} {UniteVente}";
+                var restePart = $"{reste} {detailUnit}";
+                return gros == 0 ? restePart : reste == 0 ? grosPart : $"{grosPart} & {restePart}";
+            }
+
+            return string.IsNullOrEmpty(UniteAffichage) ? Quantity.ToString() : $"{Quantity} {UniteAffichage}";
+        }
+    }
 }
 
 /// <summary>Creates or updates a product.</summary>
@@ -254,7 +281,12 @@ public sealed record SaveProductRequest(
     string? UniteAffichage = null,
     string? StorageLocation = null,
     DateTime? ExpiryDate = null,
-    string TypeProduit = ProductTypes.Marchandise);
+    string TypeProduit = ProductTypes.Marchandise,
+    decimal? MarginPercentage = null,
+    bool VenteMixte = false,
+    string? UniteVente = null,
+    int? FacteurConversion = null,
+    decimal? PrixVenteDetail = null);
 
 /// <summary>Adjusts stock by a signed amount, recording why.</summary>
 public sealed record AdjustStockRequest(int QuantityChanged, string MovementType, string? Reason = null);
@@ -356,13 +388,18 @@ public static class DiscountTypes
 }
 
 /// <summary>One line of a sale being created. <paramref name="UnitPrice"/> is required
-/// when the product is not <c>PrixFixe</c> — its price is decided at sale time.</summary>
+/// when the product is not <c>PrixFixe</c> — its price is decided at sale time.
+/// <paramref name="VenteEnGros"/> only matters for a Vente Mixte product: true sells it by
+/// its bulk unit (<c>UniteVente</c>, at <c>Price</c>) and decrements stock by the conversion
+/// factor per unit sold; false (the default) sells it by the base unit, at
+/// <c>PrixVenteDetail</c>.</summary>
 public sealed record CartItemRequest(
     string ProductId,
     int Quantity,
     decimal? UnitPrice = null,
     decimal Discount = 0,
-    string DiscountType = DiscountTypes.Amount);
+    string DiscountType = DiscountTypes.Amount,
+    bool VenteEnGros = false);
 
 /// <summary>Creates a sale from a cart. <paramref name="MontantPaye"/> may be less than the
 /// computed total (partial payment) or zero (unpaid). <paramref name="RemiseGlobale"/> is a
@@ -378,7 +415,9 @@ public sealed record CreateVenteRequest(
     string? Notes = null,
     string? IdempotencyKey = null);
 
-/// <summary>One line of a completed sale.</summary>
+/// <summary>One line of a completed sale. <paramref name="Unite"/> is the unit sold in - only
+/// set for a Vente Mixte product (its bulk unit, e.g. "Carton", or its base unit) - and null
+/// for every ordinary product, exactly as before this field existed.</summary>
 public sealed record VenteItemDto(
     string Id,
     string? ProductId,
@@ -387,7 +426,8 @@ public sealed record VenteItemDto(
     decimal PrixUnitaire,
     decimal PrixTotal,
     decimal Discount,
-    string DiscountType);
+    string DiscountType,
+    string? Unite = null);
 
 /// <summary>One payment recorded against a sale - the detail view's payment history
 /// (Lonnii Business's <c>payment_tranches</c>), distinct from the receipt's single summed
@@ -571,7 +611,9 @@ public sealed record CaisseDto(
     string Status,
     string? Notes,
     IReadOnlyList<CaisseRetraitDto>? Retraits = null,
-    decimal? MontantFinalMobile = null)
+    decimal? MontantFinalMobile = null,
+    decimal MontantInitialCarte = 0,
+    decimal? MontantFinalCarte = null)
 {
     public decimal TotalRetraits => Retraits?.Sum(r => r.Montant) ?? 0;
 
@@ -588,21 +630,33 @@ public sealed record CaisseDto(
     /// − mobile withdrawals.</summary>
     public decimal ExpectedMobile => MontantInitialMobile + PaiementMobile - TotalRetraitsMobile;
 
+    /// <summary>Card-account balance the till should hold: card float + card payments taken.
+    /// No withdrawal pool of its own - a card settlement is never pulled back out as cash.</summary>
+    public decimal ExpectedCarte => MontantInitialCarte + PaiementCarte;
+
     /// <summary>False for a session closed with a cash count alone - every session closed
     /// before the mobile count existed, or by Lonnii Business. Its écart is cash only.</summary>
     public bool MobileCounted => MontantFinalMobile is not null;
 
-    /// <summary>The mobile share of <see cref="Ecart"/>; the rest is cash.</summary>
+    /// <summary>False for a session closed before the card count existed.</summary>
+    public bool CarteCounted => MontantFinalCarte is not null;
+
+    /// <summary>The mobile share of <see cref="Ecart"/>; the rest is cash (and card, if counted).</summary>
     public decimal EcartMobile => MontantFinalMobile is { } mobile ? mobile - ExpectedMobile : 0;
 
-    public decimal EcartCash => Ecart - EcartMobile;
+    /// <summary>The card share of <see cref="Ecart"/>; the rest is cash (and mobile, if counted).</summary>
+    public decimal EcartCarte => MontantFinalCarte is { } carte ? carte - ExpectedCarte : 0;
+
+    public decimal EcartCash => Ecart - EcartMobile - EcartCarte;
 
     /// <summary>What the till should hold in all, measured the same way <see cref="Ecart"/>
     /// was: a session closed on cash alone is expected to hold its cash alone.</summary>
-    public decimal ExpectedTotal => ExpectedCash + (Status == "closed" && !MobileCounted ? 0 : ExpectedMobile);
+    public decimal ExpectedTotal => ExpectedCash
+        + (Status == "closed" && !MobileCounted ? 0 : ExpectedMobile)
+        + (Status == "closed" && !CarteCounted ? 0 : ExpectedCarte);
 
     /// <summary>What was counted in all at closing; null while open.</summary>
-    public decimal? CountedTotal => MontantFinal is { } cash ? cash + (MontantFinalMobile ?? 0) : null;
+    public decimal? CountedTotal => MontantFinal is { } cash ? cash + (MontantFinalMobile ?? 0) + (MontantFinalCarte ?? 0) : null;
 }
 
 /// <summary>One manual withdrawal ("Retirer de la caisse") from a session. <paramref name="ModePaiement"/>
@@ -620,14 +674,18 @@ public sealed record CaisseStatusResponse(CaisseDto? Caisse);
 /// records the mobile-money balance the till starts with, e.g. to give change on a mobile
 /// payment.</summary>
 public sealed record OpenCaisseRequest(
-    decimal MontantInitialCash, decimal MontantInitialMobile = 0, string? Notes = null);
+    decimal MontantInitialCash, decimal MontantInitialMobile = 0, string? Notes = null,
+    decimal MontantInitialCarte = 0);
 
 /// <summary>Closes the caller's open session. <paramref name="MontantFinal"/> is the cash
-/// counted in the drawer; <paramref name="MontantFinalMobile"/> the mobile-money balance
-/// found on the till's account. Both are compared against what the session expects and the
-/// écart is the sum of the two differences. Mobile is optional so an older client that only
-/// sends cash still closes, with a cash-only écart as before.</summary>
-public sealed record CloseCaisseRequest(decimal MontantFinal, string? Notes = null, decimal? MontantFinalMobile = null);
+/// counted in the drawer; <paramref name="MontantFinalMobile"/> the mobile-money balance and
+/// <paramref name="MontantFinalCarte"/> the card-account balance found on the till's accounts.
+/// All three are compared against what the session expects and the écart is the sum of their
+/// differences. Mobile and card are optional so an older client that only sends cash still
+/// closes, with a cash-only écart as before.</summary>
+public sealed record CloseCaisseRequest(
+    decimal MontantFinal, string? Notes = null, decimal? MontantFinalMobile = null,
+    decimal? MontantFinalCarte = null);
 
 /// <summary>Response of <c>GET /api/caisse/historique</c>.</summary>
 public sealed record CaisseHistoryResponse(IReadOnlyList<CaisseDto> Caisses, int Total);
@@ -1495,7 +1553,15 @@ public sealed record ResultatResponse(
     decimal ResultatExploitation,
     decimal ResultatFinancier,
     decimal ResultatExceptionnel,
-    decimal ResultatNet);
+    decimal ResultatNet,
+    bool CalculAutomatique = true);
+
+/// <summary>Whether the Bilan and compte de résultat feed themselves automatically from the
+/// other modules (the default) or are kept entirely by hand, via écriture - see
+/// <c>Lonnii.Data.Entities.ComptabiliteParametres</c>.</summary>
+public sealed record ComptabiliteParametresDto(bool CalculAutomatique);
+
+public sealed record SaveComptabiliteParametresRequest(bool CalculAutomatique);
 
 /// <summary>Response of <c>GET /api/bilan/comptes</c> - the chart of accounts, without
 /// balances.</summary>
@@ -1525,10 +1591,15 @@ public sealed record BilanEcritureDto(
     decimal MontantCredit,
     string? Reference,
     string? Notes,
-    string? CreatedByName);
+    string? CreatedByName,
+    string TableType = TablesCompte.Bilan);
 
 /// <summary>Creates or edits an écriture. Exactly one of debit and credit is expected to be
-/// non-zero, though the server only requires that they are not both zero - as the source.</summary>
+/// non-zero, though the server only requires that they are not both zero - as the source.
+/// <paramref name="TableType"/> picks which table <paramref name="CompteId"/> is a row of -
+/// <c>bilan</c> for any bilan account, or <c>resultat</c> for one of the compte de résultat's
+/// four hand-fed accounts (produit/charge financier or exceptionnel) - every other résultat
+/// account is fed by its own module and refuses an écriture.</summary>
 public sealed record SaveBilanEcritureRequest(
     int CompteId,
     DateOnly DateEcriture,
@@ -1536,13 +1607,11 @@ public sealed record SaveBilanEcritureRequest(
     decimal MontantDebit,
     decimal MontantCredit,
     string? Reference = null,
-    string? Notes = null);
+    string? Notes = null,
+    string TableType = TablesCompte.Bilan);
 
 /// <summary>Sets the stock value at 1 January of <paramref name="Annee"/>.</summary>
 public sealed record StockSnapshotRequest(int Annee, decimal StockValueDebut);
-
-/// <summary>Sets the hand-entered amount of a résultat account.</summary>
-public sealed record ResultatCompteSoldeRequest(decimal Solde);
 
 // --- Audit (présences) ---
 

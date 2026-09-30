@@ -49,7 +49,7 @@ public static class CaisseEndpoints
     private static async Task<IResult> OuvrirAsync(
         OpenCaisseRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
-        if (request.MontantInitialCash < 0 || request.MontantInitialMobile < 0)
+        if (request.MontantInitialCash < 0 || request.MontantInitialMobile < 0 || request.MontantInitialCarte < 0)
             return Results.BadRequest(new ApiError("Le montant initial ne peut pas être négatif"));
 
         var alreadyOpen = await db.Caisses.AnyAsync(
@@ -65,9 +65,10 @@ public static class CaisseEndpoints
             GroupId = scope.GroupId,
             UserId = scope.UserId,
             UserName = userName,
-            MontantInitial = request.MontantInitialCash + request.MontantInitialMobile,
+            MontantInitial = request.MontantInitialCash + request.MontantInitialMobile + request.MontantInitialCarte,
             MontantInitialCash = request.MontantInitialCash,
             MontantInitialMobile = request.MontantInitialMobile,
+            MontantInitialCarte = request.MontantInitialCarte,
             Notes = Blank(request.Notes),
         };
 
@@ -93,7 +94,7 @@ public static class CaisseEndpoints
     private static async Task<IResult> FermerAsync(
         CloseCaisseRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
-        if (request.MontantFinal < 0 || request.MontantFinalMobile < 0)
+        if (request.MontantFinal < 0 || request.MontantFinalMobile < 0 || request.MontantFinalCarte < 0)
             return Results.BadRequest(new ApiError("Le montant compté ne peut pas être négatif"));
 
         var caisse = await db.Caisses.FirstOrDefaultAsync(
@@ -106,6 +107,7 @@ public static class CaisseEndpoints
         caisse.DateFermeture = closingAt;
         caisse.MontantFinal = request.MontantFinal;
         caisse.MontantFinalMobile = request.MontantFinalMobile;
+        caisse.MontantFinalCarte = request.MontantFinalCarte;
         caisse.TotalVentes = stats.TotalVentes;
         caisse.TotalChiffreAffaires = stats.ChiffreAffaires;
         caisse.TotalAvoir = stats.TotalAvoir;
@@ -116,7 +118,8 @@ public static class CaisseEndpoints
         caisse.TotalEncaisse = stats.TotalEncaisse;
         caisse.TotalRestant = Math.Max(0, stats.ChiffreAffaires - stats.TotalEncaisse);
         caisse.Ecart = request.MontantFinal - stats.ExpectedCash(caisse)
-            + (request.MontantFinalMobile is { } mobile ? mobile - stats.ExpectedMobile(caisse) : 0);
+            + (request.MontantFinalMobile is { } mobile ? mobile - stats.ExpectedMobile(caisse) : 0)
+            + (request.MontantFinalCarte is { } carte ? carte - stats.ExpectedCarte(caisse) : 0);
         caisse.Notes = Blank(request.Notes) ?? caisse.Notes;
         caisse.Status = CaisseStatus.Closed;
         caisse.UpdatedAt = closingAt;
@@ -216,16 +219,25 @@ public static class CaisseEndpoints
 
         if (request.ResolutionType == EcartResolutionTypes.Adjusted)
         {
-            // Each count is corrected by its own share, so both still read as what the till
-            // should have held rather than the whole difference landing on the cash.
+            // Each count is corrected by its own share, so all three still read as what the
+            // till should have held rather than the whole difference landing on the cash.
+            decimal nonCashEcart = 0;
+
             if (caisse.MontantFinalMobile is { } mobile)
             {
                 var mobileEcart = mobile - (caisse.MontantInitialMobile + caisse.PaiementMobile);
                 caisse.MontantFinalMobile = mobile - mobileEcart;
-                caisse.MontantFinal -= caisse.Ecart - mobileEcart;
+                nonCashEcart += mobileEcart;
             }
-            else caisse.MontantFinal -= caisse.Ecart;
 
+            if (caisse.MontantFinalCarte is { } carte)
+            {
+                var carteEcart = carte - (caisse.MontantInitialCarte + caisse.PaiementCarte);
+                caisse.MontantFinalCarte = carte - carteEcart;
+                nonCashEcart += carteEcart;
+            }
+
+            caisse.MontantFinal -= caisse.Ecart - nonCashEcart;
             caisse.Ecart = 0;
         }
 
@@ -310,6 +322,10 @@ public static class CaisseEndpoints
         /// <summary>Mobile money the till's account should hold: the mobile float plus mobile
         /// payments taken, minus mobile retraits.</summary>
         public decimal ExpectedMobile(Caisse caisse) => caisse.MontantInitialMobile + PaiementMobile - TotalRetraitsMobile;
+
+        /// <summary>Card-account balance the till should hold: the card float plus card
+        /// payments taken. No retraits pool of its own - see <see cref="CaisseDto.ExpectedCarte"/>.</summary>
+        public decimal ExpectedCarte(Caisse caisse) => caisse.MontantInitialCarte + PaiementCarte;
     }
 
     /// <summary>
@@ -391,7 +407,8 @@ public static class CaisseEndpoints
             stats.TotalVentes, stats.ChiffreAffaires, stats.TotalEncaisse, stats.TotalAvoir,
             stats.PaiementCash, stats.PaiementMobile, stats.PaiementCarte, stats.PaiementAutres,
             Ecart: 0, EcartResolved: false, EcartResolutionNote: null,
-            caisse.Status, caisse.Notes, retraits ?? [], caisse.MontantFinalMobile);
+            caisse.Status, caisse.Notes, retraits ?? [], caisse.MontantFinalMobile,
+            MontantInitialCarte: caisse.MontantInitialCarte, MontantFinalCarte: caisse.MontantFinalCarte);
     }
 
     private static CaisseDto ToDto(Caisse caisse, List<CaisseRetraitDto>? retraits) => new(
@@ -401,7 +418,8 @@ public static class CaisseEndpoints
         caisse.TotalVentes, caisse.TotalChiffreAffaires, caisse.TotalEncaisse, caisse.TotalAvoir,
         caisse.PaiementCash, caisse.PaiementMobile, caisse.PaiementCarte, caisse.PaiementAutres,
         caisse.Ecart, caisse.EcartResolved, caisse.EcartResolutionNote,
-        caisse.Status, caisse.Notes, retraits ?? [], caisse.MontantFinalMobile);
+        caisse.Status, caisse.Notes, retraits ?? [], caisse.MontantFinalMobile,
+        MontantInitialCarte: caisse.MontantInitialCarte, MontantFinalCarte: caisse.MontantFinalCarte);
 
     /// <summary>Manual withdrawals only - not the avoir refunds that share the same
     /// <c>sortie</c> type, which already show up as their own avoir figures.</summary>

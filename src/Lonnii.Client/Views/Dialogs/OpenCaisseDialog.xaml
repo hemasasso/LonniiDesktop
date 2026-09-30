@@ -43,6 +43,9 @@
             <TextBlock Text="Fonds initial — Mobile Money (optionnel)" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
             <TextBox x:Name="MontantMobileBox" />
 
+            <TextBlock Text="Fonds initial — Carte (optionnel)" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
+            <TextBox x:Name="MontantCarteBox" />
+
             <TextBlock Text="Notes (optionnel)" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
             <TextBox x:Name="NotesBox" Height="56" TextWrapping="Wrap" AcceptsReturn="True"
                      VerticalContentAlignment="Top" />

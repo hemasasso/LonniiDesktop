@@ -10,30 +10,39 @@ namespace Lonnii.Client.Views.Dialogs;
 /// debit/credit that is easy to get backwards.</summary>
 public partial class BilanEcritureDialog : Window
 {
-    private sealed record CompteChoice(BilanCompteDto Compte)
+    private sealed record CompteChoice(BilanCompteDto Compte, string TableType)
     {
         public override string ToString() => $"{Compte.NumeroCompte} — {Compte.Libelle}";
     }
 
     public SaveBilanEcritureRequest? Result { get; private set; }
 
-    public BilanEcritureDialog(IReadOnlyList<BilanCompteDto> comptes, BilanEcritureDto? existing, int? compteId = null)
+    /// <summary><paramref name="comptes"/> carries both tables; <paramref name="calculAutomatique"/>
+    /// decides which résultat accounts are offered at all - see BilanEndpoints.EcritureEligible,
+    /// which this mirrors.</summary>
+    public BilanEcritureDialog(
+        BilanComptesResponse comptes, bool calculAutomatique, BilanEcritureDto? existing,
+        int? compteId = null, string? tableType = null)
     {
         InitializeComponent();
 
-        var choices = comptes.Select(c => new CompteChoice(c)).ToList();
+        var choices = comptes.BilanComptes.Select(c => new CompteChoice(c, TablesCompte.Bilan))
+            .Concat(comptes.ResultatComptes
+                .Where(c => TypesCompteResultat.IsManuel(c.TypeCompte) || !calculAutomatique)
+                .Select(c => new CompteChoice(c, TablesCompte.Resultat)))
+            .ToList();
         CompteCombo.ItemsSource = choices;
 
         if (existing is null)
         {
             HeaderText.Text = "Nouvelle écriture";
             DatePicker.SelectedDate = DateTime.Today;
-            CompteCombo.SelectedItem = choices.FirstOrDefault(c => c.Compte.Id == compteId);
+            CompteCombo.SelectedItem = choices.FirstOrDefault(c => c.Compte.Id == compteId && c.TableType == tableType);
         }
         else
         {
             HeaderText.Text = "Modifier l'écriture";
-            CompteCombo.SelectedItem = choices.FirstOrDefault(c => c.Compte.Id == existing.CompteId);
+            CompteCombo.SelectedItem = choices.FirstOrDefault(c => c.Compte.Id == existing.CompteId && c.TableType == existing.TableType);
             DatePicker.SelectedDate = existing.DateEcriture.ToDateTime(TimeOnly.MinValue);
             LibelleBox.Text = existing.Libelle;
             DebitBox.Text = Money.FormatPlain(existing.MontantDebit);
@@ -56,23 +65,32 @@ public partial class BilanEcritureDialog : Window
         Loaded += (_, _) => (CompteCombo.SelectedItem is null ? (Control)CompteCombo : LibelleBox).Focus();
     }
 
+    /// <summary>True when a debit increases this account - actif (bilan) or charge (résultat);
+    /// false when a credit does - passif (bilan) or produit (résultat).</summary>
+    private static bool DebitIncreases(CompteChoice choice) => choice.TableType == TablesCompte.Resultat
+        ? !TypesCompteResultat.IsProduit(choice.Compte.TypeCompte)
+        : TypesCompteBilan.IsActif(choice.Compte.TypeCompte);
+
     private void Refresh()
     {
-        if (CompteCombo.SelectedItem is not CompteChoice { Compte: var compte })
+        if (CompteCombo.SelectedItem is not CompteChoice choice)
         {
             CompteHint.Text = string.Empty;
             EffetText.Text = string.Empty;
             return;
         }
 
-        var actif = TypesCompteBilan.IsActif(compte.TypeCompte);
-        CompteHint.Text = $"{TypesCompteBilan.Label(compte.TypeCompte)} — "
-                          + (actif ? "un débit augmente ce compte, un crédit le diminue."
-                                   : "un crédit augmente ce compte, un débit le diminue.");
+        var compte = choice.Compte;
+        var debitAugmente = DebitIncreases(choice);
+        var label = choice.TableType == TablesCompte.Resultat
+            ? TypesCompteResultat.Label(compte.TypeCompte) : TypesCompteBilan.Label(compte.TypeCompte);
+        CompteHint.Text = $"{label} — "
+                          + (debitAugmente ? "un débit augmente ce compte, un crédit le diminue."
+                                           : "un crédit augmente ce compte, un débit le diminue.");
 
         var debit = Money.TryParse(DebitBox.Text, out decimal d) ? d : 0m;
         var credit = Money.TryParse(CreditBox.Text, out decimal c) ? c : 0m;
-        var effet = actif ? debit - credit : credit - debit;
+        var effet = debitAugmente ? debit - credit : credit - debit;
 
         EffetText.Text = effet switch
         {
@@ -85,7 +103,7 @@ public partial class BilanEcritureDialog : Window
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
-        if (CompteCombo.SelectedItem is not CompteChoice { Compte: var compte })
+        if (CompteCombo.SelectedItem is not CompteChoice { Compte: var compte, TableType: var tableType })
         {
             ErrorText.Text = "Choisissez un compte.";
             CompteCombo.Focus();
@@ -123,7 +141,7 @@ public partial class BilanEcritureDialog : Window
         static string? Text(TextBox box) => string.IsNullOrWhiteSpace(box.Text) ? null : box.Text.Trim();
 
         Result = new SaveBilanEcritureRequest(
-            compte.Id, DateOnly.FromDateTime(date), libelle, debit, credit, Text(ReferenceBox), Text(NotesBox));
+            compte.Id, DateOnly.FromDateTime(date), libelle, debit, credit, Text(ReferenceBox), Text(NotesBox), tableType);
         DialogResult = true;
     }
 

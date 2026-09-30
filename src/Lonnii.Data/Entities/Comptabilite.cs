@@ -119,12 +119,24 @@ public class BilanCompte
     public DateTime? UpdatedAt { get; set; } = DateTime.UtcNow;
 }
 
-/// <summary>A manual entry on a bilan account - <c>bilan_ecritures</c>.</summary>
+/// <summary>
+/// A manual entry on a bilan account, or on one of the compte de résultat's four
+/// hand-fed accounts (financier/exceptionnel) - <c>bilan_ecritures</c>. <see cref="TableType"/>
+/// (one of <c>Lonnii.Shared.Comptabilite.TablesCompte</c>) says which table
+/// <see cref="CompteId"/> is a row of - <c>bilan_comptes</c> or <c>resultat_comptes</c> - since
+/// the two share no relational identity to join on directly. There is deliberately no EF
+/// foreign key on <see cref="CompteId"/> because of that; the endpoints themselves load and
+/// validate the account before writing.
+/// </summary>
 public class BilanEcriture
 {
     public int Id { get; set; }
     public string GroupId { get; set; } = string.Empty;
     public int CompteId { get; set; }
+
+    /// <summary>"bilan" or "resultat" - which table <see cref="CompteId"/> belongs to. Defaults
+    /// to "bilan" for every row written before the résultat side existed.</summary>
+    public string TableType { get; set; } = "bilan";
 
     public DateOnly DateEcriture { get; set; }
     public string Libelle { get; set; } = string.Empty;
@@ -135,14 +147,13 @@ public class BilanEcriture
 
     public string CreatedBy { get; set; } = string.Empty;
     public DateTime? CreatedAt { get; set; } = DateTime.UtcNow;
-
-    public BilanCompte? Compte { get; set; }
 }
 
 /// <summary>
 /// An account of the compte de résultat - <c>resultat_comptes</c>. Same shape as
-/// <see cref="BilanCompte"/>, but it has no écritures: <see cref="Solde"/> is an amount typed in
-/// by hand, and only used on the financial and exceptional accounts nothing else feeds.
+/// <see cref="BilanCompte"/>. Only the financial and exceptional types take écritures (see
+/// <c>Lonnii.Shared.Comptabilite.TypesCompteResultat.IsManuel</c>) - every other type is fed by
+/// another module and <see cref="Solde"/> stays a hand-set baseline for it, never écriture-fed.
 /// </summary>
 public class ResultatCompte
 {
@@ -157,8 +168,10 @@ public class ResultatCompte
 
     public string? SousType { get; set; }
 
-    /// <summary>The hand-entered amount. Not per year - the source table has no year column -
-    /// so it shows in every year's compte de résultat until changed.</summary>
+    /// <summary>Running debit − credit of this account's écritures (only ever posted on the
+    /// financial/exceptional types - see <see cref="BilanEcriture.TableType"/>), kept up to
+    /// date the same way <see cref="BilanCompte.Solde"/> is. Cosmetic, same as there - the
+    /// compte de résultat itself re-sums the year's écritures instead.</summary>
     public decimal? Solde { get; set; }
 
     public string? Description { get; set; }
@@ -167,6 +180,21 @@ public class ResultatCompte
     public string? CreatedBy { get; set; }
     public DateTime? CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// Per-group settings for how the Bilan and compte de résultat get their numbers - one row per
+/// group, created the first time it is changed from the default. <see cref="CalculAutomatique"/>
+/// true (the default) is today's behaviour: sales, charges and amortissement feed the
+/// statements automatically, and only the four financial/exceptional accounts take écritures.
+/// False turns that auto-feed off entirely - every figure, on every account, is then posted by
+/// hand as an écriture, for a company that wants to keep its own books instead.
+/// </summary>
+public class ComptabiliteParametres
+{
+    public string GroupId { get; set; } = string.Empty;
+    public bool CalculAutomatique { get; set; } = true;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
 
 /// <summary>

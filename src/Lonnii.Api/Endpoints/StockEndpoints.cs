@@ -144,6 +144,8 @@ public static class StockEndpoints
             return Results.BadRequest(new ApiError("Le prix ne peut pas être négatif"));
         if (request.Quantity < 0)
             return Results.BadRequest(new ApiError("La quantité ne peut pas être négative"));
+        if (VenteMixteError(request) is { } venteMixteError)
+            return Results.BadRequest(new ApiError(venteMixteError));
 
         if (await IsDuplicateAsync(db, scope.GroupId, request.Name, request.Sku, request.Barcode, excludeId: null, ct) is { } conflict)
             return Results.Conflict(new ApiError(conflict));
@@ -161,6 +163,7 @@ public static class StockEndpoints
             MinimumThreshold = request.MinimumThreshold,
             CostPrice = request.CostPrice,
             Price = request.Price,
+            MarginPercentage = request.MarginPercentage,
             PrixFixe = request.PrixFixe,
             VenteLibre = request.VenteLibre,
             StockIllimite = request.StockIllimite,
@@ -168,6 +171,10 @@ public static class StockEndpoints
             TypeProduit = NormaliseType(request.TypeProduit),
             StorageLocation = request.StorageLocation,
             ExpiryDate = request.ExpiryDate,
+            VenteMixte = request.VenteMixte,
+            UniteVente = request.VenteMixte ? Blank(request.UniteVente) : null,
+            FacteurConversion = request.VenteMixte ? request.FacteurConversion : null,
+            PrixVenteDetail = request.VenteMixte ? request.PrixVenteDetail : null,
             CreatedBy = scope.UserId,
             UpdatedBy = scope.UserId,
         };
@@ -218,6 +225,8 @@ public static class StockEndpoints
             return Results.BadRequest(new ApiError("Le nom du produit est requis"));
         if (request.Price < 0)
             return Results.BadRequest(new ApiError("Le prix ne peut pas être négatif"));
+        if (VenteMixteError(request) is { } venteMixteError)
+            return Results.BadRequest(new ApiError(venteMixteError));
 
         if (await IsDuplicateAsync(db, scope.GroupId, request.Name, request.Sku, request.Barcode, id, ct) is { } conflict)
             return Results.Conflict(new ApiError(conflict));
@@ -231,6 +240,7 @@ public static class StockEndpoints
         product.MinimumThreshold = request.MinimumThreshold;
         product.CostPrice = request.CostPrice;
         product.Price = request.Price;
+        product.MarginPercentage = request.MarginPercentage;
         product.PrixFixe = request.PrixFixe;
         product.VenteLibre = request.VenteLibre;
         product.StockIllimite = request.StockIllimite;
@@ -238,6 +248,10 @@ public static class StockEndpoints
         product.TypeProduit = NormaliseType(request.TypeProduit);
         product.StorageLocation = request.StorageLocation;
         product.ExpiryDate = request.ExpiryDate;
+        product.VenteMixte = request.VenteMixte;
+        product.UniteVente = request.VenteMixte ? Blank(request.UniteVente) : null;
+        product.FacteurConversion = request.VenteMixte ? request.FacteurConversion : null;
+        product.PrixVenteDetail = request.VenteMixte ? request.PrixVenteDetail : null;
         product.UpdatedBy = scope.UserId;
         product.UpdatedAt = DateTime.UtcNow;
 
@@ -780,10 +794,26 @@ public static class StockEndpoints
         p.Quantity, p.MinimumThreshold, p.CostPrice, p.Price, p.PrixFixe,
         p.VenteLibre, p.StockIllimite, p.UniteAffichage,
         p.IsActive, p.StorageLocation, p.ExpiryDate, p.ImageUrl, p.UpdatedAt,
-        NormaliseType(p.TypeProduit));
+        NormaliseType(p.TypeProduit), p.MarginPercentage,
+        p.VenteMixte, p.UniteVente, p.FacteurConversion, p.PrixVenteDetail);
 
     /// <summary>An unknown or missing type is stored and reported as produit fini - the only
     /// value that keeps a product sellable, which is what it was before the column existed.</summary>
     private static string NormaliseType(string? type) =>
         type is not null && ProductTypes.All.Contains(type) ? type : ProductTypes.Marchandise;
+
+    /// <summary>A Vente Mixte product needs the bulk unit's name, a conversion factor of at
+    /// least 2 (otherwise it is just the base unit again), and its own price - mirrors the
+    /// fields the source app marks <c>required</c> once vente_mixte is checked.</summary>
+    private static string? VenteMixteError(SaveProductRequest request)
+    {
+        if (!request.VenteMixte) return null;
+        if (string.IsNullOrWhiteSpace(request.UniteVente))
+            return "L'unité de vente en gros est requise pour la vente mixte";
+        if (request.FacteurConversion is not { } factor || factor < 2)
+            return "Le facteur de conversion doit être d'au moins 2 pour la vente mixte";
+        if (request.PrixVenteDetail is not { } detail || detail < 0)
+            return "Le prix de vente au détail doit être précisé pour la vente mixte";
+        return null;
+    }
 }

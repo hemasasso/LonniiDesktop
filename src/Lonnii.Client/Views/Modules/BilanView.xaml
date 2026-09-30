@@ -22,6 +22,8 @@
                     </StackPanel>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="PrintButton" Content="🖨 Imprimer" Margin="0,0,8,0"
+                            Style="{StaticResource SecondaryButton}" Click="Print_Click" />
                     <Button x:Name="ExportButton" Content="⬇ Exporter" Margin="0,0,8,0"
                             Style="{StaticResource SecondaryButton}" Click="Export_Click" />
                     <Button x:Name="AddCompteButton" Content="＋ Compte" Margin="0,0,8,0"

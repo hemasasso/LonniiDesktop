@@ -174,7 +174,9 @@ public sealed class ReceiptDocument
         var grid = TicketColumns(showPrice);
         grid.Margin = new Thickness(0, 0, 0, 6);
 
-        var name = Text(line.Name, body);
+        // The "Qte" column is too narrow for a unit label (e.g. "Carton") - it goes after the
+        // name instead, same as the till would say it: "Soda (Carton)".
+        var name = Text(line.Unite is null ? line.Name : $"{line.Name} ({line.Unite})", body);
         name.TextWrapping = TextWrapping.NoWrap;
         name.TextTrimming = TextTrimming.CharacterEllipsis;
         Place(grid, 0, name);
@@ -319,8 +321,9 @@ public sealed class ReceiptDocument
             var amounts = new Grid();
             amounts.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             amounts.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var qty = line.Unite is null ? line.Quantity.ToString() : $"{line.Quantity} {line.Unite}";
             Place(amounts, 0, Text(
-                showPrice ? $"{line.Quantity} x {Money.FormatPlain(line.UnitPrice)}" : $"x {line.Quantity}",
+                showPrice ? $"{qty} x {Money.FormatPlain(line.UnitPrice)}" : $"x {qty}",
                 small, brush: Muted));
             Place(amounts, 1, Text(Money.FormatPlain(line.Total), body, FontWeights.Bold, align: TextAlignment.Right));
             item.Children.Add(amounts);
@@ -517,7 +520,8 @@ public sealed class ReceiptDocument
 
             var c = 0;
             Place(table, c++, name, r + 1);
-            Place(table, c++, Text(line.Quantity.ToString(), tableSize, align: TextAlignment.Center, margin: cell), r + 1);
+            var qtyText = line.Unite is null ? line.Quantity.ToString() : $"{line.Quantity} {line.Unite}";
+            Place(table, c++, Text(qtyText, tableSize, align: TextAlignment.Center, margin: cell), r + 1);
             if (showPrice)
                 Place(table, c++, Text(Money.FormatPlain(line.UnitPrice), tableSize, align: TextAlignment.Right, margin: cell), r + 1);
             Place(table, c, Text(Money.FormatPlain(line.Total), tableSize, align: TextAlignment.Right, margin: cell), r + 1);

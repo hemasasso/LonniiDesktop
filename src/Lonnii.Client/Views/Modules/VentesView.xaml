@@ -388,8 +388,9 @@
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                             <TextBlock Text="Par page" Style="{StaticResource PageSubtitle}" VerticalAlignment="Center" Margin="0,0,8,0" />
                             <ComboBox x:Name="CatalogPageSizeCombo" Width="70" SelectionChanged="CatalogPageSize_Changed">
+                                <ComboBoxItem Content="8" IsSelected="True" />
                                 <ComboBoxItem Content="12" />
-                                <ComboBoxItem Content="24" IsSelected="True" />
+                                <ComboBoxItem Content="24" />
                                 <ComboBoxItem Content="48" />
                                 <ComboBoxItem Content="96" />
                             </ComboBox>
@@ -411,9 +412,16 @@
                 </Border>
 
                 <Grid>
+                    <!-- ListBox's own default template already carries an internal ScrollViewer;
+                         left enabled, it fights this explicit outer one for vertical scroll and
+                         the visible viewport ends up cropping the last row mid-card with no way
+                         to scroll the rest into view. Disabling it here hands all vertical
+                         scrolling to ProductScroll, so a row is either fully shown or fully
+                         scrolled past, never sliced in half. -->
                     <ScrollViewer x:Name="ProductScroll" VerticalScrollBarVisibility="Auto">
                         <ListBox x:Name="ProductGrid" Background="Transparent" BorderThickness="0"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 ScrollViewer.VerticalScrollBarVisibility="Disabled"
                                  SelectionChanged="ProductGrid_SelectionChanged">
                             <ListBox.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -422,7 +430,7 @@
                             </ListBox.ItemsPanel>
                             <ListBox.ItemContainerStyle>
                                 <Style TargetType="ListBoxItem">
-                                    <Setter Property="Margin" Value="6" />
+                                    <Setter Property="Margin" Value="12,6,12,18" />
                                     <Setter Property="Padding" Value="0" />
                                     <Setter Property="Cursor" Value="Hand" />
                                     <Setter Property="Template">
@@ -474,27 +482,29 @@
                                         <StackPanel Margin="2,8,2,0">
                                             <TextBlock Text="{Binding Product.Name}" FontWeight="SemiBold"
                                                        TextTrimming="CharacterEllipsis" ToolTip="{Binding Product.Name}" />
-                                            <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
-                                                <TextBlock>
-                                                    <TextBlock.Style>
-                                                        <Style TargetType="TextBlock">
-                                                            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
-                                                            <Setter Property="Text" Value="{Binding Product.Price, Converter={StaticResource Currency}}" />
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding Product.PrixFixe}" Value="False">
-                                                                    <Setter Property="Text" Value="À Définir" />
-                                                                    <Setter Property="Foreground" Value="{DynamicResource Warning}" />
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </TextBlock.Style>
-                                                </TextBlock>
-                                                <TextBlock FontSize="11" Foreground="{DynamicResource TextMuted}"
-                                                           Margin="6,0,0,0" VerticalAlignment="Center">
-                                                    <Run Text="Qté : " />
-                                                    <Run Text="{Binding Product.QuantityDisplay, Mode=OneWay}" />
-                                                </TextBlock>
-                                            </StackPanel>
+                                            <TextBlock Margin="0,2,0,0" Text="{Binding PriceDisplay}">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Product.PrixFixe}" Value="False">
+                                                                <Setter Property="Foreground" Value="{DynamicResource Warning}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <!-- On its own line, not next to the price: a Vente
+                                                 Mixte product's display can read "17 paquet & 5
+                                                 unité", which overflowed past the 150px tile when
+                                                 it shared a horizontal row with the price. Trimmed
+                                                 with the full text kept in the tooltip. -->
+                                            <TextBlock FontSize="11" Foreground="{DynamicResource TextMuted}"
+                                                       Margin="0,2,0,0" TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding Product.QuantityDisplay, Mode=OneWay}">
+                                                <Run Text="Qté : " />
+                                                <Run Text="{Binding Product.QuantityDisplay, Mode=OneWay}" />
+                                            </TextBlock>
                                         </StackPanel>
                                     </StackPanel>
                                 </DataTemplate>

@@ -2,7 +2,7 @@ using Lonnii.Shared.Contracts;
 
 namespace Lonnii.Client.Printing;
 
-public sealed record ReceiptLine(string Name, int Quantity, decimal UnitPrice, decimal Total)
+public sealed record ReceiptLine(string Name, int Quantity, decimal UnitPrice, decimal Total, string? Unite = null)
 {
     public decimal Discount => Math.Max(0, UnitPrice * Quantity - Total);
 }
@@ -31,10 +31,17 @@ public sealed record ReceiptData(
     bool IsAvoirSolded,
     IReadOnlyList<ReceiptPayment> Paiements,
     decimal? TvaRate = null,
-    decimal? TvaAmount = null)
+    decimal? TvaAmount = null,
+    bool ForceFacture = false)
 {
-    /// <summary>An unpaid sale prints as a facture to settle at the till; anything else as a reçu.</summary>
-    public bool IsFacture => StatutPaiement == "en_attente";
+    /// <summary>An unpaid sale prints as a facture to settle at the till; anything else as a
+    /// reçu - unless the till asked for a facture anyway, which ForceFacture always honours
+    /// regardless of payment status. That is what a partially-paid ("partiel") sale's own
+    /// "Imprimer facture" action relies on: without it, IsFacture would be false (StatutPaiement
+    /// is "partiel", not "en_attente") and the document would silently become a reçu instead -
+    /// forcing it keeps that facture the ORIGINAL invoice, the full amount with no payment
+    /// lines, alongside the sale's own separate reçu for what has actually been paid.</summary>
+    public bool IsFacture => StatutPaiement == "en_attente" || ForceFacture;
 
     /// <summary>The pre-discount sum, so the discounts can be shown as their own line.</summary>
     public decimal RawSubtotal => Lines.Sum(l => l.UnitPrice * l.Quantity);
@@ -52,7 +59,7 @@ public sealed record ReceiptData(
         }
     }
 
-    public static ReceiptData FromVente(VenteDto vente)
+    public static ReceiptData FromVente(VenteDto vente, bool forceFacture = false)
     {
         // The last payment's recorder is who actually took the money. Only named when it is
         // someone other than the seller, or every ordinary sale would print the same name twice.
@@ -66,7 +73,7 @@ public sealed record ReceiptData(
             vente.ClientEmail,
             vente.VendeurNom,
             !string.IsNullOrWhiteSpace(caissier) && caissier != vente.VendeurNom ? caissier : null,
-            vente.Items.Select(i => new ReceiptLine(i.NomProduit, i.Quantite, i.PrixUnitaire, i.PrixTotal)).ToList(),
+            vente.Items.Select(i => new ReceiptLine(i.NomProduit, i.Quantite, i.PrixUnitaire, i.PrixTotal, i.Unite)).ToList(),
             vente.MontantTotal,
             vente.MontantPaye,
             vente.MontantRestant,
@@ -78,7 +85,8 @@ public sealed record ReceiptData(
                 .Select(p => new ReceiptPayment(p.Montant, p.ModePaiement, p.DatePaiement.ToLocalTime(), p.CreatedByName))
                 .ToList(),
             vente.TvaRate,
-            vente.TvaAmount);
+            vente.TvaAmount,
+            forceFacture);
     }
 
     /// <summary>

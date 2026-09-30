@@ -78,7 +78,7 @@ public partial class VentesView : UserControl
         ("Restant", new GridLength(95)),
         ("Avoir", new GridLength(85)),
         ("Statut", new GridLength(80)),
-        ("Actions", new GridLength(165)),
+        ("Actions", new GridLength(195)),
     ];
 
     private readonly bool _canViewVenteDetails;
@@ -87,6 +87,7 @@ public partial class VentesView : UserControl
     private readonly bool _canEditVente;
     private readonly bool _canCancelVente;
     private readonly bool _canExportVentes;
+    private readonly bool _canManageClients;
 
     /// <summary>Which of the three module tabs this user may open at all - a preparer with
     /// only can_create_vente should never see "Liste des Ventes" or "Statistiques" buttons
@@ -122,7 +123,7 @@ public partial class VentesView : UserControl
     /// <summary>Nouvelle Vente's catalogue pager - 1-based. Reset to the first page by every
     /// <see cref="LoadAsync"/>, since each of its callers is a new search or category.</summary>
     private int _catalogPage = 1;
-    private int _catalogPageSize = 24;
+    private int _catalogPageSize = 8;
 
     /// <summary>Thumbnails already downloaded, keyed by image URL, shared by the catalogue
     /// cards and the cart rows so a product added to the cart never re-downloads its photo.</summary>
@@ -141,8 +142,17 @@ public partial class VentesView : UserControl
 
     private sealed record CartLine(
         ProductDto Product, int Quantity, decimal UnitPrice,
-        decimal Discount = 0, string DiscountType = DiscountTypes.Amount)
+        decimal Discount = 0, string DiscountType = DiscountTypes.Amount, bool VenteEnGros = false)
     {
+        /// <summary>Identifies this line for lookups/updates - not just the product id, since
+        /// a Vente Mixte product can have two lines at once (one per unit). Stable across
+        /// <c>with</c> copies because it is not one of the primary constructor's parameters.</summary>
+        public string LineId { get; init; } = Guid.NewGuid().ToString();
+
+        /// <summary>How many base/stock units one line unit is worth - the conversion factor
+        /// when sold by the bulk unit, otherwise 1. Only meaningful for a Vente Mixte product.</summary>
+        public int StockFactor => VenteEnGros ? Math.Max(Product.FacteurConversion ?? 1, 1) : 1;
+
         public decimal LineTotal
         {
             get
@@ -160,6 +170,16 @@ public partial class VentesView : UserControl
     private sealed record CatalogRow(ProductDto Product, BitmapImage? Thumbnail)
     {
         public bool HasNoThumbnail => Thumbnail is null;
+
+        /// <summary>Product.Price doubles as an optional négociable minimum: shown as a "from"
+        /// price when the product has one set, "À Définir" only when it truly has none - so the
+        /// catalogue does not hide a floor the shop actually wants the cashier to see.</summary>
+        public string PriceDisplay => Product switch
+        {
+            { PrixFixe: true } => Money.Format(Product.Price),
+            { Price: > 0 } => $"Min: {Money.Format(Product.Price)}",
+            _ => "À Définir",
+        };
     }
 
     /// <summary>An entry in a cart line's discount-type dropdown; <see cref="Label"/> is what
@@ -180,6 +200,7 @@ public partial class VentesView : UserControl
         _canEditVente = _session.Can(Priv.Gestion.EditVente);
         _canCancelVente = _session.Can(Priv.Gestion.CancelVente);
         _canExportVentes = _session.Can(Priv.Gestion.ExportVentes);
+        _canManageClients = _session.Can(Priv.Gestion.ManageClients);
         _canCreateVenteTab = _session.Can(Priv.Gestion.CreateVente);
         _canViewVentesListTab = _session.Can(Priv.Gestion.ViewVentes);
         _canViewStatistiquesTab = _session.Can(Priv.Gestion.ViewVentesAnalytics);
@@ -192,6 +213,7 @@ public partial class VentesView : UserControl
         SubtitleText.Text = _session.Groupe?.Nom;
         RemiseCurrencyText.Text = _session.Groupe?.CurrencyLabel ?? Money.Label;
         ExportVentesButton.Visibility = _canExportVentes ? Visibility.Visible : Visibility.Collapsed;
+        ClientsButton.Visibility = _canManageClients ? Visibility.Visible : Visibility.Collapsed;
         RemiseGlobalePanel.Visibility = _canApplyDiscount ? Visibility.Visible : Visibility.Collapsed;
 
         OpenCaisseButton.Visibility = _canAddPayment ? Visibility.Visible : Visibility.Collapsed;
@@ -644,6 +666,15 @@ public partial class VentesView : UserControl
 
     private void AddToCart(ProductDto product)
     {
+        // A Vente Mixte product is sold by two different units at once - asking for both
+        // quantities up front (rather than adding 1 of whichever unit was last picked) is the
+        // only way a "1 carton + 3 unités" sale is even representable as one add.
+        if (product.VenteMixte)
+        {
+            AddMixteToCart(product);
+            return;
+        }
+
         var tracked = !(product.VenteLibre || product.StockIllimite);
         var index = _cart.FindIndex(c => c.Product.Id == product.Id);
 
@@ -667,16 +698,53 @@ public partial class VentesView : UserControl
             return;
         }
 
-        // A fixed-price product takes its catalogue price; anything else is priced right in
-        // the cart row, so it starts at zero rather than opening a popup to ask.
-        _cart.Add(new CartLine(product, 1, product.PrixFixe ? product.Price : 0));
+        // A fixed-price product takes its catalogue price outright. A négociable one is priced
+        // right in the cart row instead - Product.Price there doubles as an optional minimum,
+        // so it pre-fills the row when set (0 when the product has none, i.e. free negotiation).
+        _cart.Add(new CartLine(product, 1, product.Price));
         HideMessage();
         RenderCart();
     }
 
-    private void ChangeQuantity(string productId, int delta)
+    /// <summary>Asks how many of the bulk unit and how many of the base unit to add, then adds
+    /// or tops up a line per unit actually asked for (skipping whichever was left at zero).</summary>
+    private void AddMixteToCart(ProductDto product)
     {
-        var index = _cart.FindIndex(c => c.Product.Id == productId);
+        var dialog = new MixteQuantityDialog(product) { Owner = Window.GetWindow(this) };
+        if (dialog.ShowDialog() != true) return;
+
+        if (dialog.QuantiteGros > 0) AddMixteLine(product, dialog.QuantiteGros, venteEnGros: true);
+        if (dialog.QuantiteDetail > 0) AddMixteLine(product, dialog.QuantiteDetail, venteEnGros: false);
+
+        HideMessage();
+        RenderCart();
+    }
+
+    private void AddMixteLine(ProductDto product, int addQuantity, bool venteEnGros)
+    {
+        var factor = venteEnGros ? Math.Max(product.FacteurConversion ?? 1, 1) : 1;
+        var index = _cart.FindIndex(c => c.Product.Id == product.Id && c.VenteEnGros == venteEnGros);
+        var newQuantity = (index >= 0 ? _cart[index].Quantity : 0) + addQuantity;
+
+        if (newQuantity * factor > product.Quantity)
+        {
+            ShowMessage($"Stock insuffisant pour « {product.Name} » : {product.QuantityDisplay} disponible.");
+            return;
+        }
+
+        if (index >= 0)
+        {
+            _cart[index] = _cart[index] with { Quantity = newQuantity };
+            return;
+        }
+
+        var defaultPrice = venteEnGros ? product.Price : product.PrixVenteDetail ?? product.Price;
+        _cart.Add(new CartLine(product, newQuantity, product.PrixFixe ? defaultPrice : 0, VenteEnGros: venteEnGros));
+    }
+
+    private void ChangeQuantity(string lineId, int delta)
+    {
+        var index = _cart.FindIndex(c => c.LineId == lineId);
         if (index < 0) return;
 
         var line = _cart[index];
@@ -690,7 +758,7 @@ public partial class VentesView : UserControl
         }
 
         var tracked = !(line.Product.VenteLibre || line.Product.StockIllimite);
-        if (tracked && newQuantity > line.Product.Quantity)
+        if (tracked && newQuantity * line.StockFactor > line.Product.Quantity)
         {
             ShowMessage($"Stock insuffisant pour « {line.Product.Name} ».");
             return;
@@ -700,9 +768,9 @@ public partial class VentesView : UserControl
         RenderCart();
     }
 
-    private void RemoveFromCart(string productId)
+    private void RemoveFromCart(string lineId)
     {
-        _cart.RemoveAll(c => c.Product.Id == productId);
+        _cart.RemoveAll(c => c.LineId == lineId);
         RenderCart();
     }
 
@@ -787,7 +855,9 @@ public partial class VentesView : UserControl
         public string Nom => Client.Nom;
         public string Detail => string.Join("  •  ", new[]
         {
-            Client.Telephone,
+            // Phone if there is one - otherwise the email, since that is what tells two
+            // clients sharing this name apart.
+            Client.Telephone ?? Client.Email,
             Client.NombreAchats > 0 ? $"{Client.NombreAchats} achat(s)" : null,
             Client.ResteDu > 0 ? $"doit {Money.Format(Client.ResteDu)}" : null,
         }.Where(s => !string.IsNullOrWhiteSpace(s)));
@@ -814,9 +884,12 @@ public partial class VentesView : UserControl
             return;
         }
 
+        // An exact match is hidden once picked - unless the name is shared by more than one
+        // client, in which case the list must stay open so phone/email can tell them apart.
+        var sameName = _clients.Count(c => string.Equals(c.Nom, text, StringComparison.CurrentCultureIgnoreCase));
         var matches = _clients
             .Where(c => c.IsActive && c.Nom.Contains(text, StringComparison.CurrentCultureIgnoreCase))
-            .Where(c => !string.Equals(c.Nom, text, StringComparison.CurrentCultureIgnoreCase))
+            .Where(c => sameName > 1 || !string.Equals(c.Nom, text, StringComparison.CurrentCultureIgnoreCase))
             .Take(8)
             .Select(c => new ClientSuggestion(c))
             .ToList();
@@ -875,8 +948,10 @@ public partial class VentesView : UserControl
         UpdateClientDue();
     }
 
-    /// <summary>The client the typed phone or name designates, matched the way the server
-    /// attributes sales - phone first, then the exact name ignoring case and spacing.</summary>
+    /// <summary>The client the typed phone, email or name designates, matched the way the
+    /// server attributes sales - phone first, then email, then the name, but only when the
+    /// name alone is not shared by several clients (two people can have the same name; only
+    /// their phone or email says which one this sale is for).</summary>
     private ClientDto? CurrentClient()
     {
         var phone = new string(ClientTelephoneBox.Text.Where(char.IsDigit).ToArray());
@@ -884,9 +959,16 @@ public partial class VentesView : UserControl
             && _clients.FirstOrDefault(c => c.Telephone is { } t && new string(t.Where(char.IsDigit).ToArray()) == phone) is { } byPhone)
             return byPhone;
 
+        var email = ClientEmailBox.Text.Trim();
+        if (email.Length > 0
+            && _clients.FirstOrDefault(c => string.Equals(c.Email, email, StringComparison.CurrentCultureIgnoreCase)) is { } byEmail)
+            return byEmail;
+
         var name = string.Join(' ', ClientNomBox.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries));
-        return name.Length == 0 ? null
-            : _clients.FirstOrDefault(c => string.Equals(c.Nom, name, StringComparison.CurrentCultureIgnoreCase));
+        if (name.Length == 0) return null;
+
+        var byName = _clients.Where(c => string.Equals(c.Nom, name, StringComparison.CurrentCultureIgnoreCase)).ToList();
+        return byName.Count == 1 ? byName[0] : null;
     }
 
     private void UpdateClientDue()
@@ -954,7 +1036,7 @@ public partial class VentesView : UserControl
     {
         var state = UiState.For(_session);
         state.Cart = _cart
-            .Select(c => new SavedCartLine(c.Product.Id, c.Quantity, c.UnitPrice, c.Discount, c.DiscountType))
+            .Select(c => new SavedCartLine(c.Product.Id, c.Quantity, c.UnitPrice, c.Discount, c.DiscountType, c.VenteEnGros))
             .ToList();
         state.RemiseGlobale = RemiseGlobaleBox.Text;
         UiState.Save();
@@ -971,12 +1053,19 @@ public partial class VentesView : UserControl
             var product = _products.FirstOrDefault(p => p.Id == saved.ProductId);
             if (product is null) continue;
 
+            var enGros = saved.VenteEnGros && product.VenteMixte;
+            var factor = enGros ? Math.Max(product.FacteurConversion ?? 1, 1) : 1;
+
             var tracked = !(product.VenteLibre || product.StockIllimite);
-            var quantity = tracked ? Math.Min(saved.Quantity, product.Quantity) : saved.Quantity;
+            var quantity = tracked ? Math.Min(saved.Quantity, product.Quantity / factor) : saved.Quantity;
             if (quantity <= 0) continue;
 
-            var price = product.PrixFixe ? product.Price : saved.UnitPrice;
-            _cart.Add(new CartLine(product, quantity, price, saved.Discount, saved.DiscountType));
+            var defaultPrice = enGros ? product.Price : product.VenteMixte ? product.PrixVenteDetail ?? product.Price : product.Price;
+            // Clamped up to Product.Price (the négociable minimum, 0 when none is set): the
+            // saved cart could predate the product gaining a minimum, or predate it being
+            // raised, and a restored line should never reopen below what is now the floor.
+            var price = product.PrixFixe ? defaultPrice : Math.Max(saved.UnitPrice, product.Price);
+            _cart.Add(new CartLine(product, quantity, price, saved.Discount, saved.DiscountType, enGros));
         }
 
         // Not restored without the privilege: the box would stay hidden while still quietly
@@ -1019,7 +1108,7 @@ public partial class VentesView : UserControl
 
         void RefreshLineTotal()
         {
-            var index = _cart.FindIndex(c => c.Product.Id == line.Product.Id);
+            var index = _cart.FindIndex(c => c.LineId == line.LineId);
             if (index < 0) return;
             lineTotalText.Text = Money.Format(_cart[index].LineTotal);
             UpdateTotals();
@@ -1036,17 +1125,18 @@ public partial class VentesView : UserControl
         }
         else
         {
+            var minimum = line.Product.Price;
             var priceBox = new TextBox
             {
                 Text = line.UnitPrice > 0 ? Money.FormatPlain(line.UnitPrice) : string.Empty,
                 Width = 46, FontSize = 11, Padding = new Thickness(4, 2, 4, 2),
                 HorizontalAlignment = HorizontalAlignment.Left,
-                ToolTip = "Prix pour cette vente",
+                ToolTip = minimum > 0 ? $"Prix pour cette vente - minimum {Money.Format(minimum)}" : "Prix pour cette vente",
             };
             priceBox.TextChanged += (_, _) =>
             {
                 Money.TryParse(priceBox.Text, out decimal price);
-                var index = _cart.FindIndex(c => c.Product.Id == line.Product.Id);
+                var index = _cart.FindIndex(c => c.LineId == line.LineId);
                 if (index < 0) return;
 
                 _cart[index] = _cart[index] with { UnitPrice = price };
@@ -1054,18 +1144,40 @@ public partial class VentesView : UserControl
             };
             // Grouped ("1 000") only once typing is done - reformatting every keystroke
             // would fight the caret position and the space the user is trying to type past.
+            // Also where the négociable minimum (Product.Price, when the product has one) is
+            // enforced - mid-typing would fight every digit as the cashier builds up a number.
             priceBox.LostFocus += (_, _) =>
             {
-                if (Money.TryParse(priceBox.Text, out decimal price) && price > 0)
-                    priceBox.Text = Money.FormatPlain(price);
+                if (!Money.TryParse(priceBox.Text, out decimal price) || price <= 0) return;
+
+                if (minimum > 0 && price < minimum)
+                {
+                    price = minimum;
+                    ShowMessage($"Le prix minimum pour « {line.Product.Name} » est {Money.Format(minimum)}.");
+                    var index = _cart.FindIndex(c => c.LineId == line.LineId);
+                    if (index >= 0)
+                    {
+                        _cart[index] = _cart[index] with { UnitPrice = price };
+                        RefreshLineTotal();
+                    }
+                }
+
+                priceBox.Text = Money.FormatPlain(price);
             };
             priceElement = priceBox;
         }
 
+        // Vente Mixte: this product may have a second line in the cart for its other unit -
+        // the unit each one represents is fixed at MixteQuantityDialog time, so it is named
+        // right on the row rather than switched here.
+        var unitSuffix = line.Product.VenteMixte
+            ? $" — {(line.VenteEnGros ? line.Product.UniteVente : line.Product.UniteAffichage) ?? "unité"}"
+            : string.Empty;
+
         var details = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 8, 0) };
         details.Children.Add(new TextBlock
         {
-            Text = line.Product.Name, FontWeight = FontWeights.SemiBold, FontSize = 12,
+            Text = line.Product.Name + unitSuffix, FontWeight = FontWeights.SemiBold, FontSize = 12,
             TextTrimming = TextTrimming.CharacterEllipsis,
         });
         details.Children.Add(priceElement);
@@ -1081,7 +1193,7 @@ public partial class VentesView : UserControl
             Padding = new Thickness(0), FontSize = 11,
             Style = (Style)FindResource("SecondaryButton"),
         };
-        minus.Click += (_, _) => ChangeQuantity(line.Product.Id, -1);
+        minus.Click += (_, _) => ChangeQuantity(line.LineId, -1);
 
         var plus = new Button
         {
@@ -1089,7 +1201,7 @@ public partial class VentesView : UserControl
             Padding = new Thickness(0), FontSize = 11,
             Style = (Style)FindResource("SecondaryButton"),
         };
-        plus.Click += (_, _) => ChangeQuantity(line.Product.Id, +1);
+        plus.Click += (_, _) => ChangeQuantity(line.LineId, +1);
 
         // Typed directly rather than only stepped, since a product sold 100 at a time
         // should not need 100 clicks. TextChanged updates the total live without rebuilding
@@ -1102,27 +1214,28 @@ public partial class VentesView : UserControl
         };
         qtyBox.TextChanged += (_, _) =>
         {
-            var index = _cart.FindIndex(c => c.Product.Id == line.Product.Id);
+            var index = _cart.FindIndex(c => c.LineId == line.LineId);
             if (index < 0 || !int.TryParse(qtyBox.Text, out var typed) || typed <= 0) return;
 
             var tracked = !(line.Product.VenteLibre || line.Product.StockIllimite);
-            var quantity = tracked ? Math.Min(typed, line.Product.Quantity) : typed;
+            var quantity = tracked ? Math.Min(typed, line.Product.Quantity / line.StockFactor) : typed;
 
             _cart[index] = _cart[index] with { Quantity = quantity };
             RefreshLineTotal();
         };
         qtyBox.LostFocus += (_, _) =>
         {
-            var index = _cart.FindIndex(c => c.Product.Id == line.Product.Id);
+            var index = _cart.FindIndex(c => c.LineId == line.LineId);
             if (index < 0) return;
 
             if (!int.TryParse(qtyBox.Text, out var typed) || typed <= 0) typed = 1;
 
             var tracked = !(line.Product.VenteLibre || line.Product.StockIllimite);
-            if (tracked && typed > line.Product.Quantity)
+            var maxQuantity = line.Product.Quantity / line.StockFactor;
+            if (tracked && typed > maxQuantity)
             {
                 ShowMessage($"Stock insuffisant pour « {line.Product.Name} ».");
-                typed = line.Product.Quantity;
+                typed = maxQuantity;
             }
 
             _cart[index] = _cart[index] with { Quantity = typed };
@@ -1172,7 +1285,7 @@ public partial class VentesView : UserControl
             };
             discountType.SelectionChanged += (_, _) =>
             {
-                var index = _cart.FindIndex(c => c.Product.Id == line.Product.Id);
+                var index = _cart.FindIndex(c => c.LineId == line.LineId);
                 if (index < 0 || discountType.SelectedItem is not DiscountOption option) return;
 
                 _cart[index] = _cart[index] with { DiscountType = option.Value };
@@ -1181,7 +1294,7 @@ public partial class VentesView : UserControl
             discountBox.TextChanged += (_, _) =>
             {
                 Money.TryParse(discountBox.Text, out decimal discount);
-                var index = _cart.FindIndex(c => c.Product.Id == line.Product.Id);
+                var index = _cart.FindIndex(c => c.LineId == line.LineId);
                 if (index < 0) return;
 
                 var isPercentage = (discountType.SelectedItem as DiscountOption)?.Value == DiscountTypes.Percentage;
@@ -1212,7 +1325,7 @@ public partial class VentesView : UserControl
             Content = "✕", Width = 20, Height = 20, FontSize = 10,
         };
         SetBrush(remove, Control.ForegroundProperty, "TextMuted");
-        remove.Click += (_, _) => RemoveFromCart(line.Product.Id);
+        remove.Click += (_, _) => RemoveFromCart(line.LineId);
         Grid.SetColumn(remove, 5);
         row.Children.Add(remove);
 
@@ -1299,6 +1412,16 @@ public partial class VentesView : UserControl
             return;
         }
 
+        // Product.Price doubles as the négociable minimum when set (0 means none) - belt and
+        // braces alongside the cart row's own LostFocus clamp, in case a line reached here some
+        // other way (a restored cart predating the minimum, for instance).
+        var belowMinimum = _cart.FirstOrDefault(c => !c.Product.PrixFixe && c.Product.Price > 0 && c.UnitPrice < c.Product.Price);
+        if (belowMinimum is not null)
+        {
+            ShowMessage($"Le prix de « {belowMinimum.Product.Name} » est inférieur au minimum autorisé ({Money.Format(belowMinimum.Product.Price)}).");
+            return;
+        }
+
         // Same settings the server will apply, re-read so a vente rapide pays the exact TTC.
         await RefreshReceiptSettingsAsync();
 
@@ -1308,7 +1431,7 @@ public partial class VentesView : UserControl
         var (_, total) = WithTva(subtotal - remise);
 
         var items = _cart.Select(c =>
-            new CartItemRequest(c.Product.Id, c.Quantity, c.UnitPrice, c.Discount, c.DiscountType)).ToList();
+            new CartItemRequest(c.Product.Id, c.Quantity, c.UnitPrice, c.Discount, c.DiscountType, c.VenteEnGros)).ToList();
         var clientNom = string.IsNullOrWhiteSpace(ClientNomBox.Text) ? null : ClientNomBox.Text.Trim();
 
         // A facture is exactly a sale recorded with nothing paid: it is what leaves it an
@@ -1726,12 +1849,22 @@ public partial class VentesView : UserControl
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal };
 
-        if (_canPrintReceipt && vente.StatutPaiement == "paye")
-            actions.Children.Add(BuildActionButton("🖨", "Imprimer reçu", null,
+        // A "partiel" sale gets its own reçu (what has actually been paid so far, with
+        // the acompte/reste à payer breakdown) and its own facture: forcing the facture
+        // keeps it the ORIGINAL invoice - the full amount, no payment lines at all - rather
+        // than silently falling back to a reçu just because the sale is not technically
+        // "en_attente" any more (IsFacture on its own is only ever true for en_attente).
+        if (_canPrintReceipt && (vente.StatutPaiement == "paye" || vente.StatutPaiement == "partiel"))
+            actions.Children.Add(BuildActionButton("", "Imprimer reçu", null,
                 async () => await OpenReceiptAsync(vente.Id)));
         if (_canPrintReceipt && (vente.StatutPaiement == "en_attente" || vente.StatutPaiement == "partiel"))
-            actions.Children.Add(BuildActionButton("🖨", "Imprimer facture", "Warning",
-                async () => await OpenReceiptAsync(vente.Id)));
+            actions.Children.Add(BuildActionButton("", "Imprimer facture", "Accent",
+                async () => await OpenReceiptAsync(vente.Id, forceFacture: true)));
+        // Already paid does not mean the customer never wants a facture-formatted copy for
+        // their own records - offered alongside the reçu rather than instead of it.
+        if (_canPrintReceipt && vente.StatutPaiement == "paye")
+            actions.Children.Add(BuildActionButton("", "Dupliquer en facture", "Accent",
+                async () => await OpenReceiptAsync(vente.Id, forceFacture: true)));
         if (_canViewVenteDetails)
             actions.Children.Add(BuildActionButton("🔍", "Détails", null,
                 async () => await OpenDetailAsync(vente.Id)));
@@ -1805,6 +1938,13 @@ public partial class VentesView : UserControl
         if (glyph.Length == 1 && glyph[0] is >= '' and <= '')
             icon.FontFamily = SegoeMdl2;
 
+        // The colour has to go on the icon TextBlock itself, not the button: the app's
+        // global implicit <Style TargetType="TextBlock"> (Styles.xaml) sets its own
+        // Foreground, and a style setter always beats inherited Foreground in WPF - so a
+        // Button.Foreground set here would be silently ignored by every icon in this row
+        // (this is why colorKey had no visible effect, on this button or any other).
+        SetBrush(icon, TextBlock.ForegroundProperty, colorKey ?? "TextSecondary");
+
         // IconButton (see Styles.xaml) keeps the WPF default Button template out of this -
         // that template bakes in its own solid-colour hover/pressed states (a light system
         // highlight) that a plain Background=Transparent cannot override, which is why a
@@ -1816,19 +1956,18 @@ public partial class VentesView : UserControl
             Width = 26, Height = 26, Margin = new Thickness(2, 0, 2, 0),
             ToolTip = tooltip, Content = icon,
         };
-        SetBrush(button, Control.ForegroundProperty, colorKey ?? "TextSecondary");
         button.Click += async (_, _) => await onClick();
         return button;
     }
 
     /// <summary>Both print actions - the printable receipt/facture.</summary>
-    private async Task OpenReceiptAsync(string venteId)
+    private async Task OpenReceiptAsync(string venteId, bool forceFacture = false)
     {
         SetBusy(true);
         try
         {
             var vente = await _session.Api.GetVenteAsync(venteId);
-            await VenteReceiptDialog.ShowForAsync(vente, _session, Window.GetWindow(this));
+            await VenteReceiptDialog.ShowForAsync(vente, _session, Window.GetWindow(this), forceFacture);
         }
         catch (ApiException ex)
         {
@@ -1980,16 +2119,33 @@ public partial class VentesView : UserControl
         await LoadStatsAsync();
     }
 
+    /// <summary>True while the product combo is being rebuilt after a category change, so
+    /// that rebuild's own selection does not re-enter <see cref="StatsFilters_Changed"/>
+    /// before <see cref="_statsProductId"/> has been reset for the new category.</summary>
+    private bool _suppressStatsFilterEvents;
+
     private void BuildStatsFilterCombos()
     {
+        _suppressStatsFilterEvents = true;
+
         StatsCategoryCombo.Items.Clear();
         StatsCategoryCombo.Items.Add(new ComboBoxItem { Content = "Toutes catégories", Tag = null, IsSelected = true });
         foreach (var category in _categories.Where(c => c.IsActive))
             StatsCategoryCombo.Items.Add(new ComboBoxItem { Content = category.Name, Tag = category.Id });
 
+        PopulateStatsProductCombo(categoryId: null);
+
+        _suppressStatsFilterEvents = false;
+    }
+
+    /// <summary>Rebuilt whenever the category filter changes, so the product list only offers
+    /// products that actually belong to it - picking a category and then a product from a
+    /// different one could never match any sale.</summary>
+    private void PopulateStatsProductCombo(string? categoryId)
+    {
         StatsProductCombo.Items.Clear();
         StatsProductCombo.Items.Add(new ComboBoxItem { Content = "Tous les produits", Tag = null, IsSelected = true });
-        foreach (var product in _statsProducts.OrderBy(p => p.Name))
+        foreach (var product in _statsProducts.Where(p => categoryId is null || p.CategoryId == categoryId).OrderBy(p => p.Name))
             StatsProductCombo.Items.Add(new ComboBoxItem { Content = product.Name, Tag = product.Id });
     }
 
@@ -1997,9 +2153,22 @@ public partial class VentesView : UserControl
 
     private async void StatsFilters_Changed(object sender, SelectionChangedEventArgs e)
     {
-        if (!IsLoaded) return;
-        _statsCategoryId = (StatsCategoryCombo.SelectedItem as ComboBoxItem)?.Tag as string;
-        _statsProductId = (StatsProductCombo.SelectedItem as ComboBoxItem)?.Tag as string;
+        if (!IsLoaded || _suppressStatsFilterEvents) return;
+
+        if (sender == StatsCategoryCombo)
+        {
+            _statsCategoryId = (StatsCategoryCombo.SelectedItem as ComboBoxItem)?.Tag as string;
+
+            _suppressStatsFilterEvents = true;
+            PopulateStatsProductCombo(_statsCategoryId);
+            _suppressStatsFilterEvents = false;
+            _statsProductId = null;
+        }
+        else
+        {
+            _statsProductId = (StatsProductCombo.SelectedItem as ComboBoxItem)?.Tag as string;
+        }
+
         await LoadStatsAsync();
     }
 

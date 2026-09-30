@@ -37,6 +37,7 @@ public static class ClientsEndpoints
     {
         public string Nom = string.Empty;
         public string? Telephone;
+        public string? Email;
         public int Achats;
         public decimal Total;
         public decimal Reste;
@@ -53,33 +54,42 @@ public static class ClientsEndpoints
             .ToListAsync(ct);
 
         var ventes = await db.Ventes.AsNoTracking()
-            .Where(v => v.GroupId == groupId && (v.ClientNom != null || v.ClientTelephone != null))
-            .Select(v => new { v.Id, v.ClientNom, v.ClientTelephone, v.MontantTotal, v.StatutPaiement, v.DateVente })
+            .Where(v => v.GroupId == groupId && (v.ClientNom != null || v.ClientTelephone != null || v.ClientEmail != null))
+            .Select(v => new { v.Id, v.ClientNom, v.ClientTelephone, v.ClientEmail, v.MontantTotal, v.StatutPaiement, v.DateVente })
             .ToListAsync(ct);
 
         // Summed in C#, the way BilanEndpoints does it: under SQLite the amount goes through
         // the money converter, which an SQL SUM would not undo.
         var paiements = await db.Ventes.AsNoTracking()
-            .Where(v => v.GroupId == groupId && (v.ClientNom != null || v.ClientTelephone != null))
+            .Where(v => v.GroupId == groupId && (v.ClientNom != null || v.ClientTelephone != null || v.ClientEmail != null))
             .Join(db.PaiementsVentes, v => v.Id, p => p.VenteId, (v, p) => new { p.VenteId, p.Montant })
             .ToListAsync(ct);
         var paye = paiements.GroupBy(p => p.VenteId).ToDictionary(g => g.Key, g => g.Sum(p => p.Montant));
 
+        // Two saved clients may share a name - phone or email is what tells them apart, so a
+        // name match is only trusted here when it is not ambiguous.
         var byPhone = new Dictionary<string, Client>();
-        var byName = new Dictionary<string, Client>();
+        var byEmail = new Dictionary<string, Client>();
+        var byName = new Dictionary<string, List<Client>>();
         foreach (var client in saved)
         {
             if (PhoneKey(client.Telephone) is { } phone) byPhone.TryAdd(phone, client);
-            byName.TryAdd(NameKey(client.Nom), client);
+            if (EmailKey(client.Email) is { } email) byEmail.TryAdd(email, client);
+
+            var nameKey = NameKey(client.Nom);
+            if (!byName.TryGetValue(nameKey, out var group)) byName[nameKey] = group = [];
+            group.Add(client);
         }
 
-        var savedTotals = saved.ToDictionary(c => c.Id, c => new Totals { Nom = c.Nom, Telephone = c.Telephone });
+        var savedTotals = saved.ToDictionary(c => c.Id, c => new Totals { Nom = c.Nom, Telephone = c.Telephone, Email = c.Email });
         var unsaved = new Dictionary<string, Totals>();
 
         foreach (var v in ventes.Where(v => StatutPaiement.Normalise(v.StatutPaiement) != StatutPaiement.Annule))
         {
             var client = (PhoneKey(v.ClientTelephone) is { } phone ? byPhone.GetValueOrDefault(phone) : null)
-                         ?? (string.IsNullOrWhiteSpace(v.ClientNom) ? null : byName.GetValueOrDefault(NameKey(v.ClientNom)));
+                         ?? (EmailKey(v.ClientEmail) is { } email ? byEmail.GetValueOrDefault(email) : null)
+                         ?? (string.IsNullOrWhiteSpace(v.ClientNom) ? null
+                             : byName.GetValueOrDefault(NameKey(v.ClientNom)) is { Count: 1 } group ? group[0] : null);
 
             Totals totals;
             if (client is not null)
@@ -88,9 +98,13 @@ public static class ClientsEndpoints
             }
             else
             {
-                // A sale with a phone but no name is not enough to say who bought.
+                // A sale with only a phone or only an email, and no name, is not enough to say who bought.
                 if (string.IsNullOrWhiteSpace(v.ClientNom)) continue;
-                var key = NameKey(v.ClientNom);
+
+                // Same name, different phone/email = a different person - each gets their own bucket.
+                var key = PhoneKey(v.ClientTelephone) is { } p ? $"p:{p}"
+                    : EmailKey(v.ClientEmail) is { } e ? $"e:{e}"
+                    : $"n:{NameKey(v.ClientNom)}";
                 if (!unsaved.TryGetValue(key, out totals!))
                     unsaved[key] = totals = new Totals { Nom = v.ClientNom.Trim() };
             }
@@ -103,14 +117,18 @@ public static class ClientsEndpoints
             if (totals.Dernier is null || v.DateVente > totals.Dernier)
             {
                 totals.Dernier = v.DateVente;
-                if (!string.IsNullOrWhiteSpace(v.ClientTelephone) && client is null) totals.Telephone = v.ClientTelephone.Trim();
+                if (client is null)
+                {
+                    if (!string.IsNullOrWhiteSpace(v.ClientTelephone)) totals.Telephone = v.ClientTelephone.Trim();
+                    if (!string.IsNullOrWhiteSpace(v.ClientEmail)) totals.Email = v.ClientEmail.Trim();
+                }
             }
         }
 
         var list = saved
             .Select(c => ToDto(c, savedTotals[c.Id]))
             .Concat(unsaved.Values.Select(t => new ClientDto(
-                null, t.Nom, t.Telephone, null, null, null, null, true,
+                null, t.Nom, t.Telephone, t.Email, null, null, null, true,
                 t.Achats, t.Total, t.Reste, t.Impayees, t.Dernier)))
             .OrderByDescending(c => c.TotalAchats)
             .ThenBy(c => c.Nom, StringComparer.CurrentCultureIgnoreCase)
@@ -125,10 +143,11 @@ public static class ClientsEndpoints
         if (string.IsNullOrWhiteSpace(request.Nom))
             return Results.BadRequest(new ApiError("Le nom du client est requis"));
 
-        var key = NameKey(request.Nom);
-        var existing = await db.Clients.AsNoTracking().Where(c => c.GroupId == scope.GroupId).Select(c => c.Nom).ToListAsync(ct);
-        if (existing.Any(n => NameKey(n) == key))
-            return Results.Conflict(new ApiError("Un client porte déjà ce nom"));
+        var others = await db.Clients.AsNoTracking().Where(c => c.GroupId == scope.GroupId)
+            .Select(c => new { c.Nom, c.Telephone, c.Email }).ToListAsync(ct);
+        if (others.Any(o => IsIndistinguishable(o.Nom, o.Telephone, o.Email, request.Nom, request.Telephone, request.Email)))
+            return Results.Conflict(new ApiError(
+                "Un client porte déjà ce nom - ajoutez un numéro ou un email pour le différencier"));
 
         var client = new Client { GroupId = scope.GroupId };
         Apply(client, request);
@@ -147,11 +166,12 @@ public static class ClientsEndpoints
         var client = await db.Clients.FirstOrDefaultAsync(c => c.Id == id && c.GroupId == scope.GroupId, ct);
         if (client is null) return Results.NotFound(new ApiError("Client introuvable"));
 
-        var key = NameKey(request.Nom);
         var others = await db.Clients.AsNoTracking()
-            .Where(c => c.GroupId == scope.GroupId && c.Id != id).Select(c => c.Nom).ToListAsync(ct);
-        if (others.Any(n => NameKey(n) == key))
-            return Results.Conflict(new ApiError("Un client porte déjà ce nom"));
+            .Where(c => c.GroupId == scope.GroupId && c.Id != id)
+            .Select(c => new { c.Nom, c.Telephone, c.Email }).ToListAsync(ct);
+        if (others.Any(o => IsIndistinguishable(o.Nom, o.Telephone, o.Email, request.Nom, request.Telephone, request.Email)))
+            return Results.Conflict(new ApiError(
+                "Un client porte déjà ce nom - ajoutez un numéro ou un email pour le différencier"));
 
         Apply(client, request);
         client.UpdatedAt = DateTime.UtcNow;
@@ -187,6 +207,26 @@ public static class ClientsEndpoints
         if (phone is null) return null;
         var digits = new string(phone.Where(char.IsDigit).ToArray());
         return digits.Length >= 6 ? digits : null;
+    }
+
+    public static string? EmailKey(string? email) =>
+        string.IsNullOrWhiteSpace(email) ? null : email.Trim().ToLowerInvariant();
+
+    /// <summary>Two clients with the same name are the same customer only if nothing on either
+    /// record tells them apart - a phone or an email that differs (or that only one of them has)
+    /// is enough to say they are two different people sharing a name.</summary>
+    private static bool IsIndistinguishable(
+        string nomA, string? telA, string? emailA, string nomB, string? telB, string? emailB)
+    {
+        if (NameKey(nomA) != NameKey(nomB)) return false;
+
+        var phoneA = PhoneKey(telA);
+        var phoneB = PhoneKey(telB);
+        if (phoneA is not null || phoneB is not null) return phoneA == phoneB;
+
+        var mailA = EmailKey(emailA);
+        var mailB = EmailKey(emailB);
+        return mailA == mailB;
     }
 
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

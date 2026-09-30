@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using Lonnii.Client.Services;
 using Lonnii.Client.Views.Dialogs;
+using Lonnii.Shared.Contracts;
 using Lonnii.Shared.Security;
 
 namespace Lonnii.Client.Views.Modules;
@@ -59,8 +60,50 @@ public partial class ParametresView : UserControl
         // anyone but an admin, so showing the entry to a member only advertises a locked door.
         VentesSettingsPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
 
+        BilanSettingsPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
+        if (_session.IsAdmin) _ = LoadCalculAutomatiqueAsync();
+
         PopulatePrivileges();
         PopulateConsumptionYears();
+    }
+
+    // --- Bilan ---
+
+    /// <summary>Set while <see cref="CalculAutomatiqueCheck"/> is being populated from the
+    /// server, so that does not itself fire a save.</summary>
+    private bool _loadingCalculAutomatique;
+
+    private async Task LoadCalculAutomatiqueAsync()
+    {
+        try
+        {
+            _loadingCalculAutomatique = true;
+            var parametres = await _session.Api.GetComptabiliteParametresAsync();
+            CalculAutomatiqueCheck.IsChecked = parametres.CalculAutomatique;
+        }
+        catch (ApiException)
+        {
+            // A convenience toggle - a failed read just leaves it at its default (checked).
+        }
+        finally
+        {
+            _loadingCalculAutomatique = false;
+        }
+    }
+
+    private async void CalculAutomatique_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loadingCalculAutomatique) return;
+
+        try
+        {
+            await _session.Api.SaveComptabiliteParametresAsync(
+                new SaveComptabiliteParametresRequest(CalculAutomatiqueCheck.IsChecked == true));
+        }
+        catch (ApiException ex)
+        {
+            MessageBox.Show(Window.GetWindow(this), ex.Message, "Bilan", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     // --- Consommation données ---

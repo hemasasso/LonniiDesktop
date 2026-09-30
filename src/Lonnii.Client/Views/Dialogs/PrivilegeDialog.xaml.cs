@@ -34,7 +34,9 @@ public partial class PrivilegeDialog : Window
     /// No "sales" entry: every privilege stored under that legacy module either has an alias
     /// in <see cref="PrivilegeAliases"/> (so <see cref="BuildTab"/> deduplicates it into its
     /// Caisse/Ventes/Stock row below) or is <c>can_process_returns</c>, resectioned into Ventes
-    /// by <see cref="PrivilegeSections"/> - so no row is ever left under "sales".</summary>
+    /// by <see cref="PrivilegeSections"/> - so no row is ever left under "sales". Likewise no
+    /// "finance", "analytics", "admin", "chat" or "formulaire" entry: <see cref="LoadAsync"/>
+    /// filters those out before a tab is ever built - see its comment for why.</summary>
     private static readonly Dictionary<string, string> ModuleLabels = new(StringComparer.Ordinal)
     {
         ["stock"] = "Stock",
@@ -44,12 +46,7 @@ public partial class PrivilegeDialog : Window
         ["amortissement"] = "Amortissement",
         ["bilan"] = "Bilan",
         ["prestations"] = "Prestations",
-        ["finance"] = "Finance",
-        ["analytics"] = "Analyses",
-        ["admin"] = "Administration",
         ["programme"] = "Programme",
-        ["formulaire"] = "Formulaire",
-        ["chat"] = "Chat",
         [PrivilegeSections.Caisse] = "Caisse",
     };
 
@@ -62,6 +59,21 @@ public partial class PrivilegeDialog : Window
 
     private static int SectionRank(string section) =>
         Array.IndexOf(SectionOrder, section) is var i and >= 0 ? i : SectionOrder.Length;
+
+    /// <summary>Whole modules the desktop app has no feature for at all: Lonnii Business's
+    /// chat and formulaires were never ported, and "finance"/"analytics"/"admin" are a legacy
+    /// privilege set superseded by each module's own (can_view_expenses etc. by Charges and
+    /// Bilan, can_view_basic_analytics etc. by can_view_stock_analytics/ventes_analytics/
+    /// charges_analytics/marges). can_manage_suppliers is the one "finance" privilege that
+    /// still does something (Stock's Fournisseurs manager) - kept, and resectioned into Stock
+    /// by <see cref="PrivilegeSections"/>.</summary>
+    private static bool IsUsedInDesktop(PrivilegeDto p) => p.Module switch
+    {
+        GestionModules.Finance => p.Name == Priv.Gestion.ManageSuppliers,
+        GestionModules.Analytics or GestionModules.Admin => false,
+        OptionModules.Chat or OptionModules.Formulaire => false,
+        _ => true,
+    };
 
     public PrivilegeDialog(AppSession session, GroupMemberDto member)
     {
@@ -88,23 +100,32 @@ public partial class PrivilegeDialog : Window
                 return;
             }
 
-            // Prestations has ~19 privileges of its own - clutter for the common case, since
-            // the module itself is hidden everywhere else in the app until an admin turns the
-            // group's Prestations toggle on (see AppMenu's RequiresPrestationsEnabled). Left
-            // out here entirely rather than just left unchecked, so the list an admin who does
-            // not use Prestations sees matches what their shop actually has.
+            // Two kinds of privilege never get a row here. Prestations has ~19 of its own -
+            // clutter for the common case, since the module itself is hidden everywhere else
+            // in the app until an admin turns the group's Prestations toggle on (see AppMenu's
+            // RequiresPrestationsEnabled); left out entirely rather than just unchecked, so the
+            // list an admin who does not use Prestations sees matches what their shop actually
+            // has. Separately, IsUsedInDesktop drops whole modules the desktop never wired to
+            // anything at all - not a toggle away like Prestations, just genuinely absent
+            // (Lonnii Business's chat/formulaires, or a legacy "finance"/"analytics"/"admin"
+            // set superseded by each module's own privileges) - ticking them would do nothing.
             var prestationsOn = _session.Groupe?.PrestationsEnabled == true;
-            var gestion = prestationsOn ? data.Gestion : data.Gestion.Where(p => p.Module != "prestations").ToList();
+            var gestionUsed = data.Gestion.Where(IsUsedInDesktop).ToList();
+            var gestion = prestationsOn
+                ? gestionUsed : gestionUsed.Where(p => p.Module != GestionModules.Prestations).ToList();
+            var option = data.Option.Where(IsUsedInDesktop).ToList();
 
             Tabs.Items.Clear();
             Tabs.Items.Add(BuildTab("Gestion", gestion, isGestion: true));
-            Tabs.Items.Add(BuildTab("Espace", data.Option, isGestion: false));
+            Tabs.Items.Add(BuildTab("Espace", option, isGestion: false));
             Tabs.SelectedIndex = 0;
 
-            var granted = gestion.Count(p => p.IsGranted) + data.Option.Count(p => p.IsGranted);
-            var hidden = data.Gestion.Count - gestion.Count;
+            var granted = gestion.Count(p => p.IsGranted) + option.Count(p => p.IsGranted);
+            var hiddenPrestations = prestationsOn ? 0 : gestionUsed.Count(p => p.Module == GestionModules.Prestations);
             StatusText.Text = $"{granted} privilège(s) accordé(s)."
-                + (hidden > 0 ? $" ({hidden} privilège(s) Prestations masqué(s) - module non activé pour cet espace.)" : string.Empty);
+                + (hiddenPrestations > 0
+                    ? $" ({hiddenPrestations} privilège(s) Prestations masqué(s) - module non activé pour cet espace.)"
+                    : string.Empty);
         }
         catch (ApiException ex)
         {
@@ -166,7 +187,8 @@ public partial class PrivilegeDialog : Window
             return check;
         }
 
-        if (isGestion && privilege.Name == Priv.Gestion.ProcessReturns)
+        if (isGestion && privilege.Name == Priv.Gestion.ProcessReturns
+            || !isGestion && privilege.Name == Priv.Option.ManageEventCategories)
             check.ToolTip = $"{privilege.Description}\n\nAucun effet sur l'application de bureau actuellement.";
 
         check.Checked += async (_, _) => await SaveAsync(check, privilege, true, isGestion);

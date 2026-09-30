@@ -103,8 +103,25 @@ public class Product
     /// <summary>Stock is never depleted or flagged low, regardless of <see cref="Quantity"/>.</summary>
     public bool StockIllimite { get; set; }
 
-    /// <summary>Optional unit shown next to the quantity, e.g. "page", "service", "copie".</summary>
+    /// <summary>Optional unit shown next to the quantity, e.g. "page", "service", "copie". Also
+    /// the base/detail unit's name when <see cref="VenteMixte"/> is set - "unité" if blank.</summary>
     public string? UniteAffichage { get; set; }
+
+    /// <summary>Sold in a second, bulk unit alongside the base one tracked by
+    /// <see cref="Quantity"/> - e.g. by the bottle (base) and by the carton (bulk). Mirrors
+    /// <c>vente_mixte</c>.</summary>
+    public bool VenteMixte { get; set; }
+
+    /// <summary>The bulk unit's name, e.g. "Carton". Set only when <see cref="VenteMixte"/>.</summary>
+    public string? UniteVente { get; set; }
+
+    /// <summary>How many base units make one <see cref="UniteVente"/> unit, e.g. 12 bottles per
+    /// carton. Set only when <see cref="VenteMixte"/>.</summary>
+    public int? FacteurConversion { get; set; }
+
+    /// <summary>Price for one base/detail unit. <see cref="Price"/> above is then the price for
+    /// one <see cref="UniteVente"/> (bulk) unit. Set only when <see cref="VenteMixte"/>.</summary>
+    public decimal? PrixVenteDetail { get; set; }
 
     /// <summary>
     /// One of <c>Lonnii.Shared.Contracts.ProductTypes</c>. Maps to Lonnii Business's own

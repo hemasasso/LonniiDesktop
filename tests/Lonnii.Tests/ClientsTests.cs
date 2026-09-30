@@ -120,7 +120,7 @@ public class ClientsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task TwoClientsWithTheSameName_AreRefused()
+    public async Task TwoClientsWithTheSameName_AreRefused_WhenNothingTellsThemApart()
     {
         var owner = await SignUpOwnerAsync();
         (await SendAsync(HttpMethod.Post, "/api/ventes/clients", owner,
@@ -130,5 +130,31 @@ public class ClientsTests : IAsyncLifetime
             new SaveClientRequest("AWA  diallo"));
 
         Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
+    }
+
+    [Fact]
+    public async Task TwoClientsWithTheSameName_AreAllowed_WhenAPhoneOrEmailTellsThemApart()
+    {
+        var owner = await SignUpOwnerAsync();
+        (await SendAsync(HttpMethod.Post, "/api/ventes/clients", owner,
+            new SaveClientRequest("Awa Diallo", Telephone: "690000001"))).EnsureSuccessStatusCode();
+
+        var secondByPhone = await SendAsync(HttpMethod.Post, "/api/ventes/clients", owner,
+            new SaveClientRequest("Awa Diallo", Telephone: "690000002"));
+        Assert.True(secondByPhone.IsSuccessStatusCode, await secondByPhone.Content.ReadAsStringAsync());
+
+        var thirdByEmail = await SendAsync(HttpMethod.Post, "/api/ventes/clients", owner,
+            new SaveClientRequest("Awa Diallo", Email: "awa@example.test"));
+        Assert.True(thirdByEmail.IsSuccessStatusCode, await thirdByEmail.Content.ReadAsStringAsync());
+
+        // Sales typed under each phone must go to that Awa Diallo, not to whichever was saved first.
+        await SellAsync(owner, 10000m, 10000m, "Awa Diallo", "690000001");
+        await SellAsync(owner, 20000m, 20000m, "Awa Diallo", "690000002");
+
+        var list = await ListAsync(owner);
+        Assert.Equal(3, list.Count);
+        Assert.Equal(10000m, list.Single(c => c.Telephone == "690000001").TotalAchats);
+        Assert.Equal(20000m, list.Single(c => c.Telephone == "690000002").TotalAchats);
+        Assert.Equal(0m, list.Single(c => c.Email == "awa@example.test").TotalAchats);
     }
 }

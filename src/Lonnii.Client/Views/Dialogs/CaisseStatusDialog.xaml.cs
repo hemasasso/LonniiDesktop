@@ -30,6 +30,8 @@ public partial class CaisseStatusDialog : Window
 
     private decimal ExpectedMobile => _caisse.ExpectedMobile;
 
+    private decimal ExpectedCarte => _caisse.ExpectedCarte;
+
     /// <summary>Set once <see cref="CloseCaisse_Click"/> accepts the input.</summary>
     public CloseCaisseRequest? CloseResult { get; private set; }
 
@@ -51,7 +53,7 @@ public partial class CaisseStatusDialog : Window
         // accept them without counting, which hides exactly the écart the count is for.
         if (canClose) UpdateExpectedPreview();
 
-        foreach (var box in new[] { MontantFinalBox, MontantFinalMobileBox })
+        foreach (var box in new[] { MontantFinalBox, MontantFinalMobileBox, MontantFinalCarteBox })
         {
             box.LostFocus += (_, _) =>
             {
@@ -89,27 +91,30 @@ public partial class CaisseStatusDialog : Window
 
     /// <summary>Each count shows its own expected figure and difference, and the line below
     /// sums them into the écart the server will record - so a shortfall in cash hidden by an
-    /// excess in mobile money (or the reverse) is still visible on its own side.</summary>
+    /// excess in mobile money or carte (or the reverse) is still visible on its own side.</summary>
     private void UpdateExpectedPreview()
     {
         // Fires from XAML's TextChanged before the constructor has built every control.
-        if (ExpectedText is null || ExpectedCashText is null || ExpectedMobileText is null) return;
+        if (ExpectedText is null || ExpectedCashText is null || ExpectedMobileText is null || ExpectedCarteText is null) return;
 
         var cash = Money.TryParse(MontantFinalBox.Text, out decimal c) ? c : (decimal?)null;
         var mobile = Money.TryParse(MontantFinalMobileBox.Text, out decimal m) ? m : (decimal?)null;
+        var carte = Money.TryParse(MontantFinalCarteBox.Text, out decimal a) ? a : (decimal?)null;
 
         ExpectedCashText.Text = Line(ExpectedCash, cash);
         ExpectedMobileText.Text = Line(ExpectedMobile, mobile);
+        ExpectedCarteText.Text = Line(ExpectedCarte, carte);
 
-        if (cash is null || mobile is null)
+        var expectedTotal = ExpectedCash + ExpectedMobile + ExpectedCarte;
+        if (cash is null || mobile is null || carte is null)
         {
-            ExpectedText.Text = $"Total attendu : {Money.Format(ExpectedCash + ExpectedMobile)}";
+            ExpectedText.Text = $"Total attendu : {Money.Format(expectedTotal)}";
             ExpectedText.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondary");
             return;
         }
 
-        var ecart = cash.Value - ExpectedCash + mobile.Value - ExpectedMobile;
-        ExpectedText.Text = $"Total attendu : {Money.Format(ExpectedCash + ExpectedMobile)}  •  " + ecart switch
+        var ecart = cash.Value - ExpectedCash + mobile.Value - ExpectedMobile + carte.Value - ExpectedCarte;
+        ExpectedText.Text = $"Total attendu : {Money.Format(expectedTotal)}  •  " + ecart switch
         {
             0 => "Aucun écart",
             > 0 => $"Écart : excédent de {Money.Format(ecart)}",
@@ -157,8 +162,22 @@ public partial class CaisseStatusDialog : Window
             return;
         }
 
+        if (!Money.TryParse(MontantFinalCarteBox.Text, out decimal carte) || carte < 0)
+        {
+            ErrorText.Text = "Indiquez le solde carte constaté (0 s'il n'y en a pas).";
+            MontantFinalCarteBox.Focus();
+            return;
+        }
+
+        // Closing locks the écart in and ends the session - asked explicitly rather than
+        // folded into the button's own click, since it cannot be undone from here.
+        var confirm = MessageBox.Show(this,
+            "Fermer la caisse ? Cette action est définitive et ne peut pas être annulée.",
+            "Confirmer la fermeture", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes) return;
+
         CloseResult = new CloseCaisseRequest(montant,
-            string.IsNullOrWhiteSpace(NotesBox.Text) ? null : NotesBox.Text.Trim(), mobile);
+            string.IsNullOrWhiteSpace(NotesBox.Text) ? null : NotesBox.Text.Trim(), mobile, carte);
         DialogResult = true;
     }
 }

@@ -66,6 +66,7 @@ public partial class CaisseReportDialog : Window
         Section("FONDS INITIAL");
         Row("Espèces", Money.Format(c.MontantInitialCash));
         if (c.MontantInitialMobile > 0) Row("Mobile Money", Money.Format(c.MontantInitialMobile));
+        if (c.MontantInitialCarte > 0) Row("Carte", Money.Format(c.MontantInitialCarte));
 
         var retraits = c.Retraits ?? [];
         if (retraits.Count > 0)
@@ -87,15 +88,21 @@ public partial class CaisseReportDialog : Window
         Row("Espèces attendues", Money.Format(c.ExpectedCash));
         if (isOpen || c.MobileCounted)
             Row("Mobile money attendu", Money.Format(c.ExpectedMobile));
+        if (isOpen || c.CarteCounted)
+            Row("Carte attendue", Money.Format(c.ExpectedCarte));
 
         if (!isOpen && c.MontantFinal is { } counted)
         {
             Row("Espèces comptées", Money.Format(counted));
             if (c.MontantFinalMobile is { } countedMobile)
-            {
                 Row("Mobile money constaté", Money.Format(countedMobile));
+            if (c.MontantFinalCarte is { } countedCarte)
+                Row("Carte constatée", Money.Format(countedCarte));
+            if (c.MontantFinalMobile is not null || c.MontantFinalCarte is not null)
+            {
                 if (c.EcartCash != 0) Row("  dont écart espèces", Signed(c.EcartCash), color: Loss);
                 if (c.EcartMobile != 0) Row("  dont écart mobile", Signed(c.EcartMobile), color: Loss);
+                if (c.EcartCarte != 0) Row("  dont écart carte", Signed(c.EcartCarte), color: Loss);
             }
             var ecartText = c.Ecart switch
             {

@@ -7,7 +7,8 @@ namespace Lonnii.Client.Services;
 /// never the product itself, so a restored cart picks up today's name, stock and fixed price
 /// rather than whatever they were when it was saved.</summary>
 public sealed record SavedCartLine(
-    string ProductId, int Quantity, decimal UnitPrice, decimal Discount, string DiscountType);
+    string ProductId, int Quantity, decimal UnitPrice, decimal Discount, string DiscountType,
+    bool VenteEnGros = false);
 
 /// <summary>What one user was looking at, and had in the cart, in one group.</summary>
 public sealed class ScreenState

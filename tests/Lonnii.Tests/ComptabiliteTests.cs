@@ -474,13 +474,16 @@ public class ComptabiliteTests : IAsyncLifetime
         Assert.Equal(1_300m, r.ResultatExploitation);
         Assert.Equal(1_300m, r.ResultatNet);
 
-        // A hand-entered financial product joins the net; an automatic account refuses one.
+        // An écriture on a hand-fed financial product joins the net; a credit increases a
+        // produit account. An automatic account refuses one while CalculAutomatique is on.
         var interets = r.ProduitsFinanciers.Single();
-        Assert.Equal(HttpStatusCode.OK, (await SendAsync(s, HttpMethod.Put, $"/api/bilan/resultat-comptes/{interets.Id}",
-            new ResultatCompteSoldeRequest(200m))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(s, HttpMethod.Post, "/api/bilan/ecritures",
+            new SaveBilanEcritureRequest(interets.Id, new DateOnly(2025, 6, 1), "Intérêts reçus",
+                MontantDebit: 0, MontantCredit: 200m, TableType: TablesCompte.Resultat))).StatusCode);
         var ventes70 = r.ProduitsExploitation.Single(c => c.SousType == SousTypesCompte.VentesMarchandises);
-        Assert.Equal(HttpStatusCode.BadRequest, (await SendAsync(s, HttpMethod.Put, $"/api/bilan/resultat-comptes/{ventes70.Id}",
-            new ResultatCompteSoldeRequest(1m))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await SendAsync(s, HttpMethod.Post, "/api/bilan/ecritures",
+            new SaveBilanEcritureRequest(ventes70.Id, new DateOnly(2025, 6, 1), "Tentative",
+                MontantDebit: 0, MontantCredit: 1m, TableType: TablesCompte.Resultat))).StatusCode);
 
         r = await SendAsync<ResultatResponse>(s, HttpMethod.Get, "/api/bilan/resultat?annee=2025&tzOffsetMinutes=0");
         Assert.Equal(200m, r.ResultatFinancier);
@@ -491,6 +494,62 @@ public class ComptabiliteTests : IAsyncLifetime
         Assert.Equal(1_500m, bilan.ResultatExercice);
         Assert.Equal(1_500m, bilan.CapitauxPropres.Single(c => c.SousType == SousTypesCompte.Resultat).SoldeAuto);
         Assert.Equal(6_000m, bilan.CreancesClients);
+    }
+
+    [Fact]
+    public async Task Parametres_default_to_automatic_and_round_trip()
+    {
+        var s = await SignUpOwnerAsync();
+
+        var initial = await SendAsync<ComptabiliteParametresDto>(s, HttpMethod.Get, "/api/bilan/parametres");
+        Assert.True(initial.CalculAutomatique);
+
+        var saved = await SendAsync<ComptabiliteParametresDto>(s, HttpMethod.Put, "/api/bilan/parametres",
+            new SaveComptabiliteParametresRequest(false));
+        Assert.False(saved.CalculAutomatique);
+
+        var reread = await SendAsync<ComptabiliteParametresDto>(s, HttpMethod.Get, "/api/bilan/parametres");
+        Assert.False(reread.CalculAutomatique);
+    }
+
+    /// <summary>With CalculAutomatique off, a sale no longer feeds "Ventes de marchandises" -
+    /// the account only shows what was posted to it by hand, and now accepts an écriture at
+    /// all, exactly like the four financial/exceptional accounts always could.</summary>
+    [Fact]
+    public async Task Turning_off_CalculAutomatique_stops_the_auto_feed_and_opens_every_account_to_ecritures()
+    {
+        var s = await SignUpOwnerAsync();
+        var g = s.GroupId;
+
+        var day = new DateTime(2025, 5, 10, 12, 0, 0, DateTimeKind.Utc);
+        await SeedAsync(db =>
+        {
+            var soda = new Product { GroupId = g, Name = "Soda", CostPrice = 500m, Price = 1000m, Quantity = 10 };
+            var vente = new Vente
+            {
+                GroupId = g, NumeroVente = "V-AUTO-1", DateVente = day, StatutPaiement = StatutPaiement.Paye, MontantTotal = 10_000m,
+                Items = [new VenteItem { ProductId = soda.Id, NomProduit = "Soda", Quantite = 10, PrixUnitaire = 1000m, PrixTotal = 10_000m }],
+            };
+            db.Products.Add(soda);
+            db.Ventes.Add(vente);
+        });
+
+        await SendAsync(s, HttpMethod.Put, "/api/bilan/parametres", new SaveComptabiliteParametresRequest(false));
+
+        var r = await SendAsync<ResultatResponse>(s, HttpMethod.Get, "/api/bilan/resultat?annee=2025&tzOffsetMinutes=0");
+        Assert.False(r.CalculAutomatique);
+        var ventes70 = r.ProduitsExploitation.Single(c => c.SousType == SousTypesCompte.VentesMarchandises);
+        Assert.Equal(0m, ventes70.SoldeAuto);
+        Assert.Equal(0m, ventes70.Solde);
+
+        // The same account that refused an écriture in the previous test now accepts one.
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(s, HttpMethod.Post, "/api/bilan/ecritures",
+            new SaveBilanEcritureRequest(ventes70.Id, new DateOnly(2025, 5, 10), "Vente comptoir",
+                MontantDebit: 0, MontantCredit: 4_000m, TableType: TablesCompte.Resultat))).StatusCode);
+
+        r = await SendAsync<ResultatResponse>(s, HttpMethod.Get, "/api/bilan/resultat?annee=2025&tzOffsetMinutes=0");
+        Assert.Equal(4_000m, r.ProduitsExploitation.Single(c => c.SousType == SousTypesCompte.VentesMarchandises).Solde);
+        Assert.Equal(4_000m, r.ResultatNet);
     }
 
     [Fact]

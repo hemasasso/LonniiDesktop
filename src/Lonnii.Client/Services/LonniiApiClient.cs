@@ -505,10 +505,12 @@ public class LonniiApiClient
         SendAsync(HttpMethod.Delete, $"api/bilan/comptes/{id}?tableType={Uri.EscapeDataString(tableType)}", null, ct);
 
     public Task<List<BilanEcritureDto>> GetBilanEcrituresAsync(
-        int? compteId = null, DateOnly? dateDebut = null, DateOnly? dateFin = null, CancellationToken ct = default)
+        int? compteId = null, string? tableType = null, DateOnly? dateDebut = null, DateOnly? dateFin = null,
+        CancellationToken ct = default)
     {
         var query = new List<string>();
         if (compteId is { } c) query.Add($"compteId={c}");
+        if (tableType is { Length: > 0 }) query.Add($"tableType={Uri.EscapeDataString(tableType)}");
         if (dateDebut is { } debut) query.Add($"dateDebut={debut:yyyy-MM-dd}");
         if (dateFin is { } fin) query.Add($"dateFin={fin:yyyy-MM-dd}");
         return GetAsync<List<BilanEcritureDto>>("api/bilan/ecritures" + (query.Count > 0 ? "?" + string.Join("&", query) : string.Empty), ct);
@@ -526,8 +528,12 @@ public class LonniiApiClient
     public Task SetStockDebutAsync(StockSnapshotRequest request, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Put, "api/bilan/stock-snapshot", request, ct);
 
-    public Task SetResultatCompteSoldeAsync(int id, decimal solde, CancellationToken ct = default) =>
-        SendAsync(HttpMethod.Put, $"api/bilan/resultat-comptes/{id}", new ResultatCompteSoldeRequest(solde), ct);
+    public Task<ComptabiliteParametresDto> GetComptabiliteParametresAsync(CancellationToken ct = default) =>
+        GetAsync<ComptabiliteParametresDto>("api/bilan/parametres", ct);
+
+    public Task<ComptabiliteParametresDto> SaveComptabiliteParametresAsync(
+        SaveComptabiliteParametresRequest request, CancellationToken ct = default) =>
+        SendAsync<ComptabiliteParametresDto>(HttpMethod.Put, "api/bilan/parametres", request, ct);
 
     /// <summary>This machine's local time minus UTC, in minutes - what a date-range filter
     /// needs so the server can tell which UTC instants "today" (this machine's today) actually

@@ -57,21 +57,33 @@ public partial class CaisseHistoryDialog : Window
                     + $" + encaissements {Money.Format(Caisse.PaiementCash)}"
                     + (Caisse.TotalRetraitsCash > 0 ? $" − retraits {Money.Format(Caisse.TotalRetraitsCash)}" : string.Empty)
                     + $" = {Money.Format(Caisse.ExpectedCash)}";
-                if (Caisse.Status == "closed" && !Caisse.MobileCounted)
-                    return cash + Environment.NewLine + "Mobile money non compté à la fermeture";
-                return cash + Environment.NewLine
-                    + $"Mobile money : fonds {Money.Format(Caisse.MontantInitialMobile)}"
-                    + $" + encaissements {Money.Format(Caisse.PaiementMobile)}"
-                    + (Caisse.TotalRetraitsMobile > 0 ? $" − retraits {Money.Format(Caisse.TotalRetraitsMobile)}" : string.Empty)
-                    + $" = {Money.Format(Caisse.ExpectedMobile)}";
+
+                var mobile = Caisse.Status == "closed" && !Caisse.MobileCounted
+                    ? "Mobile money non compté à la fermeture"
+                    : $"Mobile money : fonds {Money.Format(Caisse.MontantInitialMobile)}"
+                        + $" + encaissements {Money.Format(Caisse.PaiementMobile)}"
+                        + (Caisse.TotalRetraitsMobile > 0 ? $" − retraits {Money.Format(Caisse.TotalRetraitsMobile)}" : string.Empty)
+                        + $" = {Money.Format(Caisse.ExpectedMobile)}";
+
+                var carte = Caisse.Status == "closed" && !Caisse.CarteCounted
+                    ? "Carte non comptée à la fermeture"
+                    : $"Carte : fonds {Money.Format(Caisse.MontantInitialCarte)}"
+                        + $" + encaissements {Money.Format(Caisse.PaiementCarte)}"
+                        + $" = {Money.Format(Caisse.ExpectedCarte)}";
+
+                return string.Join(Environment.NewLine, cash, mobile, carte);
             }
         }
 
         public string? MontantEnCaisseTooltip => Caisse.MontantFinal is not { } cash ? null
-            : $"Espèces comptées : {Money.Format(cash)}" + Environment.NewLine
-              + (Caisse.MontantFinalMobile is { } mobile
-                  ? $"Mobile money constaté : {Money.Format(mobile)}"
-                  : "Mobile money non compté");
+            : string.Join(Environment.NewLine,
+                $"Espèces comptées : {Money.Format(cash)}",
+                Caisse.MontantFinalMobile is { } mobile
+                    ? $"Mobile money constaté : {Money.Format(mobile)}"
+                    : "Mobile money non compté",
+                Caisse.MontantFinalCarte is { } carte
+                    ? $"Carte constatée : {Money.Format(carte)}"
+                    : "Carte non comptée");
 
         public string EcartDisplay => Caisse.Status != "closed" ? "—"
             : Caisse.Ecart == 0 ? "Aucun"
@@ -213,8 +225,8 @@ public partial class CaisseHistoryDialog : Window
         var sb = new StringBuilder();
         sb.AppendLine(string.Join(';', "Ouverture", "Fermeture", "Vendeur", "Ventes",
             "Chiffre d'affaires", "Encaissé", "Retraits", "Motifs des retraits",
-            "Fonds initial (espèces)", "Fonds initial (mobile)",
-            "Montant attendu", "Espèces comptées", "Mobile money constaté", "Écart", "Statut"));
+            "Fonds initial (espèces)", "Fonds initial (mobile)", "Fonds initial (carte)",
+            "Montant attendu", "Espèces comptées", "Mobile money constaté", "Carte constatée", "Écart", "Statut"));
 
         foreach (var c in _caisses)
         {
@@ -230,9 +242,11 @@ public partial class CaisseHistoryDialog : Window
                     $"{Money.FormatPlain(r.Montant, 2)} ({(r.ModePaiement == "mobile_money" ? "mobile" : "espèces")}) : {r.Motif}"))),
                 Money.FormatPlain(c.MontantInitialCash, 2),
                 Money.FormatPlain(c.MontantInitialMobile, 2),
+                Money.FormatPlain(c.MontantInitialCarte, 2),
                 Money.FormatPlain(new HistoryRow(c).MontantAttendu, 2),
                 c.MontantFinal is { } final ? Money.FormatPlain(final, 2) : "",
                 c.MontantFinalMobile is { } finalMobile ? Money.FormatPlain(finalMobile, 2) : "",
+                c.MontantFinalCarte is { } finalCarte ? Money.FormatPlain(finalCarte, 2) : "",
                 Money.FormatPlain(c.Ecart, 2),
                 Csv(c.Status)));
         }

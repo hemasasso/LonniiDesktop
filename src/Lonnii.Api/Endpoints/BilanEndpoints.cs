@@ -144,7 +144,10 @@ public static class BilanEndpoints
 
         bilan.MapPut("/stock-snapshot", SetStockSnapshotAsync)
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.EditResultatDonnees);
-        bilan.MapPut("/resultat-comptes/{id:int}", SetResultatSoldeAsync)
+
+        bilan.MapGet("/parametres", GetParametresAsync)
+            .RequireGroupScope().RequirePrivilege(Priv.Gestion.ViewBilan);
+        bilan.MapPut("/parametres", SaveParametresAsync)
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.EditResultatDonnees);
 
         bilan.MapGet("/comptes", ListComptesAsync)
@@ -165,6 +168,34 @@ public static class BilanEndpoints
         bilan.MapDelete("/ecritures/{id:int}", DeleteEcritureAsync)
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.DeleteBilanEcriture);
     }
+
+    // --- Parametres ---
+
+    private static async Task<IResult> GetParametresAsync(GroupScope scope, LonniiDbContext db, CancellationToken ct) =>
+        Results.Ok(new ComptabiliteParametresDto(await LoadCalculAutomatiqueAsync(db, scope.GroupId, ct)));
+
+    private static async Task<IResult> SaveParametresAsync(
+        SaveComptabiliteParametresRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
+    {
+        var parametres = await db.ComptabiliteParametres.FirstOrDefaultAsync(p => p.GroupId == scope.GroupId, ct);
+        if (parametres is null)
+        {
+            parametres = new ComptabiliteParametres { GroupId = scope.GroupId };
+            db.ComptabiliteParametres.Add(parametres);
+        }
+
+        parametres.CalculAutomatique = request.CalculAutomatique;
+        parametres.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(new ComptabiliteParametresDto(parametres.CalculAutomatique));
+    }
+
+    /// <summary>True (the default) until a group turns automatic calculation off - see
+    /// <see cref="ComptabiliteParametres"/>.</summary>
+    private static async Task<bool> LoadCalculAutomatiqueAsync(LonniiDbContext db, string groupId, CancellationToken ct) =>
+        (await db.ComptabiliteParametres.AsNoTracking().FirstOrDefaultAsync(p => p.GroupId == groupId, ct))
+            ?.CalculAutomatique ?? true;
 
     // --- Year boundaries ---
 
@@ -193,12 +224,13 @@ public static class BilanEndpoints
         var ex = ExerciceDe(annee, tzOffsetMinutes);
         await EnsureDefaultAccountsAsync(db, groupId, scope.UserId, ct);
 
+        var calculAutomatique = await LoadCalculAutomatiqueAsync(db, groupId, ct);
         var comptes = await db.BilanComptes.AsNoTracking().Where(c => c.GroupId == groupId).ToListAsync(ct);
 
         // Écritures re-summed up to the year-end rather than the stored running solde, as the
         // source does - that is what lets a closed year be viewed as it stood.
         var ecritures = await db.BilanEcritures.AsNoTracking()
-            .Where(e => e.GroupId == groupId && e.DateEcriture <= ex.Fin)
+            .Where(e => e.GroupId == groupId && e.TableType == TablesCompte.Bilan && e.DateEcriture <= ex.Fin)
             .Select(e => new { e.CompteId, e.MontantDebit, e.MontantCredit })
             .ToListAsync(ct);
         var mouvements = ecritures
@@ -208,7 +240,8 @@ public static class BilanEndpoints
         var auto = new Dictionary<int, decimal>();
         void Inject(string type, string sousType, decimal montant)
         {
-            if (montant == 0) return;
+            // Off, every figure below is posted by hand instead - see ComptabiliteParametres.
+            if (!calculAutomatique || montant == 0) return;
             if (comptes.FirstOrDefault(c => c.TypeCompte == type && c.SousType == sousType) is { } compte)
                 auto[compte.Id] = auto.GetValueOrDefault(compte.Id) + montant;
         }
@@ -252,7 +285,7 @@ public static class BilanEndpoints
         var creances = await CreancesClientsAsync(db, groupId, ex.FinUtc, ct);
         Inject(TypesCompteBilan.ActifCirculant, SousTypesCompte.Clients, creances);
 
-        var resultat = await ComputeResultatAsync(db, groupId, ex, persistSnapshot: false, ct);
+        var resultat = await ComputeResultatAsync(db, groupId, ex, persistSnapshot: false, calculAutomatique, ct);
         Inject(TypesCompteBilan.CapitauxPropres, SousTypesCompte.Resultat, resultat.ResultatNet);
 
         BilanCompteDto Row(BilanCompte c)
@@ -349,13 +382,29 @@ public static class BilanEndpoints
     {
         await EnsureDefaultAccountsAsync(db, scope.GroupId, scope.UserId, ct);
         var ex = ExerciceDe(annee, tzOffsetMinutes);
-        return Results.Ok(await ComputeResultatAsync(db, scope.GroupId, ex, persistSnapshot: true, ct, scope.UserId));
+        var calculAutomatique = await LoadCalculAutomatiqueAsync(db, scope.GroupId, ct);
+        return Results.Ok(await ComputeResultatAsync(db, scope.GroupId, ex, persistSnapshot: true, calculAutomatique, ct, scope.UserId));
     }
 
     private static async Task<ResultatResponse> ComputeResultatAsync(
-        LonniiDbContext db, string groupId, Exercice ex, bool persistSnapshot, CancellationToken ct, string? userId = null)
+        LonniiDbContext db, string groupId, Exercice ex, bool persistSnapshot, bool calculAutomatique,
+        CancellationToken ct, string? userId = null)
     {
         var comptes = await db.ResultatComptes.AsNoTracking().Where(c => c.GroupId == groupId).ToListAsync(ct);
+
+        // Financier/exceptionnel écritures, dated within the year - a compte de résultat is a
+        // flow for the year alone, unlike the bilan's cumulative-to-year-end balance. Every
+        // other résultat account only takes one once CalculAutomatique is off (see Inject
+        // below), at which point its own case reaches here too.
+        var debutExercice = new DateOnly(ex.Annee, 1, 1);
+        var resultatEcritures = await db.BilanEcritures.AsNoTracking()
+            .Where(e => e.GroupId == groupId && e.TableType == TablesCompte.Resultat
+                        && e.DateEcriture >= debutExercice && e.DateEcriture <= ex.Fin)
+            .Select(e => new { e.CompteId, e.MontantDebit, e.MontantCredit })
+            .ToListAsync(ct);
+        var resultatMouvements = resultatEcritures
+            .GroupBy(e => e.CompteId)
+            .ToDictionary(g => g.Key, g => (Debit: g.Sum(e => e.MontantDebit ?? 0m), Credit: g.Sum(e => e.MontantCredit ?? 0m)));
 
         // Sales and their cost, costed the same way as the Marges screen.
         var ventes = await db.Ventes.AsNoTracking()
@@ -422,7 +471,9 @@ public static class BilanEndpoints
         var auto = new Dictionary<int, decimal>();
         void Inject(string type, string sousType, decimal montant)
         {
-            if (montant == 0) return;
+            // Off, every account below - not just the four financial/exceptional ones -
+            // instead takes its figure from an écriture, the same way those four already did.
+            if (!calculAutomatique || montant == 0) return;
             var compte = comptes.Where(c => c.TypeCompte == type).OrderBy(c => c.NumeroCompte, StringComparer.Ordinal)
                              .FirstOrDefault(c => c.SousType == sousType)
                          ?? (type == TypesCompteResultat.ChargeExploitation
@@ -438,10 +489,17 @@ public static class BilanEndpoints
             Inject(TypesCompteResultat.ChargeExploitation, sousType, montant);
         Inject(TypesCompteResultat.ChargeExploitation, SousTypesCompte.Amortissements, dotation);
 
+        // Produits are credit-normal, charges debit-normal - same branch GetBilanAsync's Row()
+        // makes for actif/passif, just on TypesCompteResultat instead of TypesCompteBilan.
         List<BilanCompteDto> Section(string type) => comptes
             .Where(c => c.TypeCompte == type)
             .OrderBy(c => c.NumeroCompte, StringComparer.Ordinal)
-            .Select(c => ToDto(c, auto.GetValueOrDefault(c.Id)))
+            .Select(c =>
+            {
+                var (debit, credit) = resultatMouvements.GetValueOrDefault(c.Id);
+                var manuel = TypesCompteResultat.IsProduit(c.TypeCompte) ? credit - debit : debit - credit;
+                return ToDto(c, manuel, auto.GetValueOrDefault(c.Id));
+            })
             .ToList();
 
         var pe = Section(TypesCompteResultat.ProduitExploitation);
@@ -466,7 +524,8 @@ public static class BilanEndpoints
             R(Sum(pe) + Sum(pf) + Sum(px)),
             R(Sum(ce) + Sum(cf) + Sum(cx)),
             R(exploitation), R(financier), R(exceptionnel),
-            R(exploitation + financier + exceptionnel));
+            R(exploitation + financier + exceptionnel),
+            calculAutomatique);
     }
 
     private static async Task<IResult> SetStockSnapshotAsync(
@@ -491,22 +550,11 @@ public static class BilanEndpoints
         return Results.Ok();
     }
 
-    /// <summary>Only the financial and exceptional accounts take a typed amount: every other
-    /// résultat account is fed by another module, and an amount typed on top would count
-    /// twice.</summary>
-    private static async Task<IResult> SetResultatSoldeAsync(
-        int id, ResultatCompteSoldeRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
-    {
-        var compte = await db.ResultatComptes.FirstOrDefaultAsync(c => c.Id == id && c.GroupId == scope.GroupId, ct);
-        if (compte is null) return Results.NotFound(new ApiError("Compte introuvable"));
-        if (!TypesCompteResultat.IsManuel(compte.TypeCompte))
-            return Results.BadRequest(new ApiError("Ce compte est alimenté automatiquement et ne se saisit pas à la main"));
-
-        compte.Solde = request.Solde;
-        compte.UpdatedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync(ct);
-        return Results.Ok();
-    }
+    /// <summary>Whether a résultat account may take an écriture: always the four
+    /// financial/exceptional ones, or - once CalculAutomatique is off and nothing feeds any
+    /// résultat account automatically any more - any of them.</summary>
+    private static bool EcritureEligible(ResultatCompte compte, bool calculAutomatique) =>
+        TypesCompteResultat.IsManuel(compte.TypeCompte) || !calculAutomatique;
 
     // --- Comptes ---
 
@@ -519,7 +567,7 @@ public static class BilanEndpoints
 
         return Results.Ok(new BilanComptesResponse(
             bilan.OrderBy(c => c.NumeroCompte, StringComparer.Ordinal).Select(c => ToDto(c, c.Solde ?? 0m, 0m)).ToList(),
-            resultat.OrderBy(c => c.NumeroCompte, StringComparer.Ordinal).Select(c => ToDto(c, 0m)).ToList()));
+            resultat.OrderBy(c => c.NumeroCompte, StringComparer.Ordinal).Select(c => ToDto(c, c.Solde ?? 0m, 0m)).ToList()));
     }
 
     private static async Task<IResult> CreateCompteAsync(
@@ -534,7 +582,7 @@ public static class BilanEndpoints
             ApplyCompte(compte, request);
             db.ResultatComptes.Add(compte);
             await db.SaveChangesAsync(ct);
-            return Results.Ok(ToDto(compte, 0m));
+            return Results.Ok(ToDto(compte, 0m, 0m));
         }
         else
         {
@@ -564,7 +612,7 @@ public static class BilanEndpoints
 
             ApplyCompte(compte, effective);
             await db.SaveChangesAsync(ct);
-            return Results.Ok(ToDto(compte, 0m));
+            return Results.Ok(ToDto(compte, compte.Solde ?? 0m, 0m));
         }
         else
         {
@@ -694,18 +742,35 @@ public static class BilanEndpoints
     // --- Écritures ---
 
     private static async Task<IResult> ListEcrituresAsync(
-        int? compteId, DateOnly? dateDebut, DateOnly? dateFin, GroupScope scope, LonniiDbContext db, CancellationToken ct)
+        int? compteId, string? tableType, DateOnly? dateDebut, DateOnly? dateFin,
+        GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
-        var query = db.BilanEcritures.AsNoTracking().Include(e => e.Compte).Where(e => e.GroupId == scope.GroupId);
+        var query = db.BilanEcritures.AsNoTracking().Where(e => e.GroupId == scope.GroupId);
         if (compteId is { } c) query = query.Where(e => e.CompteId == c);
+        if (tableType is { Length: > 0 }) query = query.Where(e => e.TableType == tableType);
         if (dateDebut is { } debut) query = query.Where(e => e.DateEcriture >= debut);
         if (dateFin is { } fin) query = query.Where(e => e.DateEcriture <= fin);
 
         var rows = await query.ToListAsync(ct);
         rows = rows.OrderByDescending(e => e.DateEcriture).ThenByDescending(e => e.CreatedAt).ToList();
 
+        // CompteId is a row of one of two tables depending on TableType - batch-loaded into
+        // its own dictionary each, since there is no single EF navigation across both.
+        var bilanIds = rows.Where(e => e.TableType != TablesCompte.Resultat).Select(e => e.CompteId).Distinct().ToList();
+        var resultatIds = rows.Where(e => e.TableType == TablesCompte.Resultat).Select(e => e.CompteId).Distinct().ToList();
+        var bilanComptes = await db.BilanComptes.AsNoTracking()
+            .Where(c => c.GroupId == scope.GroupId && bilanIds.Contains(c.Id)).ToDictionaryAsync(c => c.Id, ct);
+        var resultatComptes = await db.ResultatComptes.AsNoTracking()
+            .Where(c => c.GroupId == scope.GroupId && resultatIds.Contains(c.Id)).ToDictionaryAsync(c => c.Id, ct);
+
         var names = await DisplayNamesAsync(db, rows.Select(e => e.CreatedBy), ct);
-        return Results.Ok(rows.Select(e => ToDto(e, names)).ToList());
+        return Results.Ok(rows.Select(e =>
+        {
+            var (numero, libelle) = e.TableType == TablesCompte.Resultat
+                ? resultatComptes.TryGetValue(e.CompteId, out var rc) ? (rc.NumeroCompte, rc.Libelle) : (string.Empty, string.Empty)
+                : bilanComptes.TryGetValue(e.CompteId, out var bc) ? (bc.NumeroCompte, bc.Libelle) : (string.Empty, string.Empty);
+            return ToDto(e, numero, libelle, names);
+        }).ToList());
     }
 
     private static async Task<IResult> CreateEcritureAsync(
@@ -713,13 +778,36 @@ public static class BilanEndpoints
     {
         if (ValidateEcriture(request) is { } error) return Results.BadRequest(new ApiError(error));
 
-        var compte = await db.BilanComptes.FirstOrDefaultAsync(c => c.Id == request.CompteId && c.GroupId == scope.GroupId, ct);
-        if (compte is null) return Results.NotFound(new ApiError("Compte introuvable"));
+        string numero, libelle;
+        if (request.TableType == TablesCompte.Resultat)
+        {
+            var compte = await db.ResultatComptes.FirstOrDefaultAsync(c => c.Id == request.CompteId && c.GroupId == scope.GroupId, ct);
+            if (compte is null) return Results.NotFound(new ApiError("Compte introuvable"));
+
+            var calculAutomatique = await LoadCalculAutomatiqueAsync(db, scope.GroupId, ct);
+            if (!EcritureEligible(compte, calculAutomatique))
+                return Results.BadRequest(new ApiError("Ce compte est alimenté automatiquement et ne prend pas d'écriture"));
+
+            compte.Solde = (compte.Solde ?? 0m) + request.MontantDebit - request.MontantCredit;
+            compte.UpdatedAt = DateTime.UtcNow;
+            (numero, libelle) = (compte.NumeroCompte, compte.Libelle);
+        }
+        else
+        {
+            var compte = await db.BilanComptes.FirstOrDefaultAsync(c => c.Id == request.CompteId && c.GroupId == scope.GroupId, ct);
+            if (compte is null) return Results.NotFound(new ApiError("Compte introuvable"));
+
+            // The stored running balance, kept in step as the source does.
+            compte.Solde = (compte.Solde ?? 0m) + request.MontantDebit - request.MontantCredit;
+            compte.UpdatedAt = DateTime.UtcNow;
+            (numero, libelle) = (compte.NumeroCompte, compte.Libelle);
+        }
 
         var ecriture = new BilanEcriture
         {
             GroupId = scope.GroupId,
-            CompteId = compte.Id,
+            CompteId = request.CompteId,
+            TableType = request.TableType,
             DateEcriture = request.DateEcriture,
             Libelle = request.Libelle.Trim(),
             MontantDebit = request.MontantDebit,
@@ -727,18 +815,13 @@ public static class BilanEndpoints
             Reference = Blank(request.Reference),
             Notes = Blank(request.Notes),
             CreatedBy = scope.UserId,
-            Compte = compte,
         };
         db.BilanEcritures.Add(ecriture);
-
-        // The stored running balance, kept in step as the source does.
-        compte.Solde = (compte.Solde ?? 0m) + request.MontantDebit - request.MontantCredit;
-        compte.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(ct);
 
         var names = await DisplayNamesAsync(db, [ecriture.CreatedBy], ct);
-        return Results.Ok(ToDto(ecriture, names));
+        return Results.Ok(ToDto(ecriture, numero, libelle, names));
     }
 
     private static async Task<IResult> UpdateEcritureAsync(
@@ -746,24 +829,56 @@ public static class BilanEndpoints
     {
         if (ValidateEcriture(request) is { } error) return Results.BadRequest(new ApiError(error));
 
-        var ecriture = await db.BilanEcritures.Include(e => e.Compte)
-            .FirstOrDefaultAsync(e => e.Id == id && e.GroupId == scope.GroupId, ct);
+        var ecriture = await db.BilanEcritures.FirstOrDefaultAsync(e => e.Id == id && e.GroupId == scope.GroupId, ct);
         if (ecriture is null) return Results.NotFound(new ApiError("Écriture introuvable"));
 
-        var nouveauCompte = await db.BilanComptes.FirstOrDefaultAsync(c => c.Id == request.CompteId && c.GroupId == scope.GroupId, ct);
-        if (nouveauCompte is null) return Results.NotFound(new ApiError("Compte introuvable"));
-
-        // Reverse the old entry on its old account, then apply the new one.
-        if (ecriture.Compte is { } ancien)
+        // Reverse the old entry on its old account - same table as it was posted to, which may
+        // not be the one the edit is moving it to.
+        if (ecriture.TableType == TablesCompte.Resultat)
         {
-            ancien.Solde = (ancien.Solde ?? 0m) - (ecriture.MontantDebit ?? 0m) + (ecriture.MontantCredit ?? 0m);
-            ancien.UpdatedAt = DateTime.UtcNow;
+            var ancien = await db.ResultatComptes.FirstOrDefaultAsync(c => c.Id == ecriture.CompteId && c.GroupId == scope.GroupId, ct);
+            if (ancien is not null)
+            {
+                ancien.Solde = (ancien.Solde ?? 0m) - (ecriture.MontantDebit ?? 0m) + (ecriture.MontantCredit ?? 0m);
+                ancien.UpdatedAt = DateTime.UtcNow;
+            }
         }
-        nouveauCompte.Solde = (nouveauCompte.Solde ?? 0m) + request.MontantDebit - request.MontantCredit;
-        nouveauCompte.UpdatedAt = DateTime.UtcNow;
+        else
+        {
+            var ancien = await db.BilanComptes.FirstOrDefaultAsync(c => c.Id == ecriture.CompteId && c.GroupId == scope.GroupId, ct);
+            if (ancien is not null)
+            {
+                ancien.Solde = (ancien.Solde ?? 0m) - (ecriture.MontantDebit ?? 0m) + (ecriture.MontantCredit ?? 0m);
+                ancien.UpdatedAt = DateTime.UtcNow;
+            }
+        }
 
-        ecriture.CompteId = nouveauCompte.Id;
-        ecriture.Compte = nouveauCompte;
+        string numero, libelle;
+        if (request.TableType == TablesCompte.Resultat)
+        {
+            var nouveau = await db.ResultatComptes.FirstOrDefaultAsync(c => c.Id == request.CompteId && c.GroupId == scope.GroupId, ct);
+            if (nouveau is null) return Results.NotFound(new ApiError("Compte introuvable"));
+
+            var calculAutomatique = await LoadCalculAutomatiqueAsync(db, scope.GroupId, ct);
+            if (!EcritureEligible(nouveau, calculAutomatique))
+                return Results.BadRequest(new ApiError("Ce compte est alimenté automatiquement et ne prend pas d'écriture"));
+
+            nouveau.Solde = (nouveau.Solde ?? 0m) + request.MontantDebit - request.MontantCredit;
+            nouveau.UpdatedAt = DateTime.UtcNow;
+            (numero, libelle) = (nouveau.NumeroCompte, nouveau.Libelle);
+        }
+        else
+        {
+            var nouveau = await db.BilanComptes.FirstOrDefaultAsync(c => c.Id == request.CompteId && c.GroupId == scope.GroupId, ct);
+            if (nouveau is null) return Results.NotFound(new ApiError("Compte introuvable"));
+
+            nouveau.Solde = (nouveau.Solde ?? 0m) + request.MontantDebit - request.MontantCredit;
+            nouveau.UpdatedAt = DateTime.UtcNow;
+            (numero, libelle) = (nouveau.NumeroCompte, nouveau.Libelle);
+        }
+
+        ecriture.CompteId = request.CompteId;
+        ecriture.TableType = request.TableType;
         ecriture.DateEcriture = request.DateEcriture;
         ecriture.Libelle = request.Libelle.Trim();
         ecriture.MontantDebit = request.MontantDebit;
@@ -774,20 +889,32 @@ public static class BilanEndpoints
         await db.SaveChangesAsync(ct);
 
         var names = await DisplayNamesAsync(db, [ecriture.CreatedBy], ct);
-        return Results.Ok(ToDto(ecriture, names));
+        return Results.Ok(ToDto(ecriture, numero, libelle, names));
     }
 
     private static async Task<IResult> DeleteEcritureAsync(
         int id, GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
-        var ecriture = await db.BilanEcritures.Include(e => e.Compte)
-            .FirstOrDefaultAsync(e => e.Id == id && e.GroupId == scope.GroupId, ct);
+        var ecriture = await db.BilanEcritures.FirstOrDefaultAsync(e => e.Id == id && e.GroupId == scope.GroupId, ct);
         if (ecriture is null) return Results.NotFound(new ApiError("Écriture introuvable"));
 
-        if (ecriture.Compte is { } compte)
+        if (ecriture.TableType == TablesCompte.Resultat)
         {
-            compte.Solde = (compte.Solde ?? 0m) - (ecriture.MontantDebit ?? 0m) + (ecriture.MontantCredit ?? 0m);
-            compte.UpdatedAt = DateTime.UtcNow;
+            var compte = await db.ResultatComptes.FirstOrDefaultAsync(c => c.Id == ecriture.CompteId && c.GroupId == scope.GroupId, ct);
+            if (compte is not null)
+            {
+                compte.Solde = (compte.Solde ?? 0m) - (ecriture.MontantDebit ?? 0m) + (ecriture.MontantCredit ?? 0m);
+                compte.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+        else
+        {
+            var compte = await db.BilanComptes.FirstOrDefaultAsync(c => c.Id == ecriture.CompteId && c.GroupId == scope.GroupId, ct);
+            if (compte is not null)
+            {
+                compte.Solde = (compte.Solde ?? 0m) - (ecriture.MontantDebit ?? 0m) + (ecriture.MontantCredit ?? 0m);
+                compte.UpdatedAt = DateTime.UtcNow;
+            }
         }
 
         db.BilanEcritures.Remove(ecriture);
@@ -801,6 +928,8 @@ public static class BilanEndpoints
             return "Compte, libellé et montant requis";
         if (r.MontantDebit < 0 || r.MontantCredit < 0)
             return "Les montants ne peuvent pas être négatifs";
+        if (r.TableType is not (TablesCompte.Bilan or TablesCompte.Resultat))
+            return "Type de table invalide";
         return null;
     }
 
@@ -810,17 +939,15 @@ public static class BilanEndpoints
         c.Id, c.NumeroCompte, c.Libelle, c.TypeCompte, c.SousType, c.Description, c.IsSystem == true,
         R(manuel), R(auto), R(manuel + auto));
 
-    private static BilanCompteDto ToDto(ResultatCompte c, decimal auto)
-    {
-        var manuel = c.Solde ?? 0m;
-        return new(c.Id, c.NumeroCompte, c.Libelle, c.TypeCompte, c.SousType, c.Description, c.IsSystem == true,
-            R(manuel), R(auto), R(manuel + auto));
-    }
+    private static BilanCompteDto ToDto(ResultatCompte c, decimal manuel, decimal auto) => new(
+        c.Id, c.NumeroCompte, c.Libelle, c.TypeCompte, c.SousType, c.Description, c.IsSystem == true,
+        R(manuel), R(auto), R(manuel + auto));
 
-    private static BilanEcritureDto ToDto(BilanEcriture e, IReadOnlyDictionary<string, string> names) => new(
-        e.Id, e.CompteId, e.Compte?.NumeroCompte ?? string.Empty, e.Compte?.Libelle ?? string.Empty,
+    private static BilanEcritureDto ToDto(
+        BilanEcriture e, string numeroCompte, string compteLibelle, IReadOnlyDictionary<string, string> names) => new(
+        e.Id, e.CompteId, numeroCompte, compteLibelle,
         e.DateEcriture, e.Libelle, e.MontantDebit ?? 0m, e.MontantCredit ?? 0m, e.Reference, e.Notes,
-        names.TryGetValue(e.CreatedBy, out var name) ? name : null);
+        names.TryGetValue(e.CreatedBy, out var name) ? name : null, e.TableType);
 
     private static decimal R(decimal value) => Math.Round(value, 2, MidpointRounding.AwayFromZero);
 

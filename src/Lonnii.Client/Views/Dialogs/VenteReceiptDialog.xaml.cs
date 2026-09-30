@@ -7,10 +7,11 @@ namespace Lonnii.Client.Views.Dialogs;
 
 /// <summary>
 /// Shows a sale as a printable document. An unpaid sale prints as a FACTURE the client
-/// settles later at the till, a paid one as a REÇU - decided from the sale's current status
-/// rather than a caller-supplied flag, so a receipt reopened later reflects what the sale is
-/// now. Each document uses the layout and sections chosen in Paramètres → "Paramètre Reçu et
-/// Facture"; <see cref="ReceiptDocument"/> draws it.
+/// settles later at the till, a paid one as a REÇU - decided from the sale's current status,
+/// so a receipt reopened later reflects what the sale is now - unless the Action button's
+/// "Facture" choice explicitly asked for one anyway, for a customer who wants an
+/// invoice-formatted copy of an already-paid sale. Each document uses the layout and sections
+/// chosen in Paramètres → "Paramètre Reçu et Facture"; <see cref="ReceiptDocument"/> draws it.
 ///
 /// The dialog is handed the settings rather than fetching them, so opening it stays
 /// synchronous and a finished sale never waits on the network; <see cref="ShowForAsync"/> is
@@ -27,12 +28,12 @@ public partial class VenteReceiptDialog : Window
     /// the document. The single entry point, so no call site can accidentally print with the
     /// built-in defaults while the shop has its own configured.
     /// </summary>
-    public static async Task ShowForAsync(VenteDto vente, AppSession session, Window? owner)
+    public static async Task ShowForAsync(VenteDto vente, AppSession session, Window? owner, bool forceFacture = false)
     {
         var settings = await session.GetReceiptSettingsAsync();
 
-        new VenteReceiptDialog(ReceiptData.FromVente(vente), settings, session.ReceiptLogo, session.ReceiptQrCode,
-            session.Groupe?.Nom ?? "Lonnii")
+        new VenteReceiptDialog(ReceiptData.FromVente(vente, forceFacture), settings, session.ReceiptLogo,
+            session.ReceiptQrCode, session.Groupe?.Nom ?? "Lonnii")
         {
             Owner = owner,
         }.ShowDialog();

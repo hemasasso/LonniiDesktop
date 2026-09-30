@@ -3,6 +3,7 @@ using System;
 using Lonnii.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Lonnii.Data.Migrations
 {
     [DbContext(typeof(LonniiDbContext))]
-    partial class LonniiDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260929204734_AddCaisseCarte")]
+    partial class AddCaisseCarte
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
@@ -194,11 +197,6 @@ namespace Lonnii.Data.Migrations
                     b.Property<string>("Reference")
                         .HasColumnType("TEXT")
                         .HasColumnName("reference");
-
-                    b.Property<string>("TableType")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("table_type");
 
                     b.HasKey("Id");
 
@@ -640,25 +638,6 @@ namespace Lonnii.Data.Migrations
                     b.HasIndex("GroupId");
 
                     b.ToTable("clients");
-                });
-
-            modelBuilder.Entity("Lonnii.Data.Entities.ComptabiliteParametres", b =>
-                {
-                    b.Property<string>("GroupId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("group_id");
-
-                    b.Property<bool>("CalculAutomatique")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("calcul_automatique");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("GroupId");
-
-                    b.ToTable("comptabilite_parametres");
                 });
 
             modelBuilder.Entity("Lonnii.Data.Entities.DashboardSubscription", b =>
@@ -2959,6 +2938,17 @@ namespace Lonnii.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Immobilisation");
+                });
+
+            modelBuilder.Entity("Lonnii.Data.Entities.BilanEcriture", b =>
+                {
+                    b.HasOne("Lonnii.Data.Entities.BilanCompte", "Compte")
+                        .WithMany()
+                        .HasForeignKey("CompteId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Compte");
                 });
 
             modelBuilder.Entity("Lonnii.Data.Entities.CaisseTransaction", b =>

@@ -97,6 +97,7 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
     public DbSet<BilanCompte> BilanComptes => Set<BilanCompte>();
     public DbSet<BilanEcriture> BilanEcritures => Set<BilanEcriture>();
     public DbSet<ResultatCompte> ResultatComptes => Set<ResultatCompte>();
+    public DbSet<ComptabiliteParametres> ComptabiliteParametres => Set<ComptabiliteParametres>();
     public DbSet<StockSnapshot> StockSnapshots => Set<StockSnapshot>();
 
     protected override void OnModelCreating(ModelBuilder b)
@@ -171,6 +172,7 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         [typeof(BilanCompte)] = "bilan_comptes",
         [typeof(BilanEcriture)] = "bilan_ecritures",
         [typeof(ResultatCompte)] = "resultat_comptes",
+        [typeof(ComptabiliteParametres)] = "comptabilite_parametres",
         [typeof(StockSnapshot)] = "stock_snapshots",
     };
 
@@ -642,10 +644,9 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
             e.HasIndex(x => x.GroupId);
             e.HasIndex(x => x.CompteId);
             e.HasIndex(x => x.DateEcriture);
-            // A plain REFERENCES in the source, so no cascade: an account with entries on it
-            // cannot be deleted out from under them.
-            e.HasOne(x => x.Compte).WithMany()
-                .HasForeignKey(x => x.CompteId).OnDelete(DeleteBehavior.Restrict);
+            // CompteId is a row of bilan_comptes or resultat_comptes depending on TableType -
+            // two different tables, so no single EF/DB foreign key can express it. The
+            // endpoints load and validate the account themselves before every write.
         });
 
         b.Entity<ResultatCompte>(e =>
@@ -655,6 +656,8 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
             e.HasIndex(x => x.TypeCompte);
             e.Property(x => x.NumeroCompte).HasMaxLength(20);
         });
+
+        b.Entity<ComptabiliteParametres>(e => e.HasKey(x => x.GroupId));
 
         // ON CONFLICT (group_id, annee) in gestionBilan.js: one value per group per year.
         b.Entity<StockSnapshot>(e => e.HasKey(x => new { x.GroupId, x.Annee }));

@@ -718,14 +718,20 @@ public partial class StockView : UserControl
         AnalyseStatsPanel.Children.Add(StatCard("En stock bas", lowStock.ToString(),
             (Brush)FindResource(lowStock > 0 ? "Danger" : "TextSecondary")));
 
-        // Only once a specific supplier is picked (AllSuppliers carries no id) - "montant dû"
-        // is a running balance on the supplier itself, not something to sum across all of
-        // them the way the cards above sum across whatever products are currently filtered.
-        if (_analyseSupplierId is not null
-            && _suppliers.FirstOrDefault(s => s.Id == _analyseSupplierId) is { } supplier)
+        // "Montant dû" is a running balance on the supplier itself, not derived from the
+        // product filter above - one supplier picked shows theirs; "Tous les fournisseurs"
+        // (AllSuppliers, no id) shows the total across every one of them instead.
+        if (_analyseSupplierId is not null)
         {
-            AnalyseStatsPanel.Children.Add(StatCard($"Montant dû ({supplier.Name})",
-                Money.Format(supplier.MontantDu), (Brush)FindResource(supplier.MontantDu > 0 ? "Danger" : "TextSecondary")));
+            if (_suppliers.FirstOrDefault(s => s.Id == _analyseSupplierId) is { } supplier)
+                AnalyseStatsPanel.Children.Add(StatCard($"Montant dû ({supplier.Name})",
+                    Money.Format(supplier.MontantDu), (Brush)FindResource(supplier.MontantDu > 0 ? "Danger" : "TextSecondary")));
+        }
+        else if (_suppliers.Count > 0)
+        {
+            var totalDu = _suppliers.Sum(s => s.MontantDu);
+            AnalyseStatsPanel.Children.Add(StatCard("Montant dû (tous fournisseurs)",
+                Money.Format(totalDu), (Brush)FindResource(totalDu > 0 ? "Danger" : "TextSecondary")));
         }
 
         RenderAnalyseCharts(products);

@@ -10,12 +10,14 @@ namespace Lonnii.Client.Views.Dialogs;
 public partial class AddPaymentDialog : Window
 {
     private string _modePaiement = "cash";
+    private readonly decimal _montantRestant;
 
     public decimal Montant { get; private set; }
     public string ModePaiement => _modePaiement;
 
     public AddPaymentDialog(string numeroVente, decimal montantRestant)
     {
+        _montantRestant = montantRestant;
         InitializeComponent();
         SubtitleText.Text = $"Vente {numeroVente} — restant à payer : {Money.Format(montantRestant)}";
 
@@ -57,7 +59,17 @@ public partial class AddPaymentDialog : Window
         UpdateMonnaieARendre();
     }
 
-    private void MontantRecu_TextChanged(object sender, TextChangedEventArgs e) => UpdateMonnaieARendre();
+    /// <summary>Drives Montant from what was actually handed over: capped at what remains
+    /// owed, since a cash-only overpayment is change to give back, not something to apply to
+    /// the sale. Left alone if the box is cleared, so the cashier can still type Montant by
+    /// hand for a partial instalment with no "received" figure to type at all.</summary>
+    private void MontantRecu_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (Money.TryParse(MontantRecuBox.Text, out decimal recu) && recu > 0)
+            MontantBox.Text = Money.FormatPlain(Math.Min(recu, _montantRestant), 2);
+
+        UpdateMonnaieARendre();
+    }
 
     private void MontantRecu_LostFocus(object sender, RoutedEventArgs e)
     {

@@ -630,8 +630,12 @@
                                  now also competing for space here, three separate rows plus the
                                  popup pushed this section past its scroll cap on a short screen. -->
                             <Grid Margin="0,0,0,6">
+                                <!-- Nom kept noticeably wider than Téléphone/Email - a client
+                                     name needs the room to actually stay readable once picked
+                                     from the suggestion list; a phone number or short email
+                                     does not need nearly as much. -->
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="1.3*" />
+                                    <ColumnDefinition Width="1.8*" />
                                     <ColumnDefinition Width="8" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="8" />

@@ -518,7 +518,9 @@ public sealed record VenteListItemDto(
     bool IsAvoirSolded,
     string StatutPaiement,
     string? CancellationReason,
-    string? ModePaiement);
+    string? ModePaiement,
+    string? ClientTelephone = null,
+    string? ClientEmail = null);
 
 /// <summary>Response of <c>GET /api/ventes</c>.</summary>
 public sealed record VentesListResponse(IReadOnlyList<VenteListItemDto> Ventes);
@@ -530,9 +532,11 @@ public sealed record AddPaiementRequest(
 /// <summary>Cancels a sale; <paramref name="Motif"/> is mandatory, same as Lonnii Business.</summary>
 public sealed record CancelVenteRequest(string Motif);
 
-/// <summary>Edits a sale's client name and/or date - fields sometimes forgotten at creation
-/// time, which otherwise skews analytics. At least one of the two must be supplied.</summary>
-public sealed record EditVenteRequest(string? ClientNom, DateTime? DateVente);
+/// <summary>Edits a sale's client details - name, date, phone and email are all sometimes
+/// forgotten or wrong at creation time, which otherwise skews analytics and stale contact
+/// info. At least one field must be supplied; each null one is simply left untouched.</summary>
+public sealed record EditVenteRequest(
+    string? ClientNom, DateTime? DateVente, string? ClientTelephone = null, string? ClientEmail = null);
 
 // --- Ventes: Statistiques ---
 

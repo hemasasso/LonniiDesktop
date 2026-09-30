@@ -167,7 +167,8 @@ public static class VentesEndpoints
             v.Id, v.NumeroVente, v.DateVente, v.ClientNom, NameFor(v.CreatedBy),
             v.MontantTotal, v.MontantPaye, v.MontantRestant,
             v.AvoirAmount, v.IsAvoirSolded,
-            StatutPaiement.Normalise(v.StatutPaiement), v.CancellationReason, v.ModePaiement))
+            StatutPaiement.Normalise(v.StatutPaiement), v.CancellationReason, v.ModePaiement,
+            v.ClientTelephone, v.ClientEmail))
             .ToList();
 
         return Results.Ok(new VentesListResponse(items));
@@ -519,12 +520,14 @@ public static class VentesEndpoints
         return Results.Ok(new { success = true, avoirSoldedByName = soldeurNom });
     }
 
-    /// <summary>Edits a sale's client name and/or date - fields sometimes forgotten at sale
-    /// time, which otherwise skews analytics. Mirrors <c>PUT /:id</c>.</summary>
+    /// <summary>Edits a sale's client details and/or date - fields sometimes forgotten or
+    /// wrong at sale time, which otherwise skews analytics and leaves stale contact info.
+    /// Mirrors <c>PUT /:id</c>.</summary>
     private static async Task<IResult> EditVenteAsync(
         string id, EditVenteRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
-        if (request.ClientNom is null && request.DateVente is null)
+        if (request.ClientNom is null && request.DateVente is null
+            && request.ClientTelephone is null && request.ClientEmail is null)
             return Results.BadRequest(new ApiError("Aucune modification fournie"));
 
         var vente = await db.Ventes.FirstOrDefaultAsync(v => v.Id == id && v.GroupId == scope.GroupId, ct);
@@ -532,6 +535,8 @@ public static class VentesEndpoints
 
         if (request.ClientNom is not null) vente.ClientNom = Blank(request.ClientNom);
         if (request.DateVente is { } date) vente.DateVente = date;
+        if (request.ClientTelephone is not null) vente.ClientTelephone = Blank(request.ClientTelephone);
+        if (request.ClientEmail is not null) vente.ClientEmail = Blank(request.ClientEmail);
         vente.UpdatedBy = scope.UserId;
         vente.UpdatedAt = DateTime.UtcNow;
 

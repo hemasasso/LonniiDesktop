@@ -16,6 +16,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Margin="0,0,0,14">
@@ -59,12 +60,28 @@
             </Border>
         </StackPanel>
 
-        <StackPanel Grid.Row="2">
+        <Grid Grid.Row="2" Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="14" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="Téléphone" Style="{StaticResource FieldLabel}" />
+                <TextBox x:Name="ClientTelephoneBox" Padding="8,6" />
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+                <TextBlock Text="Email" Style="{StaticResource FieldLabel}" />
+                <TextBox x:Name="ClientEmailBox" Padding="8,6" />
+            </StackPanel>
+        </Grid>
+
+        <StackPanel Grid.Row="3">
             <TextBlock Text="Date de vente" Style="{StaticResource FieldLabel}" />
             <DatePicker x:Name="DateVentePicker" Margin="0,4,0,0" Padding="8,6" />
         </StackPanel>
 
-        <Border x:Name="ErrorPanel" Grid.Row="3" Visibility="Collapsed"
+        <Border x:Name="ErrorPanel" Grid.Row="4" Visibility="Collapsed"
                 VerticalAlignment="Top" Margin="0,10,0,0"
                 Background="{DynamicResource DangerLight}"
                 BorderBrush="{DynamicResource Danger}" BorderThickness="1"
@@ -73,7 +90,7 @@
                        TextWrapping="Wrap" FontSize="12" />
         </Border>
 
-        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
             <Button Content="Annuler" Style="{StaticResource SecondaryButton}"
                     Margin="0,0,8,0" Click="Cancel_Click" />
             <Button Content="Enregistrer" IsDefault="True"

@@ -1011,7 +1011,10 @@ public partial class VentesView : UserControl
 
         ClientSuggestPopup.IsOpen = false;
         ClientNomBox.Focus();
-        ClientNomBox.CaretIndex = ClientNomBox.Text.Length;
+        // Start, not end: the box is narrower than most full names, and putting the caret at
+        // the end scrolled the box to show only the tail of the name - reading as if picking a
+        // suggestion had cleared the field instead of filling it.
+        ClientNomBox.CaretIndex = 0;
         UpdateClientDue();
     }
 
@@ -2096,7 +2099,8 @@ public partial class VentesView : UserControl
 
     private async Task EditVenteAsync(VenteListItemDto vente)
     {
-        var dialog = new EditVenteDialog(_session, vente.NumeroVente, vente.ClientNom, vente.DateVente)
+        var dialog = new EditVenteDialog(
+            _session, vente.NumeroVente, vente.ClientNom, vente.DateVente, vente.ClientTelephone, vente.ClientEmail)
         {
             Owner = Window.GetWindow(this),
         };
@@ -2105,7 +2109,8 @@ public partial class VentesView : UserControl
         SetBusy(true);
         try
         {
-            await _session.Api.EditVenteAsync(vente.Id, new EditVenteRequest(dialog.ClientNom, dialog.DateVente));
+            await _session.Api.EditVenteAsync(vente.Id,
+                new EditVenteRequest(dialog.ClientNom, dialog.DateVente, dialog.ClientTelephone, dialog.ClientEmail));
             await LoadVentesAsync();
         }
         catch (ApiException ex)

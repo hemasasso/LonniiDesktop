@@ -15,6 +15,8 @@ public partial class EditVenteDialog : Window
 
     public string? ClientNom { get; private set; }
     public DateTime? DateVente { get; private set; }
+    public string? ClientTelephone { get; private set; }
+    public string? ClientEmail { get; private set; }
 
     private sealed record ClientSuggestion(ClientDto Client)
     {
@@ -26,12 +28,16 @@ public partial class EditVenteDialog : Window
         }.Where(s => !string.IsNullOrWhiteSpace(s)));
     }
 
-    public EditVenteDialog(AppSession session, string numeroVente, string? currentClientNom, DateTime currentDateVente)
+    public EditVenteDialog(
+        AppSession session, string numeroVente, string? currentClientNom, DateTime currentDateVente,
+        string? currentClientTelephone = null, string? currentClientEmail = null)
     {
         _session = session;
         InitializeComponent();
         SubtitleText.Text = $"Vente {numeroVente}";
         ClientNomBox.Text = currentClientNom ?? string.Empty;
+        ClientTelephoneBox.Text = currentClientTelephone ?? string.Empty;
+        ClientEmailBox.Text = currentClientEmail ?? string.Empty;
         DateVentePicker.SelectedDate = currentDateVente.ToLocalTime().Date;
         Loaded += async (_, _) =>
         {
@@ -140,6 +146,8 @@ public partial class EditVenteDialog : Window
     private void PickClient(ClientDto client)
     {
         ClientNomBox.Text = client.Nom;
+        if (!string.IsNullOrWhiteSpace(client.Telephone)) ClientTelephoneBox.Text = client.Telephone;
+        if (!string.IsNullOrWhiteSpace(client.Email)) ClientEmailBox.Text = client.Email;
         ClientSuggestPopup.IsOpen = false;
         ClientNomBox.Focus();
         ClientNomBox.CaretIndex = ClientNomBox.Text.Length;
@@ -155,8 +163,13 @@ public partial class EditVenteDialog : Window
             return;
         }
 
+        // Always sent, even blank - like ClientNom below, an empty string still reaches the
+        // server (never plain null) so clearing the box actually clears the stored value
+        // instead of the request's own null-means-unchanged rule silently keeping the old one.
         ClientNom = ClientNomBox.Text.Trim();
         DateVente = date;
+        ClientTelephone = ClientTelephoneBox.Text.Trim();
+        ClientEmail = ClientEmailBox.Text.Trim();
         DialogResult = true;
     }
 

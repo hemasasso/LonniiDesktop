@@ -25,7 +25,38 @@
 
         <StackPanel Grid.Row="1" Margin="0,0,0,12">
             <TextBlock Text="Client" Style="{StaticResource FieldLabel}" />
-            <TextBox x:Name="ClientNomBox" Margin="0,4,0,0" Padding="8,6" />
+            <TextBox x:Name="ClientNomBox" Margin="0,4,0,0" Padding="8,6"
+                     TextChanged="ClientNom_TextChanged" PreviewKeyDown="ClientNom_PreviewKeyDown" />
+            <!-- Known clients matching what is typed, best customers first - same popup as
+                 Nouvelle Vente's own client field, so a name shared by several clients (or one
+                 who still owes) is just as easy to tell apart here. -->
+            <Popup x:Name="ClientSuggestPopup" PlacementTarget="{Binding ElementName=ClientNomBox}"
+                   Placement="Bottom" StaysOpen="False" AllowsTransparency="True"
+                   Width="{Binding ActualWidth, ElementName=ClientNomBox}">
+                <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Border}"
+                        BorderThickness="1">
+                    <ListBox x:Name="ClientSuggestList" MaxHeight="200" BorderThickness="0"
+                             PreviewMouseLeftButtonUp="ClientSuggest_MouseUp"
+                             KeyDown="ClientSuggest_KeyDown">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="2">
+                                    <TextBlock Text="{Binding Nom}" FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding Detail}" FontSize="11"
+                                               Foreground="{DynamicResource TextMuted}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Border>
+            </Popup>
+            <!-- Shown as soon as the typed name exactly matches a client who still owes. -->
+            <Border x:Name="ClientDuePanel" Visibility="Collapsed" Margin="0,6,0,0" Padding="10,6"
+                    Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Warning}"
+                    BorderThickness="1" CornerRadius="3">
+                <TextBlock x:Name="ClientDueText" TextWrapping="Wrap" FontSize="12" FontWeight="SemiBold"
+                           Foreground="{DynamicResource Warning}" />
+            </Border>
         </StackPanel>
 
         <StackPanel Grid.Row="2">

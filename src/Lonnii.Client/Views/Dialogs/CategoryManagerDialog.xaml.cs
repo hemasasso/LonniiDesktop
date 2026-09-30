@@ -18,8 +18,11 @@ namespace Lonnii.Client.Views.Dialogs;
 /// </summary>
 public partial class CategoryManagerDialog : Window
 {
+    private const int PageSize = 20;
+
     private readonly AppSession _session;
     private List<Row> _rows = [];
+    private int _page = 1;
 
     /// <summary>A category paired with its downloaded thumbnail, for the grid's photo column.</summary>
     private sealed record Row(CategoryDto Category, BitmapImage? Thumbnail);
@@ -39,19 +42,31 @@ public partial class CategoryManagerDialog : Window
             var categories = await _session.Api.GetCategoriesAsync();
             _rows = await BuildRowsAsync(categories);
 
-            CategoryGrid.ItemsSource = _rows;
             SummaryText.Text = $"{_rows.Count} catégorie(s)";
             EmptyPanel.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            RenderPage();
             HideError();
         }
         catch (ApiException ex)
         {
             ShowError(ex.Message);
         }
-        finally
-        {
-            Grid_SelectionChanged(this, null!);
-        }
+    }
+
+    private void RenderPage()
+    {
+        var pageCount = Math.Max(1, (int)Math.Ceiling(_rows.Count / (double)PageSize));
+        _page = Math.Clamp(_page, 1, pageCount);
+        Pager.Configure(_page, pageCount);
+
+        CategoryGrid.ItemsSource = _rows.Skip((_page - 1) * PageSize).Take(PageSize).ToList();
+        Grid_SelectionChanged(this, null!);
+    }
+
+    private void Pager_PageChanged(object? sender, EventArgs e)
+    {
+        _page = Pager.CurrentPage;
+        RenderPage();
     }
 
     /// <summary>

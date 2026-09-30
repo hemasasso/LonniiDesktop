@@ -1,6 +1,7 @@
 <Window x:Class="Lonnii.Client.Views.Dialogs.CategoryManagerDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:Lonnii.Client.Controls"
         Title="Catégories"
         Height="560" Width="740"
         MinHeight="420" MinWidth="620"
@@ -41,6 +42,11 @@
                 <Button Content="Fermer" IsCancel="True" IsDefault="True"
                         HorizontalAlignment="Right" Style="{StaticResource SecondaryButton}" />
             </Grid>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" Padding="18,8"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
+            <controls:PaginationBar x:Name="Pager" PageChanged="Pager_PageChanged" />
         </Border>
 
         <Grid>

@@ -479,9 +479,7 @@ public partial class VentesView : UserControl
 
         var first = _products.Count == 0 ? 0 : (_catalogPage - 1) * _catalogPageSize + 1;
         CatalogCountText.Text = $"{first}–{first + page.Count - (page.Count > 0 ? 1 : 0)} sur {_products.Count} produit(s)";
-        CatalogPageText.Text = $"Page {_catalogPage} / {pageCount}";
-        CatalogPrevButton.IsEnabled = _catalogPage > 1;
-        CatalogNextButton.IsEnabled = _catalogPage < pageCount;
+        CatalogPagerBar.Configure(_catalogPage, pageCount);
 
         var rows = new List<CatalogRow>(page.Count);
 
@@ -512,15 +510,9 @@ public partial class VentesView : UserControl
         ProductScroll.ScrollToTop();
     }
 
-    private async void CatalogPrev_Click(object sender, RoutedEventArgs e)
+    private async void CatalogPagerBar_PageChanged(object? sender, EventArgs e)
     {
-        _catalogPage--;
-        await LoadCatalogueAsync();
-    }
-
-    private async void CatalogNext_Click(object sender, RoutedEventArgs e)
-    {
-        _catalogPage++;
+        _catalogPage = CatalogPagerBar.CurrentPage;
         await LoadCatalogueAsync();
     }
 
@@ -1708,18 +1700,9 @@ public partial class VentesView : UserControl
         }
     }
 
-    private void VentePrevPage_Click(object sender, RoutedEventArgs e)
+    private void VentePagerBar_PageChanged(object? sender, EventArgs e)
     {
-        if (_ventePage <= 1) return;
-        _ventePage--;
-        RenderVenteList();
-    }
-
-    private void VenteNextPage_Click(object sender, RoutedEventArgs e)
-    {
-        var totalPages = Math.Max(1, (int)Math.Ceiling(_ventes.Count / (double)VentePageSize));
-        if (_ventePage >= totalPages) return;
-        _ventePage++;
+        _ventePage = VentePagerBar.CurrentPage;
         RenderVenteList();
     }
 
@@ -1750,9 +1733,7 @@ public partial class VentesView : UserControl
             VenteListRows.Items.Add(BuildVenteRow(vente));
 
         VentePaginationPanel.Visibility = _ventes.Count > VentePageSize ? Visibility.Visible : Visibility.Collapsed;
-        VentePaginationText.Text = $"Page {_ventePage} sur {totalPages} ({_ventes.Count} ventes)";
-        VentePrevPageButton.IsEnabled = _ventePage > 1;
-        VenteNextPageButton.IsEnabled = _ventePage < totalPages;
+        VentePagerBar.Configure(_ventePage, totalPages);
     }
 
     /// <summary>Assigns a brush by resource key the same way <c>DynamicResource</c> does in
@@ -2062,7 +2043,7 @@ public partial class VentesView : UserControl
 
     private async Task EditVenteAsync(VenteListItemDto vente)
     {
-        var dialog = new EditVenteDialog(vente.NumeroVente, vente.ClientNom, vente.DateVente)
+        var dialog = new EditVenteDialog(_session, vente.NumeroVente, vente.ClientNom, vente.DateVente)
         {
             Owner = Window.GetWindow(this),
         };

@@ -17,9 +17,22 @@ public partial class AddPaymentDialog : Window
     {
         InitializeComponent();
         SubtitleText.Text = $"Vente {numeroVente} — restant à payer : {Money.Format(montantRestant)}";
-        MontantBox.Text = Money.FormatPlain(montantRestant);
+
+        // Left empty rather than pre-filled with the amount owed: a cashier who is not
+        // actually collecting that whole amount today (a partial instalment) would otherwise
+        // have to notice and overwrite it, instead of just typing what was actually handed over.
+        MontantBox.Text = string.Empty;
+
+        // Grouped as "1 000,25", same convention as every other money field - reformatted only
+        // once typing is done, or it would fight the caret over the group spaces mid-entry.
+        MontantBox.LostFocus += (_, _) =>
+        {
+            if (Money.TryParse(MontantBox.Text, out decimal montant))
+                MontantBox.Text = Money.FormatPlain(montant, 2);
+        };
+
         ApplyPaymentVisuals();
-        Loaded += (_, _) => { MontantBox.Focus(); MontantBox.SelectAll(); };
+        Loaded += (_, _) => MontantBox.Focus();
     }
 
     private void PaymentMode_Click(object sender, RoutedEventArgs e)

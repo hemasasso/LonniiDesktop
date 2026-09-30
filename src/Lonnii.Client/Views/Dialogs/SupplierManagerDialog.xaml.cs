@@ -14,8 +14,12 @@ namespace Lonnii.Client.Views.Dialogs;
 /// </summary>
 public partial class SupplierManagerDialog : Window
 {
+    private const int PageSize = 20;
+
     private readonly AppSession _session;
     private List<Row> _rows = [];
+    private List<Row> _filtered = [];
+    private int _page = 1;
 
     private sealed record Row(SupplierDto Supplier)
     {
@@ -37,19 +41,48 @@ public partial class SupplierManagerDialog : Window
             var suppliers = await _session.Api.GetSuppliersAsync();
             _rows = suppliers.Select(s => new Row(s)).ToList();
 
-            SupplierGrid.ItemsSource = _rows;
             SummaryText.Text = $"{_rows.Count} fournisseur(s)";
             EmptyPanel.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            ApplyFilter();
             HideError();
         }
         catch (ApiException ex)
         {
             ShowError(ex.Message);
         }
-        finally
-        {
-            Grid_SelectionChanged(this, null!);
-        }
+    }
+
+    private void ApplyFilter()
+    {
+        var text = SearchBox.Text.Trim();
+        _filtered = text.Length == 0
+            ? _rows
+            : _rows.Where(r => r.Supplier.Name.Contains(text, StringComparison.CurrentCultureIgnoreCase)).ToList();
+
+        _page = 1;
+        RenderPage();
+    }
+
+    private void RenderPage()
+    {
+        var pageCount = Math.Max(1, (int)Math.Ceiling(_filtered.Count / (double)PageSize));
+        _page = Math.Clamp(_page, 1, pageCount);
+        Pager.Configure(_page, pageCount);
+
+        SupplierGrid.ItemsSource = _filtered.Skip((_page - 1) * PageSize).Take(PageSize).ToList();
+        Grid_SelectionChanged(this, null!);
+    }
+
+    private void Pager_PageChanged(object? sender, EventArgs e)
+    {
+        _page = Pager.CurrentPage;
+        RenderPage();
+    }
+
+    private void Search_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        SearchPlaceholder.Visibility = SearchBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ApplyFilter();
     }
 
     private Row? Selected => SupplierGrid.SelectedItem as Row;

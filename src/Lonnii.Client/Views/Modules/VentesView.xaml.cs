@@ -50,7 +50,6 @@ public partial class VentesView : UserControl
     // --- Statistiques ---
     private VentesStatsResponse? _stats;
     private List<ProductDto> _statsProducts = [];
-    private List<SupplierDto> _statsSuppliers = [];
     private string? _statsCategoryId;
     private string? _statsProductId;
     private DateOnly? _statsDateDebut;
@@ -89,7 +88,6 @@ public partial class VentesView : UserControl
     private readonly bool _canCancelVente;
     private readonly bool _canExportVentes;
     private readonly bool _canManageClients;
-    private readonly bool _canManageSuppliers;
 
     /// <summary>Which of the three module tabs this user may open at all - a preparer with
     /// only can_create_vente should never see "Liste des Ventes" or "Statistiques" buttons
@@ -209,7 +207,6 @@ public partial class VentesView : UserControl
         _canCancelVente = _session.Can(Priv.Gestion.CancelVente);
         _canExportVentes = _session.Can(Priv.Gestion.ExportVentes);
         _canManageClients = _session.Can(Priv.Gestion.ManageClients);
-        _canManageSuppliers = _session.Can(Priv.Gestion.ManageSuppliers);
         _canCreateVenteTab = _session.Can(Priv.Gestion.CreateVente);
         _canViewVentesListTab = _session.Can(Priv.Gestion.ViewVentes);
         _canViewStatistiquesTab = _session.Can(Priv.Gestion.ViewVentesAnalytics);
@@ -223,7 +220,6 @@ public partial class VentesView : UserControl
         RemiseCurrencyText.Text = _session.Groupe?.CurrencyLabel ?? Money.Label;
         ExportVentesButton.Visibility = _canExportVentes ? Visibility.Visible : Visibility.Collapsed;
         ClientsButton.Visibility = _canManageClients ? Visibility.Visible : Visibility.Collapsed;
-        FournisseurButton.Visibility = _canManageSuppliers ? Visibility.Visible : Visibility.Collapsed;
         RemiseGlobalePanel.Visibility = _canApplyDiscount ? Visibility.Visible : Visibility.Collapsed;
 
         OpenCaisseButton.Visibility = _canAddPayment ? Visibility.Visible : Visibility.Collapsed;
@@ -559,7 +555,10 @@ public partial class VentesView : UserControl
             // ButtonContentText binds back to this button's own Foreground instead.
             Content = new TextBlock { Text = label, Style = (Style)FindResource("ButtonContentText") },
             Tag = categoryId,
-            Margin = new Thickness(0, 0, 6, 0),
+            // Bottom margin, not just right: with none, the ScrollViewer's own horizontal
+            // scrollbar (shown once the pills overflow the window's width) rendered flush
+            // against the pill's bottom edge, touching the text.
+            Margin = new Thickness(0, 0, 6, 6),
             Style = (Style)FindResource("ModuleTabButton"),
         };
         button.Click += async (_, _) =>
@@ -1030,21 +1029,6 @@ public partial class VentesView : UserControl
             VenteSearchBox.Text = nom;
             await SetActiveTabAsync("liste");
             await LoadVentesAsync();
-        }
-    }
-
-    /// <summary>Opens the same Fournisseur manager Stock does - a shortcut so checking or
-    /// updating what is owed to a supplier does not require leaving Ventes. Refreshes the
-    /// Statistiques tab's own supplier combo afterward, in case a montant dû just changed.</summary>
-    private async void Fournisseur_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new SupplierManagerDialog(_session) { Owner = Window.GetWindow(this) };
-        dialog.ShowDialog();
-
-        if (StatsSupplierCombo.Items.Count > 0)
-        {
-            await PopulateStatsSupplierComboAsync();
-            StatsSupplierDuePanel.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -2150,48 +2134,8 @@ public partial class VentesView : UserControl
         }
 
         if (StatsCategoryCombo.Items.Count == 0) BuildStatsFilterCombos();
-        if (_canManageSuppliers && StatsSupplierCombo.Items.Count == 0) await PopulateStatsSupplierComboAsync();
 
         await LoadStatsAsync();
-    }
-
-    /// <summary>The supplier lookup is gated on can_manage_suppliers, same as the Fournisseur
-    /// button itself - showing "montant dû" to someone who cannot even open the supplier
-    /// manager would surface a figure they have no other way to act on or verify.</summary>
-    private async Task PopulateStatsSupplierComboAsync()
-    {
-        try
-        {
-            _statsSuppliers = await _session.Api.GetSuppliersAsync();
-        }
-        catch (ApiException)
-        {
-            return;
-        }
-
-        StatsSupplierCombo.Items.Clear();
-        StatsSupplierCombo.Items.Add(new ComboBoxItem { Content = "Fournisseur…", Tag = null, IsSelected = true });
-        foreach (var supplier in _statsSuppliers.Where(s => s.IsActive).OrderBy(s => s.Name))
-            StatsSupplierCombo.Items.Add(new ComboBoxItem { Content = supplier.Name, Tag = supplier.Id });
-    }
-
-    /// <summary>Not a stats filter - a vente has no supplier to match against - just shows what
-    /// the shop owes whichever one is picked, the same figure Fournisseurs' own grid shows.</summary>
-    private void StatsSupplier_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        var supplierId = (StatsSupplierCombo.SelectedItem as ComboBoxItem)?.Tag as string;
-        var supplier = _statsSuppliers.FirstOrDefault(s => s.Id == supplierId);
-
-        if (supplier is null)
-        {
-            StatsSupplierDuePanel.Visibility = Visibility.Collapsed;
-            return;
-        }
-
-        StatsSupplierDueText.Text = supplier.MontantDu > 0
-            ? $"Montant dû à {supplier.Name} : {Money.Format(supplier.MontantDu)}"
-            : $"Rien dû à {supplier.Name}.";
-        StatsSupplierDuePanel.Visibility = Visibility.Visible;
     }
 
     /// <summary>True while the product combo is being rebuilt after a category change, so

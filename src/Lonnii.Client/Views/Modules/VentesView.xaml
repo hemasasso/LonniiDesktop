@@ -76,21 +76,11 @@
                 <Rectangle Width="1" Margin="6,4,12,4" Fill="{DynamicResource Border}" />
                 <!-- Not a tab: the client space opens in its own window, like Fournisseurs in Stock. -->
                 <Button x:Name="ClientsButton" Style="{StaticResource SecondaryButton}" Click="Clients_Click"
-                        Margin="0,0,6,0" ToolTip="Clients : classement par achats, créances, fiches">
+                        ToolTip="Clients : classement par achats, créances, fiches">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="&#xE716;" FontFamily="Segoe MDL2 Assets"
                                    Style="{StaticResource ButtonContentText}" Margin="0,0,6,0" />
                         <TextBlock Text="Clients" Style="{StaticResource ButtonContentText}" />
-                    </StackPanel>
-                </Button>
-                <!-- Same shortcut as Clients just above, for the other side of the ledger:
-                     what the shop owes, rather than what it is owed. -->
-                <Button x:Name="FournisseurButton" Style="{StaticResource SecondaryButton}" Click="Fournisseur_Click"
-                        ToolTip="Fournisseurs : coordonnées, montant dû">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="&#xE7BF;" FontFamily="Segoe MDL2 Assets"
-                                   Style="{StaticResource ButtonContentText}" Margin="0,0,6,0" />
-                        <TextBlock Text="Fournisseurs" Style="{StaticResource ButtonContentText}" />
                     </StackPanel>
                 </Button>
             </StackPanel>
@@ -131,20 +121,8 @@
                             </ComboBox>
                             <ComboBox x:Name="StatsCategoryCombo" Width="170" Margin="0,0,8,0"
                                       SelectionChanged="StatsFilters_Changed" />
-                            <ComboBox x:Name="StatsProductCombo" Width="200" Margin="0,0,8,0"
+                            <ComboBox x:Name="StatsProductCombo" Width="200"
                                       SelectionChanged="StatsFilters_Changed" />
-                            <!-- A standalone lookup, not a filter on the stats below - a
-                                 supplier is never attached to a vente, so there is nothing here
-                                 for it to filter. Picking one just shows what is owed to them. -->
-                            <ComboBox x:Name="StatsSupplierCombo" Width="200"
-                                      SelectionChanged="StatsSupplier_Changed" />
-                            <Border x:Name="StatsSupplierDuePanel" Visibility="Collapsed" Margin="10,0,0,0"
-                                    Padding="10,4" VerticalAlignment="Center"
-                                    Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Warning}"
-                                    BorderThickness="1" CornerRadius="3">
-                                <TextBlock x:Name="StatsSupplierDueText" FontSize="12" FontWeight="SemiBold"
-                                           Foreground="{DynamicResource Warning}" />
-                            </Border>
                         </StackPanel>
                         <Button Grid.Column="1" Style="{StaticResource SecondaryButton}" Click="RefreshStats_Click">
                             <StackPanel Orientation="Horizontal">

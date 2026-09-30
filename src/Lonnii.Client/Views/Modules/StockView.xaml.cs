@@ -215,7 +215,9 @@ public partial class StockView : UserControl
         DeleteMenuItem.IsEnabled = _session.Can(Priv.Gestion.DeleteProducts);
         HistoryMenuItem.IsEnabled = _session.Can(Priv.Gestion.ViewStockHistory);
         CategoriesMenuItem.IsEnabled = _session.Can(Priv.Gestion.ManageCategories);
-        SuppliersMenuItem.IsEnabled = _session.Can(Priv.Gestion.ManageSuppliers);
+        // Visibility, not IsEnabled, matching Ventes' Clients button: this is its own
+        // top-level button now, not a "⋯ Plus" menu entry a disabled state would just grey out.
+        SuppliersButton.Visibility = _session.Can(Priv.Gestion.ManageSuppliers) ? Visibility.Visible : Visibility.Collapsed;
         ExportButton.IsEnabled = _session.Can(Priv.Gestion.ExportStockData);
 
         // An admin-only privilege never resolves true for a member, so say why it is greyed out.
@@ -715,6 +717,16 @@ public partial class StockView : UserControl
             AnalyseStatsPanel.Children.Add(StatCard("Marge potentielle", Money.FormatPlain(margin, 2), (Brush)FindResource("Success")));
         AnalyseStatsPanel.Children.Add(StatCard("En stock bas", lowStock.ToString(),
             (Brush)FindResource(lowStock > 0 ? "Danger" : "TextSecondary")));
+
+        // Only once a specific supplier is picked (AllSuppliers carries no id) - "montant dû"
+        // is a running balance on the supplier itself, not something to sum across all of
+        // them the way the cards above sum across whatever products are currently filtered.
+        if (_analyseSupplierId is not null
+            && _suppliers.FirstOrDefault(s => s.Id == _analyseSupplierId) is { } supplier)
+        {
+            AnalyseStatsPanel.Children.Add(StatCard($"Montant dû ({supplier.Name})",
+                Money.Format(supplier.MontantDu), (Brush)FindResource(supplier.MontantDu > 0 ? "Danger" : "TextSecondary")));
+        }
 
         RenderAnalyseCharts(products);
 

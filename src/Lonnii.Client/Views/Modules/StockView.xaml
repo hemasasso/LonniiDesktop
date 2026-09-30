@@ -46,12 +46,24 @@
                         <TextBlock Text="Stock" Style="{StaticResource ButtonContentText}" />
                     </StackPanel>
                 </Button>
-                <Button x:Name="AnalyseTabButton" Margin="0,0,20,6"
+                <Button x:Name="AnalyseTabButton" Margin="0,0,6,6"
                         Style="{StaticResource ModuleTabButton}" Click="AnalyseTab_Click">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="&#xE9D2;" FontFamily="Segoe MDL2 Assets"
                                    Style="{StaticResource ButtonContentText}" Margin="0,0,6,0" />
                         <TextBlock Text="Analyse" Style="{StaticResource ButtonContentText}" />
+                    </StackPanel>
+                </Button>
+                <!-- Not a tab: opens in its own window, same as Ventes' own Clients button
+                     sitting next to its Statistiques tab. Moved out of the "⋯ Plus" menu below
+                     so checking or updating a montant dû does not need a detour through it. -->
+                <Button x:Name="SuppliersButton" Margin="0,0,20,6"
+                        Style="{StaticResource SecondaryButton}" Click="Suppliers_Click"
+                        ToolTip="Fournisseurs : coordonnées, montant dû">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE7BF;" FontFamily="Segoe MDL2 Assets"
+                                   Style="{StaticResource ButtonContentText}" Margin="0,0,6,0" />
+                        <TextBlock Text="Fournisseurs" Style="{StaticResource ButtonContentText}" />
                     </StackPanel>
                 </Button>
 
@@ -124,7 +136,6 @@
                                 <MenuItem x:Name="DeleteMenuItem" Header="Supprimer" Click="Delete_Click" />
                                 <Separator />
                                 <MenuItem x:Name="CategoriesMenuItem" Header="Catégories…" Click="Categories_Click" />
-                                <MenuItem x:Name="SuppliersMenuItem" Header="Fournisseurs…" Click="Suppliers_Click" />
                                 <MenuItem Header="Actualiser" Click="Refresh_Click" />
                             </ContextMenu>
                         </Button.ContextMenu>

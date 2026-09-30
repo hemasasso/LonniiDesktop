@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace Lonnii.Client.Views.Dialogs;
 
@@ -30,6 +31,7 @@ public partial class AddPaymentDialog : Window
             if (Money.TryParse(MontantBox.Text, out decimal montant))
                 MontantBox.Text = Money.FormatPlain(montant, 2);
         };
+        MontantBox.TextChanged += (_, _) => UpdateMonnaieARendre();
 
         ApplyPaymentVisuals();
         Loaded += (_, _) => MontantBox.Focus();
@@ -49,6 +51,38 @@ public partial class AddPaymentDialog : Window
         PaymentCashButton.Style = _modePaiement == "cash" ? primary : secondary;
         PaymentMobileButton.Style = _modePaiement == "mobile_money" ? primary : secondary;
         PaymentCarteButton.Style = _modePaiement == "carte" ? primary : secondary;
+
+        MontantRecuPanel.Visibility = _modePaiement == "cash" ? Visibility.Visible : Visibility.Collapsed;
+        if (_modePaiement != "cash") MontantRecuBox.Text = string.Empty;
+        UpdateMonnaieARendre();
+    }
+
+    private void MontantRecu_TextChanged(object sender, TextChangedEventArgs e) => UpdateMonnaieARendre();
+
+    private void MontantRecu_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (Money.TryParse(MontantRecuBox.Text, out decimal recu) && recu > 0)
+            MontantRecuBox.Text = Money.FormatPlain(recu, 2);
+    }
+
+    /// <summary>Change is measured against Montant (what is actually being applied to the
+    /// sale), not the amount still owed - the cashier may only be collecting part of it.</summary>
+    private void UpdateMonnaieARendre()
+    {
+        if (MontantRecuPanel.Visibility != Visibility.Visible) return;
+
+        if (!Money.TryParse(MontantRecuBox.Text, out decimal recu) || recu <= 0
+            || !Money.TryParse(MontantBox.Text, out decimal montant))
+        {
+            MonnaieARendreText.Text = string.Empty;
+            return;
+        }
+
+        var difference = recu - montant;
+        MonnaieARendreText.Foreground = (Brush)FindResource(difference < 0 ? "Danger" : "Success");
+        MonnaieARendreText.Text = difference < 0
+            ? $"Il manque {Money.Format(-difference)}"
+            : $"Monnaie à rendre : {Money.Format(difference)}";
     }
 
     private void Confirm_Click(object sender, RoutedEventArgs e)

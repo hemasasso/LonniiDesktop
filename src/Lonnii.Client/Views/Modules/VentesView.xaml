@@ -626,11 +626,36 @@
                              neither checked, same as the payment-method row and for the
                              same reason: nothing would be done with what is typed here. -->
                         <StackPanel x:Name="ClientFieldsPanel">
+                            <!-- All three on one row, not stacked: with the Montant reçu panel
+                                 now also competing for space here, three separate rows plus the
+                                 popup pushed this section past its scroll cap on a short screen. -->
                             <Grid Margin="0,0,0,6">
-                                <TextBox x:Name="ClientNomBox" PreviewKeyDown="ClientNom_PreviewKeyDown" />
-                                <TextBlock x:Name="ClientNomPlaceholder" Text="Nom client (optionnel)"
-                                           Foreground="{DynamicResource TextMuted}" Margin="9,0,0,0"
-                                           VerticalAlignment="Center" IsHitTestVisible="False" />
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="1.3*" />
+                                    <ColumnDefinition Width="8" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="8" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid Grid.Column="0">
+                                    <TextBox x:Name="ClientNomBox" PreviewKeyDown="ClientNom_PreviewKeyDown"
+                                             ToolTip="Nom du client (optionnel)" />
+                                    <TextBlock x:Name="ClientNomPlaceholder" Text="Nom client"
+                                               Foreground="{DynamicResource TextMuted}" Margin="9,0,0,0"
+                                               VerticalAlignment="Center" IsHitTestVisible="False" />
+                                </Grid>
+                                <Grid Grid.Column="2">
+                                    <TextBox x:Name="ClientTelephoneBox" ToolTip="Téléphone du client (optionnel)" />
+                                    <TextBlock x:Name="ClientTelephonePlaceholder" Text="Téléphone"
+                                               Foreground="{DynamicResource TextMuted}" Margin="9,0,0,0"
+                                               VerticalAlignment="Center" IsHitTestVisible="False" />
+                                </Grid>
+                                <Grid Grid.Column="4">
+                                    <TextBox x:Name="ClientEmailBox" ToolTip="Email du client (optionnel)" />
+                                    <TextBlock x:Name="ClientEmailPlaceholder" Text="Email"
+                                               Foreground="{DynamicResource TextMuted}" Margin="9,0,0,0"
+                                               VerticalAlignment="Center" IsHitTestVisible="False" />
+                                </Grid>
                             </Grid>
                             <!-- Known clients matching what is typed, best customers first. -->
                             <Popup x:Name="ClientSuggestPopup" PlacementTarget="{Binding ElementName=ClientNomBox}"
@@ -653,28 +678,6 @@
                                     </ListBox>
                                 </Border>
                             </Popup>
-                            <!-- Téléphone and email share a row - two separate rows cost more
-                                 vertical space than this section can spare once Paiement or
-                                 Facture is checked and the payment-method row appears below. -->
-                            <Grid Margin="0,0,0,6">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="8" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <Grid Grid.Column="0">
-                                    <TextBox x:Name="ClientTelephoneBox" ToolTip="Téléphone du client" />
-                                    <TextBlock x:Name="ClientTelephonePlaceholder" Text="Téléphone (optionnel)"
-                                               Foreground="{DynamicResource TextMuted}" Margin="9,0,0,0"
-                                               VerticalAlignment="Center" IsHitTestVisible="False" />
-                                </Grid>
-                                <Grid Grid.Column="2">
-                                    <TextBox x:Name="ClientEmailBox" ToolTip="Email du client" />
-                                    <TextBlock x:Name="ClientEmailPlaceholder" Text="Email (optionnel)"
-                                               Foreground="{DynamicResource TextMuted}" Margin="9,0,0,0"
-                                               VerticalAlignment="Center" IsHitTestVisible="False" />
-                                </Grid>
-                            </Grid>
                             <!-- Shown as soon as the name or phone matches a client who still owes. -->
                             <Border x:Name="ClientDuePanel" Visibility="Collapsed" Margin="0,0,0,6" Padding="10,6"
                                     Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Warning}"

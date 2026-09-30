@@ -422,10 +422,15 @@
                         <ListBox x:Name="ProductGrid" Background="Transparent" BorderThickness="0"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                                 SelectionChanged="ProductGrid_SelectionChanged">
+                                 SelectionChanged="ProductGrid_SelectionChanged"
+                                 PreviewMouseWheel="ProductGrid_PreviewMouseWheel">
                             <ListBox.ItemsPanel>
                                 <ItemsPanelTemplate>
-                                    <WrapPanel Orientation="Horizontal" Margin="12" />
+                                    <!-- Centered, not left-aligned: on a wide window a row of
+                                         150px cards otherwise hugs the left edge with a bare
+                                         gap down the right, instead of sitting in the middle
+                                         of the space actually given to the catalogue. -->
+                                    <WrapPanel Orientation="Horizontal" Margin="12" HorizontalAlignment="Center" />
                                 </ItemsPanelTemplate>
                             </ListBox.ItemsPanel>
                             <ListBox.ItemContainerStyle>

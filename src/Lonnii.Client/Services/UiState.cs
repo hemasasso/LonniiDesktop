@@ -25,6 +25,11 @@ public sealed class ScreenState
     /// <summary>True once the user folded Analyse des Marges' estimated-cost notice down to its
     /// ⚠ icon; it stays folded until they open it again.</summary>
     public bool MargesEstimateNoticeCollapsed { get; set; }
+
+    /// <summary>Nouvelle Vente's "Par page" choice - null means nobody has picked one yet, so
+    /// the built-in default (8) applies. Remembered across Actualiser and a restart, same as
+    /// the rest of this record, so re-opening the till does not reset it back down.</summary>
+    public int? CatalogPageSize { get; set; }
 }
 
 /// <summary>

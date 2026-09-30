@@ -125,6 +125,12 @@ public partial class VentesView : UserControl
     private int _catalogPage = 1;
     private int _catalogPageSize = 8;
 
+    /// <summary>True until the constructor finishes restoring the saved "Par page" choice.
+    /// Setting CatalogPageSizeCombo.SelectedItem - both the XAML default and the restore
+    /// itself - fires CatalogPageSize_Changed synchronously; without this, the XAML default
+    /// firing first would overwrite a previously saved choice with 8 before it is even read.</summary>
+    private bool _suppressCatalogPageSizeSave = true;
+
     /// <summary>Thumbnails already downloaded, keyed by image URL, shared by the catalogue
     /// cards and the cart rows so a product added to the cart never re-downloads its photo.</summary>
     private readonly Dictionary<string, BitmapImage> _thumbnailCache = [];
@@ -222,6 +228,17 @@ public partial class VentesView : UserControl
         NouvelleVenteTabButton.Visibility = _canCreateVenteTab ? Visibility.Visible : Visibility.Collapsed;
         ListeVentesTabButton.Visibility = _canViewVentesListTab ? Visibility.Visible : Visibility.Collapsed;
         StatistiquesTabButton.Visibility = _canViewStatistiquesTab ? Visibility.Visible : Visibility.Collapsed;
+
+        // Whatever "Par page" this user last picked, not the built-in default - remembered
+        // across Actualiser and a restart (UiState), same as the cart and the active tab.
+        if (UiState.For(_session).CatalogPageSize is { } savedPageSize
+            && CatalogPageSizeCombo.Items.Cast<ComboBoxItem>()
+                .FirstOrDefault(i => i.Content as string == savedPageSize.ToString()) is { } savedItem)
+        {
+            _catalogPageSize = savedPageSize;
+            CatalogPageSizeCombo.SelectedItem = savedItem;
+        }
+        _suppressCatalogPageSizeSave = false;
 
         // Defaults the list to "Aujourd'hui", matching VenteDateFilterCombo's own
         // IsSelected="True" item - a cashier should not be confused by older sales
@@ -515,6 +532,14 @@ public partial class VentesView : UserControl
         var firstIndex = (_catalogPage - 1) * _catalogPageSize;
         _catalogPageSize = size;
         _catalogPage = firstIndex / size + 1;
+
+        // Remembered for next time - a reload, a logout/login, a restart - not just this visit.
+        if (!_suppressCatalogPageSizeSave)
+        {
+            UiState.For(_session).CatalogPageSize = size;
+            UiState.Save();
+        }
+
         if (IsLoaded && _catalogueLoaded) await LoadCatalogueAsync();
     }
 
@@ -662,6 +687,16 @@ public partial class VentesView : UserControl
         if (ProductGrid.SelectedItem is not CatalogRow row) return;
         ProductGrid.SelectedItem = null;
         AddToCart(row.Product);
+    }
+
+    /// <summary>Forwards the wheel to ProductScroll by hand: the ListBox's own scrolling is
+    /// disabled (see the ItemsPanel comment) so ProductScroll owns the viewport, but a
+    /// ListBoxItem under the mouse can still intercept the wheel event before it naturally
+    /// bubbles there, leaving the page unresponsive to scrolling while hovering a product.</summary>
+    private void ProductGrid_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        ProductScroll.ScrollToVerticalOffset(ProductScroll.VerticalOffset - e.Delta);
+        e.Handled = true;
     }
 
     private void AddToCart(ProductDto product)

@@ -716,6 +716,25 @@
                             </Button>
                         </StackPanel>
 
+                        <!-- Cash only - a card or mobile payment is charged the exact total, so
+                             there is no change to hand back. Lets the cashier type what the
+                             customer handed over and read the change straight off, instead of
+                             doing the subtraction by hand or reaching for a phone. -->
+                        <Border x:Name="MontantRecuPanel" Visibility="Collapsed" Margin="0,0,0,6" Padding="10,6"
+                                Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Border}"
+                                BorderThickness="1" CornerRadius="6">
+                            <StackPanel>
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Text="Montant reçu"
+                                               VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBox x:Name="MontantRecuBox"
+                                             TextChanged="MontantRecu_TextChanged" LostFocus="MontantRecu_LostFocus" />
+                                </DockPanel>
+                                <TextBlock x:Name="MonnaieARendreText" Margin="0,6,0,0" FontWeight="Bold"
+                                           FontSize="13" HorizontalAlignment="Right" />
+                            </StackPanel>
+                        </Border>
+
                         <Button x:Name="ValidateButton"
                                 Style="{StaticResource PrimaryButton}"
                                 Padding="0,8" IsEnabled="False"

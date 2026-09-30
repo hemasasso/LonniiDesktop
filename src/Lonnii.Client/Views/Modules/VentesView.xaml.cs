@@ -862,6 +862,8 @@ public partial class VentesView : UserControl
         RemiseSummaryRow.Visibility = remise > 0 ? Visibility.Visible : Visibility.Collapsed;
         RemiseSummaryText.Text = $"- {Money.Format(remise)}";
         TotalText.Text = Money.Format(total);
+        _currentTotal = total;
+        UpdateMonnaieARendre();
 
         // Neither box checked means neither a payment nor a facture would be recorded -
         // nothing Validate_Click could actually do, so it must not be clickable.
@@ -869,6 +871,41 @@ public partial class VentesView : UserControl
         ValidateButton.IsEnabled = _cart.Count > 0 && hasCheckoutMode && _session.Can(Priv.Gestion.CreateVente);
 
         if (_cartRestored) SaveCart();
+    }
+
+    /// <summary>The total a cash payment is currently being measured against - kept up to
+    /// date by every <see cref="UpdateTotals"/>, so MontantRecuBox's change readout always
+    /// reacts to the cart, a discount, or a client change without needing its own recompute.</summary>
+    private decimal _currentTotal;
+
+    private void MontantRecu_TextChanged(object sender, TextChangedEventArgs e) => UpdateMonnaieARendre();
+
+    /// <summary>Grouped ("1 000") only once typing is done, same reasoning as every other
+    /// money field in this view.</summary>
+    private void MontantRecu_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (Money.TryParse(MontantRecuBox.Text, out decimal recu) && recu > 0)
+            MontantRecuBox.Text = Money.FormatPlain(recu);
+    }
+
+    /// <summary>Shows the change due for whatever was just typed into MontantRecuBox against
+    /// the current total - or how much is still missing, if it falls short - so the cashier
+    /// gets the subtraction done for them instead of reaching for a phone.</summary>
+    private void UpdateMonnaieARendre()
+    {
+        if (MontantRecuPanel.Visibility != Visibility.Visible) return;
+
+        if (!Money.TryParse(MontantRecuBox.Text, out decimal recu) || recu <= 0)
+        {
+            MonnaieARendreText.Text = string.Empty;
+            return;
+        }
+
+        var difference = recu - _currentTotal;
+        MonnaieARendreText.Foreground = (Brush)FindResource(difference < 0 ? "Danger" : "Success");
+        MonnaieARendreText.Text = difference < 0
+            ? $"Il manque {Money.Format(-difference)}"
+            : $"Monnaie à rendre : {Money.Format(difference)}";
     }
 
     // --- Clients -----------------------------------------------------------------
@@ -1410,12 +1447,25 @@ public partial class VentesView : UserControl
         var hasCheckoutMode = VenteRapideCheck.IsChecked == true || AvecFactureCheck.IsChecked == true;
         ClientFieldsPanel.Visibility = hasCheckoutMode ? Visibility.Visible : Visibility.Collapsed;
 
+        UpdateMontantRecuVisibility();
         UpdateTotals();
+    }
+
+    /// <summary>Only meaningful for an actual cash payment - a card or mobile payment is
+    /// charged the exact total, so there is nothing to give back. Hidden (rather than just
+    /// left blank) the moment either condition stops holding, so a stale "monnaie à rendre"
+    /// from a previous total never lingers on screen.</summary>
+    private void UpdateMontantRecuVisibility()
+    {
+        var relevant = VenteRapideCheck.IsChecked == true && _modePaiement == "cash";
+        MontantRecuPanel.Visibility = relevant ? Visibility.Visible : Visibility.Collapsed;
+        if (!relevant) MontantRecuBox.Text = string.Empty;
     }
 
     private void PaymentMode_Click(object sender, RoutedEventArgs e)
     {
         _modePaiement = (string)((Button)sender).Tag;
+        UpdateMontantRecuVisibility();
         ApplyPaymentVisuals();
     }
 

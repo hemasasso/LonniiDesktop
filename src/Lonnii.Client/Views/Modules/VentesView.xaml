@@ -76,11 +76,21 @@
                 <Rectangle Width="1" Margin="6,4,12,4" Fill="{DynamicResource Border}" />
                 <!-- Not a tab: the client space opens in its own window, like Fournisseurs in Stock. -->
                 <Button x:Name="ClientsButton" Style="{StaticResource SecondaryButton}" Click="Clients_Click"
-                        ToolTip="Clients : classement par achats, créances, fiches">
+                        Margin="0,0,6,0" ToolTip="Clients : classement par achats, créances, fiches">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="&#xE716;" FontFamily="Segoe MDL2 Assets"
                                    Style="{StaticResource ButtonContentText}" Margin="0,0,6,0" />
                         <TextBlock Text="Clients" Style="{StaticResource ButtonContentText}" />
+                    </StackPanel>
+                </Button>
+                <!-- Same shortcut as Clients just above, for the other side of the ledger:
+                     what the shop owes, rather than what it is owed. -->
+                <Button x:Name="FournisseurButton" Style="{StaticResource SecondaryButton}" Click="Fournisseur_Click"
+                        ToolTip="Fournisseurs : coordonnées, montant dû">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE7BF;" FontFamily="Segoe MDL2 Assets"
+                                   Style="{StaticResource ButtonContentText}" Margin="0,0,6,0" />
+                        <TextBlock Text="Fournisseurs" Style="{StaticResource ButtonContentText}" />
                     </StackPanel>
                 </Button>
             </StackPanel>
@@ -121,8 +131,20 @@
                             </ComboBox>
                             <ComboBox x:Name="StatsCategoryCombo" Width="170" Margin="0,0,8,0"
                                       SelectionChanged="StatsFilters_Changed" />
-                            <ComboBox x:Name="StatsProductCombo" Width="200"
+                            <ComboBox x:Name="StatsProductCombo" Width="200" Margin="0,0,8,0"
                                       SelectionChanged="StatsFilters_Changed" />
+                            <!-- A standalone lookup, not a filter on the stats below - a
+                                 supplier is never attached to a vente, so there is nothing here
+                                 for it to filter. Picking one just shows what is owed to them. -->
+                            <ComboBox x:Name="StatsSupplierCombo" Width="200"
+                                      SelectionChanged="StatsSupplier_Changed" />
+                            <Border x:Name="StatsSupplierDuePanel" Visibility="Collapsed" Margin="10,0,0,0"
+                                    Padding="10,4" VerticalAlignment="Center"
+                                    Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Warning}"
+                                    BorderThickness="1" CornerRadius="3">
+                                <TextBlock x:Name="StatsSupplierDueText" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource Warning}" />
+                            </Border>
                         </StackPanel>
                         <Button Grid.Column="1" Style="{StaticResource SecondaryButton}" Click="RefreshStats_Click">
                             <StackPanel Orientation="Horizontal">
@@ -545,13 +567,13 @@
                         <!-- Visibility gated on can_apply_discount in code-behind - without
                              this, a vendeur who cannot apply a per-line discount (BuildCartRow)
                              could still zero out the whole sale here regardless. -->
-                        <!-- Padding kept horizontal-only: the extra 6px of vertical padding this
-                             Border used to add on top of RemiseGlobaleBox's own made the whole
-                             row noticeably taller than the plain client textboxes below it. -->
+                        <!-- Trimmed from the original 10,6 - that made the row noticeably
+                             taller than the plain client textboxes below it - but not all the
+                             way to 0, which let RemiseGlobaleBox's own border touch this one's. -->
                         <Border x:Name="RemiseGlobalePanel"
                                 Background="{DynamicResource Surface}"
                                 BorderBrush="{DynamicResource Warning}" BorderThickness="1"
-                                CornerRadius="6" Padding="10,0" Margin="0,0,0,6">
+                                CornerRadius="6" Padding="10,3" Margin="0,0,0,6">
                             <DockPanel>
                                 <TextBlock DockPanel.Dock="Left" Text="Remise globale"
                                            Foreground="{DynamicResource Warning}"
@@ -747,8 +769,12 @@
                             </StackPanel>
                         </Border>
 
+                        <!-- Margin on the right, not Padding on the ScrollViewer: Padding would
+                             sit inside the scrolled area and still let a tall cart's scrollbar
+                             thumb run flush against the row content, which is the row's price/
+                             remove button ("×") this was cutting into. -->
                         <ScrollViewer x:Name="CartScroll" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
-                            <ItemsControl x:Name="CartList" />
+                            <ItemsControl x:Name="CartList" Margin="0,0,8,0" />
                         </ScrollViewer>
                     </Grid>
 

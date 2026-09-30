@@ -37,6 +37,7 @@ public partial class SupplierDialog : Window
             NotesBox.Text = existing.Notes ?? string.Empty;
             ActiveCheck.IsChecked = existing.IsActive;
             RatingBox.SelectedIndex = existing.Rating ?? 0;
+            MontantDuBox.Text = Money.FormatPlain(existing.MontantDu);
         }
 
         Loaded += (_, _) => { NameBox.Focus(); NameBox.SelectAll(); };
@@ -52,6 +53,13 @@ public partial class SupplierDialog : Window
             return;
         }
 
+        if (!Money.TryParse(MontantDuBox.Text, out decimal montantDu) || montantDu < 0)
+        {
+            ErrorText.Text = "Le montant dû doit être un nombre positif.";
+            MontantDuBox.Focus();
+            return;
+        }
+
         Result = new SaveSupplierRequest(
             Name: name,
             ContactPerson: Blank(ContactPersonBox.Text),
@@ -63,7 +71,8 @@ public partial class SupplierDialog : Window
             PaymentTerms: Blank(PaymentTermsBox.Text),
             Notes: Blank(NotesBox.Text),
             Rating: SelectedRating(),
-            IsActive: ActiveCheck.IsChecked != false);
+            IsActive: ActiveCheck.IsChecked != false,
+            MontantDu: montantDu);
 
         DialogResult = true;
     }
@@ -72,6 +81,14 @@ public partial class SupplierDialog : Window
         RatingBox.SelectedItem is ComboBoxItem { Tag: string tag } && int.TryParse(tag, out var rating)
             ? rating
             : null;
+
+    /// <summary>Regroups a money field once the user leaves it, so "50000" becomes "50 000"
+    /// without fighting the caret while they are still typing.</summary>
+    private void Regroup_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is not TextBox box) return;
+        if (Money.TryParse(box.Text, out decimal value)) box.Text = Money.FormatPlain(value);
+    }
 
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

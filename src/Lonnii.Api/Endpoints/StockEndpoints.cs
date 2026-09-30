@@ -626,7 +626,7 @@ public static class StockEndpoints
             .OrderBy(s => s.Name)
             .Select(s => new SupplierDto(
                 s.Id, s.Name, s.ContactPerson, s.Email, s.Phone, s.Address, s.City, s.Country,
-                s.PaymentTerms, s.Notes, s.Rating, s.IsActive))
+                s.PaymentTerms, s.Notes, s.Rating, s.IsActive, s.MontantDu))
             .ToListAsync(ct);
 
         return Results.Ok(suppliers);
@@ -679,6 +679,9 @@ public static class StockEndpoints
         if (request.Rating is { } rating && rating is < 1 or > 5)
             return "La note doit être comprise entre 1 et 5";
 
+        if (request.MontantDu < 0)
+            return "Le montant dû ne peut pas être négatif";
+
         return null;
     }
 
@@ -695,11 +698,12 @@ public static class StockEndpoints
         supplier.Notes = Blank(request.Notes);
         supplier.Rating = request.Rating;
         supplier.IsActive = request.IsActive;
+        supplier.MontantDu = request.MontantDu;
     }
 
     private static SupplierDto ToDto(Supplier s) => new(
         s.Id, s.Name, s.ContactPerson, s.Email, s.Phone, s.Address, s.City, s.Country,
-        s.PaymentTerms, s.Notes, s.Rating, s.IsActive);
+        s.PaymentTerms, s.Notes, s.Rating, s.IsActive, s.MontantDu);
 
     /// <summary>
     /// Checks SKU and barcode uniqueness within the group before the database does, so the

@@ -24,6 +24,7 @@ public partial class SupplierManagerDialog : Window
     private sealed record Row(SupplierDto Supplier)
     {
         public string RatingDisplay => Supplier.Rating is { } r ? $"{r} / 5" : string.Empty;
+        public string MontantDuDisplay => Supplier.MontantDu > 0 ? Money.Format(Supplier.MontantDu) : "—";
     }
 
     public SupplierManagerDialog(AppSession session)
@@ -41,7 +42,9 @@ public partial class SupplierManagerDialog : Window
             var suppliers = await _session.Api.GetSuppliersAsync();
             _rows = suppliers.Select(s => new Row(s)).ToList();
 
-            SummaryText.Text = $"{_rows.Count} fournisseur(s)";
+            var owed = suppliers.Sum(s => s.MontantDu);
+            SummaryText.Text = $"{_rows.Count} fournisseur(s)"
+                               + (owed > 0 ? $"  •  dû aux fournisseurs : {Money.Format(owed)}" : string.Empty);
             EmptyPanel.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             ApplyFilter();
             HideError();
@@ -55,13 +58,18 @@ public partial class SupplierManagerDialog : Window
     private void ApplyFilter()
     {
         var text = SearchBox.Text.Trim();
-        _filtered = text.Length == 0
-            ? _rows
-            : _rows.Where(r => r.Supplier.Name.Contains(text, StringComparison.CurrentCultureIgnoreCase)).ToList();
+        IEnumerable<Row> filtered = _rows;
+        if (text.Length > 0)
+            filtered = filtered.Where(r => r.Supplier.Name.Contains(text, StringComparison.CurrentCultureIgnoreCase));
+        if (MontantDuCheck.IsChecked == true)
+            filtered = filtered.Where(r => r.Supplier.MontantDu > 0);
 
+        _filtered = filtered.ToList();
         _page = 1;
         RenderPage();
     }
+
+    private void MontantDuFilter_Changed(object sender, RoutedEventArgs e) => ApplyFilter();
 
     private void RenderPage()
     {
@@ -145,7 +153,7 @@ public partial class SupplierManagerDialog : Window
         var request = new SaveSupplierRequest(
             supplier.Name, supplier.ContactPerson, supplier.Email, supplier.Phone,
             supplier.Address, supplier.City, supplier.Country, supplier.PaymentTerms,
-            supplier.Notes, supplier.Rating, IsActive: !supplier.IsActive);
+            supplier.Notes, supplier.Rating, IsActive: !supplier.IsActive, MontantDu: supplier.MontantDu);
 
         try
         {

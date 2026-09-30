@@ -361,7 +361,8 @@ public sealed record SupplierDto(
     string? PaymentTerms,
     string? Notes,
     int? Rating,
-    bool IsActive);
+    bool IsActive,
+    decimal MontantDu = 0);
 
 /// <summary>Creates or updates a supplier.</summary>
 public sealed record SaveSupplierRequest(
@@ -375,7 +376,8 @@ public sealed record SaveSupplierRequest(
     string? PaymentTerms = null,
     string? Notes = null,
     int? Rating = null,
-    bool IsActive = true);
+    bool IsActive = true,
+    decimal MontantDu = 0);
 
 // --- Ventes ---
 

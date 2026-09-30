@@ -545,10 +545,13 @@
                         <!-- Visibility gated on can_apply_discount in code-behind - without
                              this, a vendeur who cannot apply a per-line discount (BuildCartRow)
                              could still zero out the whole sale here regardless. -->
+                        <!-- Padding kept horizontal-only: the extra 6px of vertical padding this
+                             Border used to add on top of RemiseGlobaleBox's own made the whole
+                             row noticeably taller than the plain client textboxes below it. -->
                         <Border x:Name="RemiseGlobalePanel"
                                 Background="{DynamicResource Surface}"
                                 BorderBrush="{DynamicResource Warning}" BorderThickness="1"
-                                CornerRadius="6" Padding="10,6" Margin="0,0,0,6">
+                                CornerRadius="6" Padding="10,0" Margin="0,0,0,6">
                             <DockPanel>
                                 <TextBlock DockPanel.Dock="Left" Text="Remise globale"
                                            Foreground="{DynamicResource Warning}"
@@ -689,20 +692,24 @@
                              built-in colour no matter what Foreground says. -->
                         <StackPanel x:Name="PaymentModePanel" Orientation="Horizontal"
                                     Margin="0,4,0,6" HorizontalAlignment="Center">
+                            <!-- Padding="0": ButtonBase's default 14,7 padding left only 30-7-7-2
+                                 (border) = 14px of vertical room for the icon, clipping the
+                                 bottom of a 16px glyph. Zeroed out, the full 30-2=28px height is
+                                 free for the icon to centre in instead. -->
                             <Button x:Name="PaymentCashButton"
-                                    Width="44" Height="30" Margin="0,0,8,0"
+                                    Width="44" Height="30" Padding="0" Margin="0,0,8,0"
                                     Style="{StaticResource SecondaryButton}" ToolTip="Espèces"
                                     Click="PaymentMode_Click" Tag="cash">
                                 <TextBlock Text="&#xEC59;" FontFamily="Segoe MDL2 Assets" FontSize="16" Style="{StaticResource ButtonContentText}" />
                             </Button>
                             <Button x:Name="PaymentMobileButton"
-                                    Width="44" Height="30" Margin="0,0,8,0"
+                                    Width="44" Height="30" Padding="0" Margin="0,0,8,0"
                                     Style="{StaticResource SecondaryButton}" ToolTip="Mobile Money"
                                     Click="PaymentMode_Click" Tag="mobile_money">
                                 <TextBlock Text="&#xE8EA;" FontFamily="Segoe MDL2 Assets" FontSize="16" Style="{StaticResource ButtonContentText}" />
                             </Button>
                             <Button x:Name="PaymentCarteButton"
-                                    Width="44" Height="30"
+                                    Width="44" Height="30" Padding="0"
                                     Style="{StaticResource SecondaryButton}" ToolTip="Carte"
                                     Click="PaymentMode_Click" Tag="carte">
                                 <TextBlock Text="&#xE8C7;" FontFamily="Segoe MDL2 Assets" FontSize="16" Style="{StaticResource ButtonContentText}" />

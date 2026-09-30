@@ -54,6 +54,13 @@ public class Supplier
     /// <summary>1-5, as constrained by the source schema.</summary>
     public int? Rating { get; set; }
 
+    /// <summary>What the shop currently owes this supplier - e.g. a batch of merchandise
+    /// bought on credit. Not new to the source schema (Lonnii Business has no equivalent);
+    /// entered by hand here rather than derived, since there is no purchase-order/goods-received
+    /// feature to compute it from. Kept simple like a running balance rather than an itemised
+    /// ledger: an admin adjusts it directly (up when buying on credit, down when paying it off).</summary>
+    public decimal MontantDu { get; set; }
+
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

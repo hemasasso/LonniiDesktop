@@ -31,12 +31,16 @@
                     <Rectangle Width="1" Margin="10,2" Fill="{DynamicResource Border}" />
                     <Button Content="Actualiser" Style="{StaticResource SecondaryButton}" Click="Refresh_Click" />
                 </StackPanel>
-                <Grid DockPanel.Dock="Right" Width="220" HorizontalAlignment="Right">
-                    <TextBox x:Name="SearchBox" TextChanged="Search_TextChanged" />
-                    <TextBlock x:Name="SearchPlaceholder" Text="🔍 Nom du fournisseur…"
-                               Foreground="{DynamicResource TextMuted}" Margin="9,0,0,0"
-                               VerticalAlignment="Center" IsHitTestVisible="False" />
-                </Grid>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <CheckBox x:Name="MontantDuCheck" Content="Montant dû uniquement" VerticalAlignment="Center"
+                              Margin="0,0,10,0" Checked="MontantDuFilter_Changed" Unchecked="MontantDuFilter_Changed" />
+                    <Grid Width="220">
+                        <TextBox x:Name="SearchBox" TextChanged="Search_TextChanged" />
+                        <TextBlock x:Name="SearchPlaceholder" Text="🔍 Nom du fournisseur…"
+                                   Foreground="{DynamicResource TextMuted}" Margin="9,0,0,0"
+                                   VerticalAlignment="Center" IsHitTestVisible="False" />
+                    </Grid>
+                </StackPanel>
             </DockPanel>
         </Border>
 
@@ -66,6 +70,14 @@
                     <DataGridTextColumn Header="Téléphone" Binding="{Binding Supplier.Phone}" Width="140" />
                     <DataGridTextColumn Header="Ville" Binding="{Binding Supplier.City}" Width="120" />
                     <DataGridTextColumn Header="Note" Binding="{Binding RatingDisplay}" Width="80" />
+                    <DataGridTextColumn Header="Montant dû" Binding="{Binding MontantDuDisplay}"
+                                        SortMemberPath="Supplier.MontantDu" Width="110">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}">
+                                <Setter Property="Foreground" Value="{DynamicResource Danger}" />
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
                     <DataGridCheckBoxColumn Header="Actif" Binding="{Binding Supplier.IsActive}" Width="60" />
                 </DataGrid.Columns>
             </DataGrid>

@@ -100,6 +100,16 @@
                     </StackPanel>
                 </Grid>
 
+                <Grid Margin="0,14,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Montant dû" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="MontantDuBox" Text="0" LostFocus="Regroup_LostFocus"
+                                 ToolTip="Ce que le magasin doit encore à ce fournisseur - ex. une commande prise à crédit. Mis à jour à la main : augmentez-le à un nouvel achat à crédit, réduisez-le à un règlement." />
+                        <TextBlock Style="{StaticResource PageSubtitle}" Margin="0,4,0,0" TextWrapping="Wrap"
+                                   Text="Saisi à la main - aucune commande n'est suivie ici, seulement ce qui reste dû." />
+                    </StackPanel>
+                </Grid>
+
                 <TextBlock Text="Notes" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
                 <TextBox x:Name="NotesBox" Height="64"
                          TextWrapping="Wrap" AcceptsReturn="True"

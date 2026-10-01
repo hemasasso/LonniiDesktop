@@ -537,9 +537,12 @@
                          checkout fields expanded (Paiement/Facture checked) this section can
                          easily need more room than a small laptop screen gives the cart column,
                          and DockPanel would otherwise let it grow without limit and push the
-                         product list out of view entirely instead of just scrolling. -->
+                         product list out of view entirely instead of just scrolling.
+                         Hidden, not Auto: the scrollbar track itself still read as clutter
+                         sitting over the panel's own content: Hidden keeps the mouse wheel
+                         working as the escape hatch without drawing a visible bar for it. -->
                     <ScrollViewer DockPanel.Dock="Bottom" MaxHeight="360"
-                                  VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                  VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Margin="0,10,0,0">
 
                         <!-- Visibility gated on can_apply_discount in code-behind - without

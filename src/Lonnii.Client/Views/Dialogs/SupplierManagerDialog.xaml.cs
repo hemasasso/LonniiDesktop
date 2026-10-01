@@ -14,7 +14,7 @@ namespace Lonnii.Client.Views.Dialogs;
 /// </summary>
 public partial class SupplierManagerDialog : Window
 {
-    private const int PageSize = 20;
+    private const int PageSize = 10;
 
     private readonly AppSession _session;
     private List<Row> _rows = [];

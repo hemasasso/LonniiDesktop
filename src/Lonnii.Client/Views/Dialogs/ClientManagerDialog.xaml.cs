@@ -18,7 +18,7 @@ public partial class ClientManagerDialog : Window
 {
     private static readonly CultureInfo French = CultureInfo.GetCultureInfo("fr-FR");
 
-    private const int PageSize = 20;
+    private const int PageSize = 10;
 
     private readonly AppSession _session;
     private readonly bool _canManage;

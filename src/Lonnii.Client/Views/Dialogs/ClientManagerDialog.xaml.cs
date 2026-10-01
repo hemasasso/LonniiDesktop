@@ -18,13 +18,19 @@ public partial class ClientManagerDialog : Window
 {
     private static readonly CultureInfo French = CultureInfo.GetCultureInfo("fr-FR");
 
-    private const int PageSize = 10;
-
     private readonly AppSession _session;
     private readonly bool _canManage;
     private List<Row> _rows = [];
     private List<Row> _filtered = [];
     private int _page = 1;
+    private int _pageSize = 10;
+    private string _sortField = "Classement";
+    private bool _sortDescending;
+
+    /// <summary>True until the constructor finishes restoring the saved "Par page" choice -
+    /// see VentesView's identical field for why the XAML default's own SelectionChanged would
+    /// otherwise overwrite a previously saved choice before it is even read.</summary>
+    private bool _suppressPageSizeSave = true;
 
     /// <summary>Set when the user asked to see a client's sales; the caller then opens the
     /// sales list filtered on this name.</summary>
@@ -49,6 +55,15 @@ public partial class ClientManagerDialog : Window
         AddButton.IsEnabled = _canManage;
         if (!_canManage)
             AddButton.ToolTip = EditButton.ToolTip = ToggleActiveButton.ToolTip = "Nécessite le privilège « Gérer les clients »";
+
+        if (UiState.For(_session).ClientPageSize is { } savedPageSize
+            && PageSizeCombo.Items.Cast<ComboBoxItem>()
+                .FirstOrDefault(i => i.Content as string == savedPageSize.ToString()) is { } savedItem)
+        {
+            _pageSize = savedPageSize;
+            PageSizeCombo.SelectedItem = savedItem;
+        }
+        _suppressPageSizeSave = false;
 
         Loaded += async (_, _) => await LoadAsync();
     }
@@ -88,20 +103,37 @@ public partial class ClientManagerDialog : Window
         if (ResteDuCheck.IsChecked == true)
             filtered = filtered.Where(r => r.Client.ResteDu > 0);
 
-        _filtered = filtered.ToList();
+        _filtered = ApplySort(filtered).ToList();
         _page = 1;
         RenderPage();
 
         EmptyPanel.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    /// <summary>Sorts the whole filtered list, not just the visible page - clicking a
+    /// DataGrid column header would only reorder the current page's rows, since ClientGrid's
+    /// ItemsSource is a fresh slice every time (see RenderPage), which is why ClientGrid has
+    /// CanUserSortColumns="False" and this explicit control exists instead.</summary>
+    private IEnumerable<Row> ApplySort(IEnumerable<Row> rows)
+    {
+        IOrderedEnumerable<Row> sorted = _sortField switch
+        {
+            "Nom" => rows.OrderBy(r => r.Client.Nom, StringComparer.CurrentCultureIgnoreCase),
+            "Total acheté" => rows.OrderBy(r => r.Client.TotalAchats),
+            "Reste dû" => rows.OrderBy(r => r.Client.ResteDu),
+            "Dernier achat" => rows.OrderBy(r => r.Client.DernierAchat),
+            _ => rows.OrderBy(r => r.Rank),
+        };
+        return _sortDescending ? sorted.Reverse() : sorted;
+    }
+
     private void RenderPage()
     {
-        var pageCount = Math.Max(1, (int)Math.Ceiling(_filtered.Count / (double)PageSize));
+        var pageCount = Math.Max(1, (int)Math.Ceiling(_filtered.Count / (double)_pageSize));
         _page = Math.Clamp(_page, 1, pageCount);
         Pager.Configure(_page, pageCount);
 
-        ClientGrid.ItemsSource = _filtered.Skip((_page - 1) * PageSize).Take(PageSize).ToList();
+        ClientGrid.ItemsSource = _filtered.Skip((_page - 1) * _pageSize).Take(_pageSize).ToList();
         Grid_SelectionChanged(this, null!);
     }
 
@@ -118,6 +150,38 @@ public partial class ClientManagerDialog : Window
     }
 
     private void ResteDuFilter_Changed(object sender, RoutedEventArgs e) => ApplyFilter();
+
+    private void Sort_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        _sortField = (SortField.SelectedItem as ComboBoxItem)?.Content as string ?? "Classement";
+        ApplyFilter();
+    }
+
+    private void SortDirection_Click(object sender, RoutedEventArgs e)
+    {
+        _sortDescending = !_sortDescending;
+        SortDirectionButton.Content = _sortDescending ? "▼" : "▲";
+        SortDirectionButton.ToolTip = _sortDescending ? "Ordre décroissant" : "Ordre croissant";
+        ApplyFilter();
+    }
+
+    private void PageSize_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if ((PageSizeCombo.SelectedItem as ComboBoxItem)?.Content as string is not { } text
+            || !int.TryParse(text, out var size))
+            return;
+
+        _pageSize = size;
+        _page = 1;
+
+        if (!_suppressPageSizeSave)
+        {
+            UiState.For(_session).ClientPageSize = size;
+            UiState.Save();
+        }
+
+        RenderPage();
+    }
 
     private ClientDto? Selected => (ClientGrid.SelectedItem as Row)?.Client;
 

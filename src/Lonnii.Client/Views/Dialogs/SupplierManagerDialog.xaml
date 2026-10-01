@@ -32,6 +32,14 @@
                     <Button Content="Actualiser" Style="{StaticResource SecondaryButton}" Click="Refresh_Click" />
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <TextBlock Text="Trier par" Style="{StaticResource PageSubtitle}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <ComboBox x:Name="SortField" Width="110" Margin="0,0,4,0" SelectionChanged="Sort_Changed">
+                        <ComboBoxItem Content="Nom" IsSelected="True" />
+                        <ComboBoxItem Content="Montant dû" />
+                    </ComboBox>
+                    <Button x:Name="SortDirectionButton" Content="▲" Width="30" MinWidth="30"
+                            Padding="0" Margin="0,0,10,0" ToolTip="Ordre croissant"
+                            Style="{StaticResource SecondaryButton}" Click="SortDirection_Click" />
                     <CheckBox x:Name="MontantDuCheck" Content="Montant dû uniquement" VerticalAlignment="Center"
                               Margin="0,0,10,0" Checked="MontantDuFilter_Changed" Unchecked="MontantDuFilter_Changed" />
                     <Grid Width="220">
@@ -58,11 +66,25 @@
 
         <Border DockPanel.Dock="Bottom" Padding="18,8"
                 BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
-            <controls:PaginationBar x:Name="Pager" PageChanged="Pager_PageChanged" />
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Par page" Style="{StaticResource PageSubtitle}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <ComboBox x:Name="PageSizeCombo" Width="70" SelectionChanged="PageSize_Changed">
+                        <ComboBoxItem Content="10" IsSelected="True" />
+                        <ComboBoxItem Content="15" />
+                        <ComboBoxItem Content="20" />
+                    </ComboBox>
+                </StackPanel>
+                <controls:PaginationBar x:Name="Pager" PageChanged="Pager_PageChanged" />
+            </DockPanel>
         </Border>
 
         <Grid>
+            <!-- Sort column/direction live in the toolbar above (SortField/SortDirectionButton) -
+                 column-click sorting here would only reorder the current page's rows, since
+                 SupplierGrid's ItemsSource is a fresh slice every time (see RenderPage). -->
             <DataGrid x:Name="SupplierGrid" RowHeight="36" AutoGenerateColumns="False" IsReadOnly="True"
+                      CanUserSortColumns="False"
                       MouseDoubleClick="Grid_DoubleClick" SelectionChanged="Grid_SelectionChanged">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="Nom" Binding="{Binding Supplier.Name}" Width="*" />

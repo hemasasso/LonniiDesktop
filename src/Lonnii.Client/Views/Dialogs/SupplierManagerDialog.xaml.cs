@@ -14,12 +14,17 @@ namespace Lonnii.Client.Views.Dialogs;
 /// </summary>
 public partial class SupplierManagerDialog : Window
 {
-    private const int PageSize = 10;
-
     private readonly AppSession _session;
     private List<Row> _rows = [];
     private List<Row> _filtered = [];
     private int _page = 1;
+    private int _pageSize = 10;
+    private string _sortField = "Nom";
+    private bool _sortDescending;
+
+    /// <summary>True until the constructor finishes restoring the saved "Par page" choice -
+    /// see VentesView's identical field for why.</summary>
+    private bool _suppressPageSizeSave = true;
 
     private sealed record Row(SupplierDto Supplier)
     {
@@ -31,6 +36,15 @@ public partial class SupplierManagerDialog : Window
     {
         _session = session;
         InitializeComponent();
+
+        if (UiState.For(_session).SupplierPageSize is { } savedPageSize
+            && PageSizeCombo.Items.Cast<ComboBoxItem>()
+                .FirstOrDefault(i => i.Content as string == savedPageSize.ToString()) is { } savedItem)
+        {
+            _pageSize = savedPageSize;
+            PageSizeCombo.SelectedItem = savedItem;
+        }
+        _suppressPageSizeSave = false;
 
         Loaded += async (_, _) => await LoadAsync();
     }
@@ -64,26 +78,71 @@ public partial class SupplierManagerDialog : Window
         if (MontantDuCheck.IsChecked == true)
             filtered = filtered.Where(r => r.Supplier.MontantDu > 0);
 
-        _filtered = filtered.ToList();
+        _filtered = ApplySort(filtered).ToList();
         _page = 1;
         RenderPage();
     }
 
+    /// <summary>Sorts the whole filtered list, not just the visible page - see
+    /// ClientManagerDialog's identical method for why SupplierGrid has
+    /// CanUserSortColumns="False" instead of relying on column-header clicks.</summary>
+    private IEnumerable<Row> ApplySort(IEnumerable<Row> rows)
+    {
+        IOrderedEnumerable<Row> sorted = _sortField switch
+        {
+            "Montant dû" => rows.OrderBy(r => r.Supplier.MontantDu),
+            _ => rows.OrderBy(r => r.Supplier.Name, StringComparer.CurrentCultureIgnoreCase),
+        };
+        return _sortDescending ? sorted.Reverse() : sorted;
+    }
+
     private void MontantDuFilter_Changed(object sender, RoutedEventArgs e) => ApplyFilter();
+
+    private void Sort_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        _sortField = (SortField.SelectedItem as ComboBoxItem)?.Content as string ?? "Nom";
+        ApplyFilter();
+    }
+
+    private void SortDirection_Click(object sender, RoutedEventArgs e)
+    {
+        _sortDescending = !_sortDescending;
+        SortDirectionButton.Content = _sortDescending ? "▼" : "▲";
+        SortDirectionButton.ToolTip = _sortDescending ? "Ordre décroissant" : "Ordre croissant";
+        ApplyFilter();
+    }
 
     private void RenderPage()
     {
-        var pageCount = Math.Max(1, (int)Math.Ceiling(_filtered.Count / (double)PageSize));
+        var pageCount = Math.Max(1, (int)Math.Ceiling(_filtered.Count / (double)_pageSize));
         _page = Math.Clamp(_page, 1, pageCount);
         Pager.Configure(_page, pageCount);
 
-        SupplierGrid.ItemsSource = _filtered.Skip((_page - 1) * PageSize).Take(PageSize).ToList();
+        SupplierGrid.ItemsSource = _filtered.Skip((_page - 1) * _pageSize).Take(_pageSize).ToList();
         Grid_SelectionChanged(this, null!);
     }
 
     private void Pager_PageChanged(object? sender, EventArgs e)
     {
         _page = Pager.CurrentPage;
+        RenderPage();
+    }
+
+    private void PageSize_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if ((PageSizeCombo.SelectedItem as ComboBoxItem)?.Content as string is not { } text
+            || !int.TryParse(text, out var size))
+            return;
+
+        _pageSize = size;
+        _page = 1;
+
+        if (!_suppressPageSizeSave)
+        {
+            UiState.For(_session).SupplierPageSize = size;
+            UiState.Save();
+        }
+
         RenderPage();
     }
 

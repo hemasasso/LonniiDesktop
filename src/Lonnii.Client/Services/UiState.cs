@@ -30,6 +30,13 @@ public sealed class ScreenState
     /// the built-in default (8) applies. Remembered across Actualiser and a restart, same as
     /// the rest of this record, so re-opening the till does not reset it back down.</summary>
     public int? CatalogPageSize { get; set; }
+
+    /// <summary>Same idea as <see cref="CatalogPageSize"/>, for Liste des Ventes, the Client
+    /// manager and the Fournisseur manager - each remembered separately, since there is no
+    /// reason picking 20 for one of them should also apply to the others.</summary>
+    public int? VentePageSize { get; set; }
+    public int? ClientPageSize { get; set; }
+    public int? SupplierPageSize { get; set; }
 }
 
 /// <summary>

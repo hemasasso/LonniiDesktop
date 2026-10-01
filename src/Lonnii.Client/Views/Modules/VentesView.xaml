@@ -251,68 +251,89 @@
         <Grid x:Name="ListeVentesPanel" Visibility="Collapsed">
             <DockPanel>
 
+                <!-- WrapPanel, not a two-column Grid: with the sort controls added, the row no
+                     longer fits a narrower window on one line, and should wrap onto a second
+                     line (like Stock's own toolbar) rather than clip. -->
                 <Border DockPanel.Dock="Top" Style="{StaticResource ToolbarPanel}">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Orientation="Horizontal">
-                            <Grid Width="240" Margin="0,0,8,0">
-                                <TextBox x:Name="VenteSearchBox"
-                                         TextChanged="VenteSearch_TextChanged" KeyDown="VenteSearch_KeyDown" />
-                                <TextBlock x:Name="VenteSearchPlaceholder" Text="🔍 N° vente, client ou vendeur…"
-                                           Foreground="{DynamicResource TextMuted}" Margin="9,0,0,0"
-                                           VerticalAlignment="Center" IsHitTestVisible="False" />
-                            </Grid>
-                            <!-- The Vendeur label is replaced at load by the shop's own SellerLabel
-                                 from Paramètre Reçu et Facture - see VentesView.ApplySellerLabel. -->
-                            <ComboBox x:Name="VenteSearchTypeCombo" Width="130" Margin="0,0,8,0"
-                                      SelectionChanged="VenteFilters_Changed">
-                                <ComboBoxItem Content="Tous" Tag="both" IsSelected="True" />
-                                <ComboBoxItem Content="Client" Tag="client" />
-                                <ComboBoxItem x:Name="VendeurSearchItem" Content="Vendeur" Tag="vendeur" />
-                                <ComboBoxItem Content="Caissier" Tag="caissier" />
-                            </ComboBox>
-                            <ComboBox x:Name="VenteStatusCombo" Width="150" Margin="0,0,8,0"
-                                      SelectionChanged="VenteFilters_Changed">
-                                <ComboBoxItem Content="Tous les statuts" Tag="all" IsSelected="True" />
-                                <ComboBoxItem Content="Payé" Tag="paid" />
-                                <ComboBoxItem Content="Partiel" Tag="partial" />
-                                <ComboBoxItem Content="En attente" Tag="pending" />
-                                <ComboBoxItem Content="Avoir" Tag="avoir" />
-                                <ComboBoxItem Content="Annulé" Tag="cancelled" />
-                            </ComboBox>
-                            <ComboBox x:Name="VenteDateFilterCombo" Width="170"
-                                      SelectionChanged="VenteDateFilter_Changed">
-                                <ComboBoxItem Content="Aujourd'hui" Tag="today" IsSelected="True" />
-                                <ComboBoxItem Content="7 derniers jours" Tag="week" />
-                                <ComboBoxItem Content="Ce mois" Tag="month" />
-                                <ComboBoxItem Content="Cette année" Tag="year" />
-                                <ComboBoxItem Content="Période personnalisée" Tag="custom" />
-                            </ComboBox>
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal">
-                            <Button x:Name="ExportVentesButton" Margin="0,0,8,0"
-                                    Style="{StaticResource SecondaryButton}" Click="ExportVentes_Click">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="⬇" Style="{StaticResource ButtonContentText}" Margin="0,0,6,0" />
-                                    <TextBlock Text="Exporter" Style="{StaticResource ButtonContentText}" />
-                                </StackPanel>
-                            </Button>
-                            <Button Style="{StaticResource SecondaryButton}" Click="RefreshVentes_Click">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets"
-                                               Style="{StaticResource ButtonContentText}" Margin="0,0,6,0" />
-                                    <TextBlock Text="Actualiser" Style="{StaticResource ButtonContentText}" />
-                                </StackPanel>
-                            </Button>
-                        </StackPanel>
-                    </Grid>
+                    <WrapPanel Orientation="Horizontal">
+                        <Grid Width="240" Margin="0,0,8,6">
+                            <TextBox x:Name="VenteSearchBox"
+                                     TextChanged="VenteSearch_TextChanged" KeyDown="VenteSearch_KeyDown" />
+                            <TextBlock x:Name="VenteSearchPlaceholder" Text="🔍 N° vente, client ou vendeur…"
+                                       Foreground="{DynamicResource TextMuted}" Margin="9,0,0,0"
+                                       VerticalAlignment="Center" IsHitTestVisible="False" />
+                        </Grid>
+                        <!-- The Vendeur label is replaced at load by the shop's own SellerLabel
+                             from Paramètre Reçu et Facture - see VentesView.ApplySellerLabel. -->
+                        <ComboBox x:Name="VenteSearchTypeCombo" Width="130" Margin="0,0,8,6"
+                                  SelectionChanged="VenteFilters_Changed">
+                            <ComboBoxItem Content="Tous" Tag="both" IsSelected="True" />
+                            <ComboBoxItem Content="Client" Tag="client" />
+                            <ComboBoxItem x:Name="VendeurSearchItem" Content="Vendeur" Tag="vendeur" />
+                            <ComboBoxItem Content="Caissier" Tag="caissier" />
+                        </ComboBox>
+                        <ComboBox x:Name="VenteStatusCombo" Width="150" Margin="0,0,8,6"
+                                  SelectionChanged="VenteFilters_Changed">
+                            <ComboBoxItem Content="Tous les statuts" Tag="all" IsSelected="True" />
+                            <ComboBoxItem Content="Payé" Tag="paid" />
+                            <ComboBoxItem Content="Partiel" Tag="partial" />
+                            <ComboBoxItem Content="En attente" Tag="pending" />
+                            <ComboBoxItem Content="Avoir" Tag="avoir" />
+                            <ComboBoxItem Content="Annulé" Tag="cancelled" />
+                        </ComboBox>
+                        <ComboBox x:Name="VenteDateFilterCombo" Width="170" Margin="0,0,20,6"
+                                  SelectionChanged="VenteDateFilter_Changed">
+                            <ComboBoxItem Content="Aujourd'hui" Tag="today" IsSelected="True" />
+                            <ComboBoxItem Content="7 derniers jours" Tag="week" />
+                            <ComboBoxItem Content="Ce mois" Tag="month" />
+                            <ComboBoxItem Content="Cette année" Tag="year" />
+                            <ComboBoxItem Content="Période personnalisée" Tag="custom" />
+                        </ComboBox>
+                        <TextBlock Text="Trier par" Style="{StaticResource PageSubtitle}"
+                                   VerticalAlignment="Center" Margin="0,0,6,6" />
+                        <ComboBox x:Name="VenteSortField" Width="140" Margin="0,0,4,6"
+                                  SelectionChanged="VenteSort_Changed">
+                            <ComboBoxItem Content="Date" IsSelected="True" />
+                            <ComboBoxItem Content="N° Vente" />
+                            <ComboBoxItem Content="Client" />
+                            <ComboBoxItem Content="Montant Total" />
+                            <ComboBoxItem Content="Restant" />
+                        </ComboBox>
+                        <!-- Descending by default - matches the list's own long-standing
+                             behaviour (most recent sale first) so this control changes nothing
+                             until the cashier actually touches it. -->
+                        <Button x:Name="VenteSortDirectionButton" Content="▼" Width="30" MinWidth="30"
+                                Padding="0" Margin="0,0,20,6" ToolTip="Ordre décroissant"
+                                Style="{StaticResource SecondaryButton}" Click="VenteSortDirection_Click" />
+                        <Button x:Name="ExportVentesButton" Margin="0,0,8,6"
+                                Style="{StaticResource SecondaryButton}" Click="ExportVentes_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="⬇" Style="{StaticResource ButtonContentText}" Margin="0,0,6,0" />
+                                <TextBlock Text="Exporter" Style="{StaticResource ButtonContentText}" />
+                            </StackPanel>
+                        </Button>
+                        <Button Margin="0,0,0,6" Style="{StaticResource SecondaryButton}" Click="RefreshVentes_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets"
+                                           Style="{StaticResource ButtonContentText}" Margin="0,0,6,0" />
+                                <TextBlock Text="Actualiser" Style="{StaticResource ButtonContentText}" />
+                            </StackPanel>
+                        </Button>
+                    </WrapPanel>
                 </Border>
 
                 <Border x:Name="VentePaginationPanel" DockPanel.Dock="Bottom" Margin="0,6" Visibility="Collapsed">
-                    <controls:PaginationBar x:Name="VentePagerBar" PageChanged="VentePagerBar_PageChanged" />
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Par page" Style="{StaticResource PageSubtitle}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <ComboBox x:Name="VentePageSizeCombo" Width="70" SelectionChanged="VentePageSize_Changed">
+                                <ComboBoxItem Content="10" IsSelected="True" />
+                                <ComboBoxItem Content="15" />
+                                <ComboBoxItem Content="20" />
+                            </ComboBox>
+                        </StackPanel>
+                        <controls:PaginationBar x:Name="VentePagerBar" PageChanged="VentePagerBar_PageChanged" />
+                    </DockPanel>
                 </Border>
 
                 <Grid>

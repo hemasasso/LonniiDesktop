@@ -44,7 +44,13 @@ public partial class VentesView : UserControl
     private string _venteDateFilterTag = "today";
     private bool _suppressVenteDateFilterEvent;
     private int _ventePage = 1;
-    private const int VentePageSize = 10;
+    private int _ventePageSize = 10;
+    private string _venteSortField = "Date";
+    private bool _venteSortDescending = true;
+
+    /// <summary>True until the constructor finishes restoring the saved "Par page" choice -
+    /// see the identical field for Nouvelle Vente's own catalogue pager for why.</summary>
+    private bool _suppressVentePageSizeSave = true;
     private readonly DispatcherTimer _venteSearchDebounce = new() { Interval = TimeSpan.FromMilliseconds(300) };
 
     // --- Statistiques ---
@@ -239,6 +245,15 @@ public partial class VentesView : UserControl
             CatalogPageSizeCombo.SelectedItem = savedItem;
         }
         _suppressCatalogPageSizeSave = false;
+
+        if (UiState.For(_session).VentePageSize is { } savedVentePageSize
+            && VentePageSizeCombo.Items.Cast<ComboBoxItem>()
+                .FirstOrDefault(i => i.Content as string == savedVentePageSize.ToString()) is { } savedVenteItem)
+        {
+            _ventePageSize = savedVentePageSize;
+            VentePageSizeCombo.SelectedItem = savedVenteItem;
+        }
+        _suppressVentePageSizeSave = false;
 
         // Defaults the list to "Aujourd'hui", matching VenteDateFilterCombo's own
         // IsSelected="True" item - a cashier should not be confused by older sales
@@ -1742,6 +1757,7 @@ public partial class VentesView : UserControl
             var response = await _session.Api.GetVentesAsync(
                 _venteStatus, VenteSearchBox.Text, _venteSearchType, _venteDateDebut, _venteDateFin);
             _ventes = response.Ventes.ToList();
+            ApplyVenteSort();
             _ventePage = 1;
             RenderVenteList();
             HideMessage();
@@ -1759,6 +1775,59 @@ public partial class VentesView : UserControl
     private void VentePagerBar_PageChanged(object? sender, EventArgs e)
     {
         _ventePage = VentePagerBar.CurrentPage;
+        RenderVenteList();
+    }
+
+    /// <summary>Sorts the whole fetched list in place, not just the visible page - the list
+    /// is already paginated client-side over whatever was last fetched (see LoadVentesAsync),
+    /// so sorting has to happen before RenderVenteList slices it, not after.</summary>
+    private void ApplyVenteSort()
+    {
+        IOrderedEnumerable<VenteListItemDto> sorted = _venteSortField switch
+        {
+            "N° Vente" => _ventes.OrderBy(v => v.NumeroVente, StringComparer.CurrentCultureIgnoreCase),
+            "Client" => _ventes.OrderBy(v => v.ClientNom, StringComparer.CurrentCultureIgnoreCase),
+            "Montant Total" => _ventes.OrderBy(v => v.MontantTotal),
+            "Restant" => _ventes.OrderBy(v => v.MontantRestant),
+            _ => _ventes.OrderBy(v => v.DateVente),
+        };
+        _ventes = (_venteSortDescending ? sorted.Reverse() : sorted).ToList();
+    }
+
+    private void VenteSort_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        _venteSortField = (VenteSortField.SelectedItem as ComboBoxItem)?.Content as string ?? "Date";
+        ApplyVenteSort();
+        _ventePage = 1;
+        RenderVenteList();
+    }
+
+    private void VenteSortDirection_Click(object sender, RoutedEventArgs e)
+    {
+        _venteSortDescending = !_venteSortDescending;
+        VenteSortDirectionButton.Content = _venteSortDescending ? "▼" : "▲";
+        VenteSortDirectionButton.ToolTip = _venteSortDescending ? "Ordre décroissant" : "Ordre croissant";
+        ApplyVenteSort();
+        _ventePage = 1;
+        RenderVenteList();
+    }
+
+    private void VentePageSize_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if ((VentePageSizeCombo.SelectedItem as ComboBoxItem)?.Content as string is not { } text
+            || !int.TryParse(text, out var size))
+            return;
+
+        _ventePageSize = size;
+        _ventePage = 1;
+
+        if (!_suppressVentePageSizeSave)
+        {
+            UiState.For(_session).VentePageSize = size;
+            UiState.Save();
+        }
+
         RenderVenteList();
     }
 
@@ -1782,13 +1851,13 @@ public partial class VentesView : UserControl
 
         if (VenteListHeaderRow.Children.Count == 0) BuildVenteListHeader();
 
-        var totalPages = Math.Max(1, (int)Math.Ceiling(_ventes.Count / (double)VentePageSize));
+        var totalPages = Math.Max(1, (int)Math.Ceiling(_ventes.Count / (double)_ventePageSize));
         _ventePage = Math.Clamp(_ventePage, 1, totalPages);
 
-        foreach (var vente in _ventes.Skip((_ventePage - 1) * VentePageSize).Take(VentePageSize))
+        foreach (var vente in _ventes.Skip((_ventePage - 1) * _ventePageSize).Take(_ventePageSize))
             VenteListRows.Items.Add(BuildVenteRow(vente));
 
-        VentePaginationPanel.Visibility = _ventes.Count > VentePageSize ? Visibility.Visible : Visibility.Collapsed;
+        VentePaginationPanel.Visibility = _ventes.Count > _ventePageSize ? Visibility.Visible : Visibility.Collapsed;
         VentePagerBar.Configure(_ventePage, totalPages);
     }
 

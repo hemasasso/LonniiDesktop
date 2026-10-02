@@ -22,6 +22,9 @@ public sealed class ScreenState
 
     public string? RemiseGlobale { get; set; }
 
+    /// <summary>Whether <see cref="RemiseGlobale"/> is a percentage rather than an amount.</summary>
+    public bool RemiseGlobalePercent { get; set; }
+
     /// <summary>True once the user folded Analyse des Marges' estimated-cost notice down to its
     /// ⚠ icon; it stays folded until they open it again.</summary>
     public bool MargesEstimateNoticeCollapsed { get; set; }

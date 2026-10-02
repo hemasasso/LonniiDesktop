@@ -133,6 +133,23 @@
                     </Border>
                 </StackPanel>
 
+                <!-- Écran client (admin only, like Ventes above): drives hardware plugged into this till. -->
+                <StackPanel x:Name="CustomerDisplaySettingsPanel" Visibility="Collapsed">
+                    <TextBlock Text="ÉCRAN CLIENT" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Configurer" VerticalAlignment="Center"
+                                    Style="{StaticResource SecondaryButton}" Click="OpenCustomerDisplay_Click" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Affichage pour le client" FontWeight="SemiBold" />
+                                <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap"
+                                           Text="Second écran, afficheur USB ou LCD réseau : articles et montant à payer." />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                </StackPanel>
+
                 <StackPanel x:Name="BilanSettingsPanel" Visibility="Collapsed">
                     <TextBlock Text="BILAN ET COMPTE DE RÉSULTAT" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
                     <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"

@@ -11,13 +11,15 @@ public partial class AddPaymentDialog : Window
 {
     private string _modePaiement = "cash";
     private readonly decimal _montantRestant;
+    private readonly bool _canCreateAvoir;
 
     public decimal Montant { get; private set; }
     public string ModePaiement => _modePaiement;
 
-    public AddPaymentDialog(string numeroVente, decimal montantRestant)
+    public AddPaymentDialog(string numeroVente, decimal montantRestant, bool canCreateAvoir = false)
     {
         _montantRestant = montantRestant;
+        _canCreateAvoir = canCreateAvoir;
         InitializeComponent();
         SubtitleText.Text = $"Vente {numeroVente} — restant à payer : {Money.Format(montantRestant)}";
 
@@ -112,7 +114,7 @@ public partial class AddPaymentDialog : Window
         // Only what exceeds the whole remaining balance can be an avoir; the rest of the
         // change would still be settling the sale.
         var avoir = recu - _montantRestant;
-        var canAvoir = difference > 0 && avoir > 0;
+        var canAvoir = difference > 0 && avoir > 0 && _canCreateAvoir;
         MonnaieAvoirCheck.Visibility = canAvoir ? Visibility.Visible : Visibility.Collapsed;
         if (!canAvoir) MonnaieAvoirCheck.IsChecked = false;
 

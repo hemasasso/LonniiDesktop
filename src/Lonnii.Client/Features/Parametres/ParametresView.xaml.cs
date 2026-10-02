@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using Lonnii.Client.Features.CustomerDisplay;
 using Lonnii.Client.Services;
 using Lonnii.Shared.Contracts;
 using Lonnii.Shared.Security;
@@ -58,6 +59,7 @@ public partial class ParametresView : UserControl
         // Gated the same way, and for the same reason: the API refuses these writes to
         // anyone but an admin, so showing the entry to a member only advertises a locked door.
         VentesSettingsPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
+        CustomerDisplaySettingsPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
 
         BilanSettingsPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
         if (_session.IsAdmin) _ = LoadCalculAutomatiqueAsync();
@@ -166,6 +168,9 @@ public partial class ParametresView : UserControl
     /// refreshes the session's cached settings, so there is nothing to do on return.</summary>
     private void OpenReceiptSettings_Click(object sender, RoutedEventArgs e) =>
         new ReceiptSettingsDialog(_session) { Owner = Window.GetWindow(this) }.ShowDialog();
+
+    private void OpenCustomerDisplay_Click(object sender, RoutedEventArgs e) =>
+        new CustomerDisplaySettingsDialog { Owner = Window.GetWindow(this) }.ShowDialog();
 
     /// <summary>Opens the members/roles/privileges screen. Refreshes afterwards so a member
     /// added or removed there is reflected in this screen's own "Membres" count above, and so

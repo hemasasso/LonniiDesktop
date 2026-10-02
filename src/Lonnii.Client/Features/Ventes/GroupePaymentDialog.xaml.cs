@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using Lonnii.Client.Services;
 using Lonnii.Shared.Contracts;
+using Lonnii.Shared.Security;
 
 namespace Lonnii.Client.Features.Ventes;
 
@@ -197,7 +198,7 @@ public partial class GroupePaymentDialog : Window
         var recu = Recu;
         var change = Math.Max(0, recu - total);
 
-        var hasChange = Mode == "cash" && recu > total && total > 0;
+        var hasChange = Mode == "cash" && recu > total && total > 0 && _session.Can(Priv.Gestion.CreateAvoir);
         AvoirCheck.Visibility = hasChange ? Visibility.Visible : Visibility.Collapsed;
         if (!hasChange) AvoirCheck.IsChecked = false;
 

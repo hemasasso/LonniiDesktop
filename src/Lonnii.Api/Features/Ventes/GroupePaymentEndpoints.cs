@@ -93,6 +93,11 @@ public static class GroupePaymentEndpoints
         var avoir = request.MonnaieEnAvoir ? change - remis : 0;
         var montantPaye = total + avoir;
 
+        if (avoir > 0 && !scope.Privileges.HasGestion(Priv.Gestion.CreateAvoir))
+            return Results.Json(
+                new ApiError("Privilège insuffisant", Priv.Gestion.CreateAvoir),
+                statusCode: StatusCodes.Status403Forbidden);
+
         var userName = await VentesEndpoints.DisplayNameAsync(db, scope.UserId, ct);
         var stamp = DateTime.UtcNow;
         var reference = $"GROUPE-{new DateTimeOffset(stamp).ToUnixTimeMilliseconds()}";

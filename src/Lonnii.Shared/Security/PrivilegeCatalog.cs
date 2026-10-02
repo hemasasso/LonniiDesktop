@@ -210,6 +210,10 @@ public static class PrivilegeCatalog
         yield return new(Priv.Gestion.DeleteVente, "Supprimer une vente", "Supprimer une vente (sans paiements)", ventes, true);
         yield return new(Priv.Gestion.ViewVenteDetails, "Détails de vente", "Voir les détails complets d'une vente", ventes, false);
         yield return new(Priv.Gestion.SoldeAvoir, "Solder un Avoir", "Solder un avoir client", ventes, false);
+        // Desktop-only: the web app has no separate right to create an avoir.
+        yield return new(Priv.Gestion.CreateAvoir, "Créer un avoir",
+            "Garder la monnaie en avoir au lieu de la rendre (caisse, paiement, paiement groupé)", ventes, false);
+
         // Not from any SQL file: Lonnii Business checks these two (gestion.js, ventes.js) but
         // never seeds them, so the wording is the desktop's own.
         yield return new(Priv.Gestion.GroupePayment, "Paiement groupé",

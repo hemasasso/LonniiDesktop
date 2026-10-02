@@ -5,6 +5,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Lonnii.Client.Features.CustomerDisplay;
 using Lonnii.Client.Services;
 using Lonnii.Shared.Contracts;
 using Lonnii.Shared.Security;
@@ -37,14 +38,22 @@ public partial class MainWindow : Window
         InputBindings.Add(new KeyBinding(
             new RelayCommand(async () => await RefreshAsync()), Key.F5, ModifierKeys.None));
 
-        Loaded += (_, _) => BuildShell();
+        Loaded += (_, _) =>
+        {
+            BuildShell();
+            CustomerDisplayService.Instance.Start(_session);
+        };
 
         ThemeManager.Changed += (_, _) => ApplyThemeButtonVisuals();
         ApplyThemeButtonVisuals();
 
         _presenceTimer.Tick += async (_, _) => await SendPresenceAsync();
         _presenceTimer.Start();
-        Closing += (_, _) => EndPresence();
+        Closing += (_, _) =>
+        {
+            EndPresence();
+            CustomerDisplayService.Instance.Stop();
+        };
     }
 
     // --- Presence (Audit → présences) ---
@@ -478,6 +487,7 @@ public partial class MainWindow : Window
         if (confirm != MessageBoxResult.Yes) return;
 
         EndPresence();
+        CustomerDisplayService.Instance.Stop();
         _session.SignOut();
         Application.Current.Shutdown();
     }

@@ -115,6 +115,12 @@ public static class Priv
         public const string CancelVente = "can_cancel_vente";
         public const string SoldeAvoir = "can_solde_avoir";
 
+        /// <summary>Keep change as a credit note instead of handing it back ("Monnaie en avoir"):
+        /// at the till, on a later payment, or on a group payment. Settling an avoir that already
+        /// exists is <see cref="SoldeAvoir"/>. Desktop-only: Lonnii Business lets anyone with
+        /// can_add_payment create one.</summary>
+        public const string CreateAvoir = "can_create_avoir";
+
         /// <summary>Settle several unpaid factures in one go ("Paiement Groupé"), and the
         /// history of those group receipts. Lonnii Business checks them in gestion.js but no
         /// SQL file in its repo seeds them - they only exist in its live gestion_privileges.</summary>

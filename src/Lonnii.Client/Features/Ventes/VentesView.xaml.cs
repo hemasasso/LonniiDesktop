@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using Lonnii.Client.Features.CustomerDisplay;
 using Lonnii.Client.Services;
 using Lonnii.Shared.Contracts;
 using Lonnii.Shared.Security;
@@ -98,6 +99,7 @@ public partial class VentesView : UserControl
     private readonly bool _canCancelVente;
     private readonly bool _canExportVentes;
     private readonly bool _canGroupePayment;
+    private readonly bool _canCreateAvoir;
     private readonly bool _canViewGroupeHistory;
     private readonly bool _canManageClients;
 
@@ -219,6 +221,7 @@ public partial class VentesView : UserControl
         // that could only ever be refused off the screen.
         _canGroupePayment = _session.Can(Priv.Gestion.GroupePayment) && _canAddPayment;
         _canViewGroupeHistory = _session.Can(Priv.Gestion.ViewGroupePaymentHistory);
+        _canCreateAvoir = _session.Can(Priv.Gestion.CreateAvoir);
         _canEditVente = _session.Can(Priv.Gestion.EditVente);
         _canCancelVente = _session.Can(Priv.Gestion.CancelVente);
         _canExportVentes = _session.Can(Priv.Gestion.ExportVentes);
@@ -233,7 +236,7 @@ public partial class VentesView : UserControl
         InitializeComponent();
 
         SubtitleText.Text = _session.Groupe?.Nom;
-        RemiseCurrencyText.Text = _session.Groupe?.CurrencyLabel ?? Money.Label;
+        UpdateRemiseModeLabel();
         ExportVentesButton.Visibility = _canExportVentes ? Visibility.Visible : Visibility.Collapsed;
         GroupePaymentButton.Visibility = _canGroupePayment ? Visibility.Visible : Visibility.Collapsed;
         GroupeHistoryButton.Visibility = _canViewGroupeHistory ? Visibility.Visible : Visibility.Collapsed;
@@ -860,6 +863,31 @@ public partial class VentesView : UserControl
 
     private void RemiseGlobale_Changed(object sender, TextChangedEventArgs e) => UpdateTotals();
 
+    /// <summary>True when the global discount box holds a percentage of the basket rather than an amount.</summary>
+    private bool _remiseIsPercent;
+
+    private void UpdateRemiseModeLabel() =>
+        RemiseCurrencyText.Text = _remiseIsPercent ? "%" : _session.Groupe?.CurrencyLabel ?? Money.Label;
+
+    private void RemiseMode_Click(object sender, RoutedEventArgs e)
+    {
+        _remiseIsPercent = !_remiseIsPercent;
+        UpdateRemiseModeLabel();
+        UpdateTotals();
+    }
+
+    /// <summary>The global discount as an amount, whichever way it was typed: a percentage is
+    /// taken of what the basket costs after the per-item discounts, and neither can exceed it.
+    /// The server only ever receives this amount.</summary>
+    private decimal GlobalDiscountAmount(decimal afterItemDiscounts)
+    {
+        Money.TryParse(RemiseGlobaleBox.Text, out decimal typed);
+        var amount = _remiseIsPercent
+            ? Math.Round(afterItemDiscounts * Math.Clamp(typed, 0, 100) / 100m, Money.DecimalDigits, MidpointRounding.AwayFromZero)
+            : typed;
+        return Math.Clamp(amount, 0, afterItemDiscounts);
+    }
+
     /// <summary>Recomputes SOUS-TOTAL / REMISE ARTICLES / REMISE GLOBALE / Total from the
     /// cart and the discount box, without touching the cart's row list. SOUS-TOTAL is the
     /// raw pre-discount sum, so the two discounts each show as their own line rather than
@@ -875,8 +903,7 @@ public partial class VentesView : UserControl
         var afterItemDiscounts = _cart.Sum(c => c.LineTotal);
         var itemDiscountTotal = rawSubtotal - afterItemDiscounts;
 
-        Money.TryParse(RemiseGlobaleBox.Text, out decimal remise);
-        remise = Math.Clamp(remise, 0, afterItemDiscounts);
+        var remise = GlobalDiscountAmount(afterItemDiscounts);
 
         var (tva, total) = WithTva(afterItemDiscounts - remise);
 
@@ -896,7 +923,36 @@ public partial class VentesView : UserControl
         // nothing Validate_Click could actually do, so it must not be clickable.
         UpdateValidateEnabled();
 
+        _displayDiscount = itemDiscountTotal + remise;
+        _displaySubtotal = rawSubtotal;
+        _displayTva = tva;
+        PushCustomerDisplay();
+
         if (_cartRestored) SaveCart();
+    }
+
+    private decimal _displaySubtotal;
+    private decimal _displayDiscount;
+    private decimal _displayTva;
+
+    /// <summary>Tells the customer-facing display what is in the cart and what is due - and, once
+    /// the cashier has typed what the customer handed over, the change. Called after every
+    /// change to either, so the customer watches the total build up as items are scanned.</summary>
+    private void PushCustomerDisplay()
+    {
+        decimal? recu = null;
+        if (_cart.Count > 0 && MontantRecuPanel.Visibility == Visibility.Visible
+            && Money.TryParse(MontantRecuBox.Text, out decimal handedOver) && handedOver > 0)
+            recu = handedOver;
+
+        CustomerDisplayService.Instance.Update(
+            _cart.Select(c => new DisplayLine(
+                c.LineId, c.Product.Name, c.Quantity, c.UnitPrice, c.LineTotal,
+                c.Product.VenteMixte
+                    ? (c.VenteEnGros ? c.Product.UniteVente : c.Product.UniteAffichage) ?? "unité"
+                    : null,
+                FullTotal: c.UnitPrice * c.Quantity)).ToList(),
+            _displaySubtotal, _displayDiscount, _displayTva, _currentTotal, recu);
     }
 
     /// <summary>An empty cart can still be validated when "Monnaie en avoir" is checked: that
@@ -919,6 +975,7 @@ public partial class VentesView : UserControl
     {
         UpdateMonnaieARendre();
         UpdateValidateEnabled();
+        PushCustomerDisplay();
     }
 
     /// <summary>Grouped ("1 000") only once typing is done, same reasoning as every other
@@ -946,8 +1003,10 @@ public partial class VentesView : UserControl
 
         var difference = recu - _currentTotal;
         var hasChange = difference > 0;
-        MonnaieAvoirCheck.Visibility = hasChange ? Visibility.Visible : Visibility.Collapsed;
-        if (!hasChange) MonnaieAvoirCheck.IsChecked = false;
+        // Keeping change as an avoir is its own right (can_create_avoir).
+        var canAvoir = hasChange && _canCreateAvoir;
+        MonnaieAvoirCheck.Visibility = canAvoir ? Visibility.Visible : Visibility.Collapsed;
+        if (!canAvoir) MonnaieAvoirCheck.IsChecked = false;
 
         var asAvoir = hasChange && MonnaieAvoirCheck.IsChecked == true;
         MonnaieARendreText.Foreground = (Brush)FindResource(difference < 0 ? "Danger" : asAvoir ? "Warning" : "Success");
@@ -1164,6 +1223,7 @@ public partial class VentesView : UserControl
             .Select(c => new SavedCartLine(c.Product.Id, c.Quantity, c.UnitPrice, c.Discount, c.DiscountType, c.VenteEnGros))
             .ToList();
         state.RemiseGlobale = RemiseGlobaleBox.Text;
+        state.RemiseGlobalePercent = _remiseIsPercent;
         UiState.Save();
     }
 
@@ -1195,7 +1255,12 @@ public partial class VentesView : UserControl
 
         // Not restored without the privilege: the box would stay hidden while still quietly
         // discounting the total, which is worse than the discount simply being forgotten.
-        if (_canApplyDiscount && state.RemiseGlobale is { Length: > 0 } remise) RemiseGlobaleBox.Text = remise;
+        if (_canApplyDiscount && state.RemiseGlobale is { Length: > 0 } remise)
+        {
+            _remiseIsPercent = state.RemiseGlobalePercent;
+            UpdateRemiseModeLabel();
+            RemiseGlobaleBox.Text = remise;
+        }
 
         _cartRestored = true;
         RenderCart();
@@ -1564,8 +1629,7 @@ public partial class VentesView : UserControl
         await RefreshReceiptSettingsAsync();
 
         var subtotal = _cart.Sum(c => c.LineTotal);
-        Money.TryParse(RemiseGlobaleBox.Text, out decimal remise);
-        remise = Math.Clamp(remise, 0, subtotal);
+        var remise = GlobalDiscountAmount(subtotal);
         var (_, total) = WithTva(subtotal - remise);
 
         var items = _cart.Select(c =>
@@ -1600,12 +1664,25 @@ public partial class VentesView : UserControl
         {
             var vente = await _session.Api.CreateVenteAsync(request);
 
+            // Captured before the cart and the amount box are cleared: what the customer
+            // handed over decides the change the display shows them.
+            var changeGiven = !isFacture && !monnaieEnAvoir
+                && Money.TryParse(MontantRecuBox.Text, out decimal handed) && handed > vente.MontantTotal
+                ? handed - vente.MontantTotal : (decimal?)null;
+
+            // The next customer must not inherit this one's "montant reçu" on the display.
+            MontantRecuBox.Clear();
             _cart.Clear();
             RenderCart();
             RemiseGlobaleBox.Text = "0";
+            _remiseIsPercent = false;
+            UpdateRemiseModeLabel();
             ClientNomBox.Text = string.Empty;
             ClientTelephoneBox.Text = string.Empty;
             ClientEmailBox.Text = string.Empty;
+
+            CustomerDisplayService.Instance.ShowThanks(
+                vente.MontantTotal, changeGiven, facture: vente.StatutPaiement == "en_attente");
 
             var settings = await _session.GetReceiptSettingsAsync();
             if (settings.PrintAfterSale(facture: vente.StatutPaiement == "en_attente"))
@@ -2199,7 +2276,7 @@ public partial class VentesView : UserControl
 
     private async Task AddPaiementAsync(VenteListItemDto vente)
     {
-        var dialog = new AddPaymentDialog(vente.NumeroVente, Math.Max(0, vente.MontantRestant))
+        var dialog = new AddPaymentDialog(vente.NumeroVente, Math.Max(0, vente.MontantRestant), _canCreateAvoir)
         {
             Owner = Window.GetWindow(this),
         };

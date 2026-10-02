@@ -85,7 +85,7 @@ public static class PrivilegeProfiles
             Priv.Gestion.ViewCaisseHistory, Priv.Gestion.AddPayment,
             Priv.Gestion.CreateVente, Priv.Gestion.ViewVentes, Priv.Gestion.ViewAllVentes,
             Priv.Gestion.ViewVenteDetails, Priv.Gestion.PrintReceipt, Priv.Gestion.SoldeAvoir,
-            Priv.Gestion.GroupePayment, Priv.Gestion.ViewGroupePaymentHistory,
+            Priv.Gestion.GroupePayment, Priv.Gestion.ViewGroupePaymentHistory, Priv.Gestion.CreateAvoir,
             Priv.Gestion.ViewStock,
         }),
         // No can_add_payment: a préparateur builds the cart as an unpaid facture and the

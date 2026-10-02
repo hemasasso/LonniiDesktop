@@ -347,6 +347,12 @@ public static class VentesEndpoints
         if (StatutPaiement.Normalise(vente.StatutPaiement) == StatutPaiement.Annule)
             return Results.BadRequest(new ApiError("Cette vente est annulée"));
 
+        // Paying more than is owed turns the excess into an avoir - which needs its own right.
+        if (request.Montant > vente.MontantRestant && !scope.Privileges.HasGestion(Priv.Gestion.CreateAvoir))
+            return Results.Json(
+                new ApiError("Privilège insuffisant", Priv.Gestion.CreateAvoir),
+                statusCode: StatusCodes.Status403Forbidden);
+
         vente.Paiements.Add(new PaiementVente
         {
             VenteId = vente.Id,
@@ -715,6 +721,13 @@ public static class VentesEndpoints
         if (montantPaye > 0 && !scope.Privileges.HasGestion(Priv.Gestion.AddPayment))
             return Results.Json(
                 new ApiError("Privilège insuffisant", Priv.Gestion.AddPayment),
+                statusCode: StatusCodes.Status403Forbidden);
+
+        // Same for creating an avoir: the till hides "Monnaie en avoir" without the right, the
+        // server refuses it.
+        if (avoir > 0 && !scope.Privileges.HasGestion(Priv.Gestion.CreateAvoir))
+            return Results.Json(
+                new ApiError("Privilège insuffisant", Priv.Gestion.CreateAvoir),
                 statusCode: StatusCodes.Status403Forbidden);
 
         vente.MontantTotal = total;

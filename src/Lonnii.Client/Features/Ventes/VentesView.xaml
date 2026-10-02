@@ -594,9 +594,15 @@
                                 <TextBlock DockPanel.Dock="Left" Text="Remise globale"
                                            Foreground="{DynamicResource Warning}"
                                            VerticalAlignment="Center" Margin="0,0,8,0" />
-                                <TextBlock DockPanel.Dock="Right" x:Name="RemiseCurrencyText"
-                                           Foreground="{DynamicResource TextMuted}"
-                                           VerticalAlignment="Center" Margin="8,0,0,0" />
+                                <!-- Click to switch the discount between an amount and a percentage. -->
+                                <Button DockPanel.Dock="Right" x:Name="RemiseModeButton"
+                                        Style="{StaticResource SecondaryButton}" MinWidth="0" Padding="8,2"
+                                        Margin="8,0,0,0" VerticalAlignment="Center"
+                                        ToolTip="Cliquer pour passer de montant à pourcentage"
+                                        Click="RemiseMode_Click">
+                                    <TextBlock x:Name="RemiseCurrencyText" FontWeight="SemiBold"
+                                               Style="{StaticResource ButtonContentText}" />
+                                </Button>
                                 <TextBox x:Name="RemiseGlobaleBox" Text="0" />
                             </DockPanel>
                         </Border>

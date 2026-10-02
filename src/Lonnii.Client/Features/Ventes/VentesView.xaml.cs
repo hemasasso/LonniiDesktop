@@ -1582,7 +1582,11 @@ public partial class VentesView : UserControl
     {
         var relevant = VenteRapideCheck.IsChecked == true && _modePaiement == "cash";
         MontantRecuPanel.Visibility = relevant ? Visibility.Visible : Visibility.Collapsed;
-        if (!relevant) MontantRecuBox.Text = string.Empty;
+
+        // The typed amount is kept while the panel is hidden, so a cashier who glances at
+        // Mobile Money and comes back to Espèces does not have to type it again. What must not
+        // survive is the avoir choice, and nothing reads the amount while the panel is hidden.
+        if (!relevant) MonnaieAvoirCheck.IsChecked = false;
     }
 
     private void PaymentMode_Click(object sender, RoutedEventArgs e)
@@ -1590,6 +1594,10 @@ public partial class VentesView : UserControl
         _modePaiement = (string)((Button)sender).Tag;
         UpdateMontantRecuVisibility();
         ApplyPaymentVisuals();
+
+        // Back on cash, the kept amount shows its change again straight away.
+        UpdateMonnaieARendre();
+        PushCustomerDisplay();
     }
 
     private void ApplyPaymentVisuals()
@@ -1645,7 +1653,7 @@ public partial class VentesView : UserControl
         // "Monnaie en avoir": the customer's whole handed-over amount is recorded, so the
         // excess over the total becomes an avoir on this sale rather than change given back.
         var monnaieEnAvoir = false;
-        if (!isFacture && MonnaieAvoirCheck.IsChecked == true
+        if (!isFacture && MontantRecuPanel.Visibility == Visibility.Visible && MonnaieAvoirCheck.IsChecked == true
             && Money.TryParse(MontantRecuBox.Text, out decimal recu) && recu > total)
         {
             montantPaye = recu;
@@ -1666,7 +1674,7 @@ public partial class VentesView : UserControl
 
             // Captured before the cart and the amount box are cleared: what the customer
             // handed over decides the change the display shows them.
-            var changeGiven = !isFacture && !monnaieEnAvoir
+            var changeGiven = !isFacture && !monnaieEnAvoir && MontantRecuPanel.Visibility == Visibility.Visible
                 && Money.TryParse(MontantRecuBox.Text, out decimal handed) && handed > vente.MontantTotal
                 ? handed - vente.MontantTotal : (decimal?)null;
 

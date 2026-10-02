@@ -1,6 +1,7 @@
 <UserControl x:Class="Lonnii.Client.Features.Stock.StockView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:Lonnii.Client.Common.Controls"
              xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF"
              Background="{DynamicResource Surface}">
 
@@ -405,10 +406,9 @@
                 </StackPanel>
             </Border>
 
-            <Border x:Name="BusyPanel" Visibility="Collapsed" Background="#66FFFFFF">
-                <TextBlock Text="Chargement…" VerticalAlignment="Center" HorizontalAlignment="Center"
-                           FontSize="14" Foreground="{DynamicResource TextSecondary}" />
-            </Border>
+            <Border x:Name="BusyPanel" Visibility="Collapsed">
+<controls:LoadingIndicator />
+</Border>
             </Grid>
 
             <!-- Analyse tab: numbers and charts over the whole catalogue, filtered by its own

@@ -100,6 +100,8 @@ public partial class SupplierManagerDialog : Window
 
     private void Sort_Changed(object sender, SelectionChangedEventArgs e)
     {
+        if (!IsLoaded) return;
+
         _sortField = (SortField.SelectedItem as ComboBoxItem)?.Content as string ?? "Nom";
         ApplyFilter();
     }
@@ -130,6 +132,8 @@ public partial class SupplierManagerDialog : Window
 
     private void PageSize_Changed(object sender, SelectionChangedEventArgs e)
     {
+        if (!IsLoaded) return;
+
         if ((PageSizeCombo.SelectedItem as ComboBoxItem)?.Content as string is not { } text
             || !int.TryParse(text, out var size))
             return;

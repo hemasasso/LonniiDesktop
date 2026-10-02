@@ -71,6 +71,11 @@ public partial class VentesView : UserControl
         new(0x8B, 0x5C, 0xF6), new(0xEC, 0x48, 0x99), new(0x06, 0xB6, 0xD4), new(0x84, 0xCC, 0x16),
     ];
 
+    /// <summary>The "Vendeur" column header, renamed to the shop's own seller label from
+    /// Paramètre Reçu et Facture once <see cref="ApplySellerLabelAsync"/> resolves it - same
+    /// label VendeurSearchItem already picks up for the search filter.</summary>
+    private string _sellerLabel = "Vendeur";
+
     /// <summary>Column labels and widths shared by the list's header row and every data row,
     /// so the two can never drift apart - same order as Lonnii Business's ListeVentes.jsx table.</summary>
     private static readonly (string Label, GridLength Width)[] VenteColumns =
@@ -1743,7 +1748,10 @@ public partial class VentesView : UserControl
         {
             var settings = await _session.GetReceiptSettingsAsync();
             if (!string.IsNullOrWhiteSpace(settings.SellerLabel))
-                VendeurSearchItem.Content = settings.SellerLabel.Trim();
+            {
+                _sellerLabel = settings.SellerLabel.Trim();
+                VendeurSearchItem.Content = _sellerLabel;
+            }
         }
         catch (ApiException) { }
     }
@@ -1815,6 +1823,8 @@ public partial class VentesView : UserControl
 
     private void VentePageSize_Changed(object sender, SelectionChangedEventArgs e)
     {
+        if (!IsLoaded) return;
+
         if ((VentePageSizeCombo.SelectedItem as ComboBoxItem)?.Content as string is not { } text
             || !int.TryParse(text, out var size))
             return;
@@ -1889,7 +1899,7 @@ public partial class VentesView : UserControl
             VenteListHeaderRow.ColumnDefinitions.Add(new ColumnDefinition { Width = width });
             var text = new TextBlock
             {
-                Text = label, FontWeight = FontWeights.SemiBold, FontSize = 11,
+                Text = label == "Vendeur" ? _sellerLabel : label, FontWeight = FontWeights.SemiBold, FontSize = 11,
                 Margin = new Thickness(4, 0, 4, 0), TextTrimming = TextTrimming.CharacterEllipsis,
             };
             SetBrush(text, TextBlock.ForegroundProperty, "TextSecondary");

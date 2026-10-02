@@ -153,6 +153,8 @@ public partial class ClientManagerDialog : Window
 
     private void Sort_Changed(object sender, SelectionChangedEventArgs e)
     {
+        if (!IsLoaded) return;
+
         _sortField = (SortField.SelectedItem as ComboBoxItem)?.Content as string ?? "Classement";
         ApplyFilter();
     }
@@ -167,6 +169,8 @@ public partial class ClientManagerDialog : Window
 
     private void PageSize_Changed(object sender, SelectionChangedEventArgs e)
     {
+        if (!IsLoaded) return;
+
         if ((PageSizeCombo.SelectedItem as ComboBoxItem)?.Content as string is not { } text
             || !int.TryParse(text, out var size))
             return;

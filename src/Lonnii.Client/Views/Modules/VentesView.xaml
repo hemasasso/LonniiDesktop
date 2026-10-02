@@ -322,7 +322,7 @@
                     </WrapPanel>
                 </Border>
 
-                <Border x:Name="VentePaginationPanel" DockPanel.Dock="Bottom" Margin="0,6" Visibility="Collapsed">
+                <Border x:Name="VentePaginationPanel" DockPanel.Dock="Bottom" Margin="0,6" Padding="14,0" Visibility="Collapsed">
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="Par page" Style="{StaticResource PageSubtitle}" VerticalAlignment="Center" Margin="0,0,8,0" />

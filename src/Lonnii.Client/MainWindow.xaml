@@ -49,19 +49,21 @@
 
         <!-- Same idea, but square-ish with a smaller radius, for the back button. -->
         <ControlTemplate x:Key="IconSquareButtonTemplate" TargetType="Button">
-            <Border x:Name="Root"
-                    Background="{TemplateBinding Background}"
-                    Width="32" Height="32"
-                    CornerRadius="8"
-                    SnapsToDevicePixels="True">
+            <!-- Box and arrow are separate siblings (not icon-inside-box) so the disabled
+                 trigger below can dim just the box's Opacity without taking the arrow down
+                 with it to near-invisible. -->
+            <Grid Width="32" Height="32" SnapsToDevicePixels="True">
+                <Border x:Name="Box" Background="{TemplateBinding Background}" CornerRadius="8" />
                 <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center" />
-            </Border>
+            </Grid>
             <ControlTemplate.Triggers>
+                <!-- Brightens the box on hover rather than fading it - fading made the arrow
+                     harder to see exactly when the user was pointing at it. -->
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter TargetName="Root" Property="Opacity" Value="0.8" />
+                    <Setter TargetName="Box" Property="Background" Value="#4DFFFFFF" />
                 </Trigger>
                 <Trigger Property="IsEnabled" Value="False">
-                    <Setter TargetName="Root" Property="Opacity" Value="0.4" />
+                    <Setter TargetName="Box" Property="Opacity" Value="0.5" />
                 </Trigger>
             </ControlTemplate.Triggers>
         </ControlTemplate>
@@ -132,10 +134,10 @@
                      same reason every other icon TextBlock below uses ButtonContentText. -->
                 <Button x:Name="BackButton" Grid.Column="0" Width="32" Height="32" Margin="0,0,12,0"
                         FontSize="15" Foreground="White" Cursor="Hand"
-                        Background="#26FFFFFF" BorderThickness="0" IsEnabled="False"
+                        Background="#33FFFFFF" BorderThickness="0" IsEnabled="False"
                         Template="{StaticResource IconSquareButtonTemplate}"
                         Click="Back_Click" ToolTip="Retour">
-                    <TextBlock Text="←" FontSize="15" Style="{StaticResource ButtonContentText}" />
+                    <TextBlock Text="←" FontSize="15" FontWeight="Bold" Style="{StaticResource ButtonContentText}" />
                 </Button>
 
                 <!-- One pill per module the session's menu allows. -->

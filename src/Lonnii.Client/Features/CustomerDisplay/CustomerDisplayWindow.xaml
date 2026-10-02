@@ -48,9 +48,10 @@
                 </Border>
 
                 <Grid x:Name="BodyGrid" Grid.Row="1" Margin="32">
+                    <!-- The summary takes 40 % of the screen's width, the basket the other 60 %. -->
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="420" />
+                        <ColumnDefinition Width="3*" />
+                        <ColumnDefinition Width="2*" />
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*" />

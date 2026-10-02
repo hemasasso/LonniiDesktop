@@ -100,7 +100,7 @@ public partial class CustomerDisplayWindow : Window
         if (portrait == _portrait) return;
         _portrait = portrait;
 
-        BodyGrid.ColumnDefinitions[1].Width = portrait ? new GridLength(0) : new GridLength(420);
+        BodyGrid.ColumnDefinitions[1].Width = portrait ? new GridLength(0) : new GridLength(2, GridUnitType.Star);
         System.Windows.Controls.Grid.SetRow(SummaryCard, portrait ? 1 : 0);
         System.Windows.Controls.Grid.SetColumn(SummaryCard, portrait ? 0 : 1);
         System.Windows.Controls.Grid.SetColumnSpan(SummaryCard, portrait ? 2 : 1);

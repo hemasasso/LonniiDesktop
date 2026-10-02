@@ -150,6 +150,24 @@
                     </Border>
                 </StackPanel>
 
+                <!-- Moyens de paiement: Mobile Money, cartes, Google Pay, Apple Pay. Built but hidden until
+                     a provider is wired - see PaymentProviderRegistry.SettingsVisible. -->
+                <StackPanel x:Name="PaymentSettingsPanel" Visibility="Collapsed">
+                    <TextBlock Text="MOYENS DE PAIEMENT" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Configurer" VerticalAlignment="Center"
+                                    Style="{StaticResource SecondaryButton}" Click="OpenPaymentProviders_Click" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Paiements non espèces" FontWeight="SemiBold" />
+                                <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap"
+                                           Text="Mobile Money, cartes Visa / Mastercard, Google Pay, Apple Pay." />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                </StackPanel>
+
                 <StackPanel x:Name="BilanSettingsPanel" Visibility="Collapsed">
                     <TextBlock Text="BILAN ET COMPTE DE RÉSULTAT" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
                     <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"

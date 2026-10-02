@@ -178,16 +178,25 @@ public partial class CustomerDisplayWindow : Window
 
     public void Show(CustomerDisplaySnapshot s)
     {
-        SellingPanel.Visibility = s.Mode == DisplayMode.Selling ? Visibility.Visible : Visibility.Collapsed;
-        IdlePanel.Visibility = s.Mode == DisplayMode.Idle ? Visibility.Visible : Visibility.Collapsed;
-        ThanksPanel.Visibility = s.Mode == DisplayMode.Thanks ? Visibility.Visible : Visibility.Collapsed;
+        SellingPanel.Visibility          = s.Mode == DisplayMode.Selling           ? Visibility.Visible : Visibility.Collapsed;
+        IdlePanel.Visibility             = s.Mode == DisplayMode.Idle              ? Visibility.Visible : Visibility.Collapsed;
+        PaymentConfirmedPanel.Visibility = s.Mode == DisplayMode.PaymentConfirmed  ? Visibility.Visible : Visibility.Collapsed;
+        ThanksPanel.Visibility           = s.Mode == DisplayMode.Thanks            ? Visibility.Visible : Visibility.Collapsed;
 
         switch (s.Mode)
         {
-            case DisplayMode.Selling: ShowSelling(s); break;
-            case DisplayMode.Thanks: ShowThanks(s); break;
-            default: ShowIdle(s); break;
+            case DisplayMode.Selling:           ShowSelling(s); break;
+            case DisplayMode.PaymentConfirmed:  ShowPaymentConfirmed(s); break;
+            case DisplayMode.Thanks:            ShowThanks(s); break;
+            default:                            ShowIdle(s); break;
         }
+    }
+
+    private void ShowPaymentConfirmed(CustomerDisplaySnapshot s)
+    {
+        // FocusLineId is repurposed to carry the payment method name (e.g. "Orange Money").
+        ConfirmedModeText.Text  = s.FocusLineId ?? string.Empty;
+        ConfirmedTotalText.Text = Money.Format(s.Total);
     }
 
     private void ShowSelling(CustomerDisplaySnapshot s)

@@ -153,6 +153,18 @@ public sealed class CustomerDisplayService
         Publish();
     }
 
+    /// <summary>An online payment was accepted by the provider: show a brief green confirmation
+    /// on the customer screen while the sale is being recorded. A normal <see cref="ShowThanks"/>
+    /// follows right after, so this stays up only until the next publish.</summary>
+    public void ShowPaymentConfirmed(decimal total, string modeName)
+    {
+        _hold = new CustomerDisplaySnapshot(
+            DisplayMode.PaymentConfirmed, _branding, [], total, 0, 0, total,
+            FocusLineId: modeName);
+        StartHold();
+        Publish();
+    }
+
     /// <summary>A sale was just recorded: say thank you (and the change) for a few seconds.</summary>
     /// <param name="change">Change handed back, when there was any.</param>
     public void ShowThanks(decimal total, decimal? change, bool facture)

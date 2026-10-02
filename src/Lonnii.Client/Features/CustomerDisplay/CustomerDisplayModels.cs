@@ -168,6 +168,9 @@ public enum DisplayMode
     /// <summary>A sale is being rung up.</summary>
     Selling,
 
+    /// <summary>A non-cash payment was just confirmed by the provider, before the sale is recorded.</summary>
+    PaymentConfirmed,
+
     /// <summary>The sale was just recorded.</summary>
     Thanks,
 }

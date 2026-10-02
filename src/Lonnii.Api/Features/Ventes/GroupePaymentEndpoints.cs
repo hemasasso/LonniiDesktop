@@ -17,7 +17,8 @@ namespace Lonnii.Api.Features.Ventes;
 public static class GroupePaymentEndpoints
 {
     private static readonly string[] Modes =
-        [ModePaiement.Cash, ModePaiement.MobileMoney, ModePaiement.Carte, ModePaiement.Virement, ModePaiement.Cheque];
+        [ModePaiement.Cash, ModePaiement.MobileMoney, ModePaiement.Carte, ModePaiement.Virement, ModePaiement.Cheque,
+         ModePaiement.GooglePay, ModePaiement.ApplePay, ModePaiement.PayPal];
 
     public static void MapGroupePaymentEndpoints(this IEndpointRouteBuilder app)
     {

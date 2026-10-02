@@ -51,6 +51,11 @@ public static class ModePaiement
     public const string Carte = "carte";
     public const string Virement = "virement";
     public const string Cheque = "cheque";
+
+    // Reserved for the wallet providers (Features/Payments); nothing records them yet.
+    public const string GooglePay = "google_pay";
+    public const string ApplePay = "apple_pay";
+    public const string PayPal = "paypal";
 }
 
 /// <summary>

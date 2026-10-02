@@ -174,6 +174,8 @@
 
             <!-- ===================== Nothing in the cart ===================== -->
             <Grid x:Name="IdlePanel" Visibility="Collapsed" Background="{DynamicResource BrandDeep}">
+                <!-- DownOnly: never bigger than designed, but shrinks to fit when the screen is short. -->
+                <Viewbox StretchDirection="DownOnly" Margin="40" HorizontalAlignment="Center" VerticalAlignment="Center">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                     <Border x:Name="IdleLogoChip" Background="White" CornerRadius="22" Padding="22"
                             HorizontalAlignment="Center" Margin="0,0,0,30">
@@ -193,10 +195,31 @@
                                    MaxWidth="560" Margin="0,12,0,0" Foreground="{DynamicResource OnBrandSoft}" />
                     </StackPanel>
                 </StackPanel>
+                </Viewbox>
+            </Grid>
+
+            <!-- ===================== Payment confirmed by the provider ===================== -->
+            <Grid x:Name="PaymentConfirmedPanel" Visibility="Collapsed" Background="{DynamicResource Good}">
+                <Viewbox StretchDirection="DownOnly" Margin="40" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Grid Width="150" Height="150" HorizontalAlignment="Center">
+                        <Ellipse Fill="White" Opacity="0.25" />
+                        <TextBlock Text="✓" FontSize="96" FontWeight="Bold" Foreground="White"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-6,0,0" />
+                    </Grid>
+                    <TextBlock Text="Paiement confirmé" FontSize="72" FontWeight="Bold"
+                               TextAlignment="Center" Margin="0,22,0,0" Foreground="White" />
+                    <TextBlock x:Name="ConfirmedModeText" FontSize="38" TextAlignment="Center"
+                               Margin="0,10,0,0" Foreground="White" Opacity="0.85" />
+                    <TextBlock x:Name="ConfirmedTotalText" FontSize="52" FontWeight="SemiBold"
+                               TextAlignment="Center" Margin="0,14,0,0" Foreground="White" />
+                </StackPanel>
+                </Viewbox>
             </Grid>
 
             <!-- ===================== The sale was just recorded ===================== -->
             <Grid x:Name="ThanksPanel" Visibility="Collapsed" Background="{DynamicResource Bg}">
+                <Viewbox StretchDirection="DownOnly" Margin="40" HorizontalAlignment="Center" VerticalAlignment="Center">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                     <Grid Width="150" Height="150" HorizontalAlignment="Center">
                         <Ellipse Fill="{DynamicResource Good}" />
@@ -215,6 +238,7 @@
                     <TextBlock x:Name="ThanksNote" FontSize="32" TextAlignment="Center" Margin="0,26,0,0"
                                Foreground="{DynamicResource Muted}" />
                 </StackPanel>
+                </Viewbox>
             </Grid>
 
         </Grid>

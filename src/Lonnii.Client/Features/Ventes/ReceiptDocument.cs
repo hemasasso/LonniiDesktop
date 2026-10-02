@@ -921,6 +921,9 @@ public sealed class ReceiptDocument
         "carte" => "Carte",
         "virement" => "Virement",
         "cheque" => "Chèque",
+        "google_pay" => "Google Pay",
+        "apple_pay" => "Apple Pay",
+        "paypal" => "PayPal",
         _ => modePaiement ?? "—",
     };
 

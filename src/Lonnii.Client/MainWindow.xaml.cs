@@ -6,6 +6,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Lonnii.Client.Features.CustomerDisplay;
+using Lonnii.Client.Features.Payments;
 using Lonnii.Client.Services;
 using Lonnii.Shared.Contracts;
 using Lonnii.Shared.Security;
@@ -42,6 +43,7 @@ public partial class MainWindow : Window
         {
             BuildShell();
             CustomerDisplayService.Instance.Start(_session);
+            PaymentProviderRegistry.Register(new LigdiCashProvider());
         };
 
         ThemeManager.Changed += (_, _) => ApplyThemeButtonVisuals();

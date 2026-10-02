@@ -9,6 +9,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using Lonnii.Client.Features.CustomerDisplay;
+using Lonnii.Client.Features.Payments;
 using Lonnii.Client.Services;
 using Lonnii.Shared.Contracts;
 using Lonnii.Shared.Security;
@@ -1662,6 +1663,23 @@ public partial class VentesView : UserControl
 
         var clientTelephone = string.IsNullOrWhiteSpace(ClientTelephoneBox.Text) ? null : ClientTelephoneBox.Text.Trim();
         var clientEmail = string.IsNullOrWhiteSpace(ClientEmailBox.Text) ? null : ClientEmailBox.Text.Trim();
+
+        // For a Mobile Money payment, collect the customer's phone and OTP (Orange) or just the
+        // phone (Moov) before recording the sale. The provider answers immediately; the sale is
+        // created only after the charge is confirmed, so no money leaves the customer for a sale
+        // that the server would later reject.
+        if (!isFacture && _modePaiement == "mobile_money")
+        {
+            var accounts = PaymentProviderRegistry.EnabledAccounts(PaymentProviderIds.MobileMoney);
+            var provider = PaymentProviderRegistry.Get(PaymentProviderIds.MobileMoney);
+            if (provider is not null && accounts.Count > 0)
+            {
+                var reference = $"V-{DateTime.Now:yyyyMMddHHmmss}";
+                var dialog = new MobileMoneyPaymentDialog(
+                    total, accounts, provider, reference, Window.GetWindow(this));
+                if (dialog.ShowDialog() != true) return;
+            }
+        }
 
         var request = new CreateVenteRequest(
             items, _modePaiement, montantPaye, remise, clientNom, clientTelephone, clientEmail,

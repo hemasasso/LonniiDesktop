@@ -1125,6 +1125,81 @@ namespace Lonnii.Data.Migrations
                     b.ToTable("groupes");
                 });
 
+            modelBuilder.Entity("Lonnii.Data.Entities.GroupePayment", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<long>("AvoirAmount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("avoir_amount");
+
+                    b.Property<DateTime?>("AvoirSoldedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("avoir_solded_at");
+
+                    b.Property<string>("AvoirSoldedBy")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("avoir_solded_by");
+
+                    b.Property<string>("CaissierName")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("caissier_name");
+
+                    b.Property<string>("ClientName")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("client_name");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("FactureIds")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("facture_ids");
+
+                    b.Property<string>("FacturesData")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("factures_data");
+
+                    b.Property<string>("GroupId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("group_id");
+
+                    b.Property<bool>("IsAvoirSolded")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("is_avoir_solded");
+
+                    b.Property<string>("ModePaiement")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("mode_paiement");
+
+                    b.Property<long>("MontantPaye")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("montant_paye");
+
+                    b.Property<long>("PartialChangeGiven")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("partial_change_given");
+
+                    b.Property<long>("TotalAmount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("total_amount");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("GroupId");
+
+                    b.ToTable("groupe_payments");
+                });
+
             modelBuilder.Entity("Lonnii.Data.Entities.GroupeSession", b =>
                 {
                     b.Property<int>("Id")

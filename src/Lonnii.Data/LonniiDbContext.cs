@@ -1,6 +1,7 @@
 using Lonnii.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 
 namespace Lonnii.Data;
 
@@ -74,6 +75,7 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
     public DbSet<Vente> Ventes => Set<Vente>();
     public DbSet<VenteItem> VenteItems => Set<VenteItem>();
     public DbSet<PaiementVente> PaiementsVentes => Set<PaiementVente>();
+    public DbSet<GroupePayment> GroupePayments => Set<GroupePayment>();
     public DbSet<Caisse> Caisses => Set<Caisse>();
     public DbSet<CaisseTransaction> CaisseTransactions => Set<CaisseTransaction>();
     public DbSet<VentesParametres> VentesParametres => Set<VentesParametres>();
@@ -116,7 +118,15 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         // would write 45 000 FCFA into a numeric column as 4 500 000, silently multiplying
         // every amount in the database by a hundred.
         if (Database.IsSqlite())
+        {
             ApplyMoneyConverter(b);
+            ApplyArrayConverter(b);
+        }
+        else
+        {
+            // The live column is jsonb; Npgsql would otherwise send the string as text and be refused.
+            b.Entity<GroupePayment>().Property(x => x.FacturesData).HasColumnType("jsonb");
+        }
 
         // Run last: index filters written above already use snake_case column names.
         ApplySnakeCaseNames(b);
@@ -157,6 +167,7 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         [typeof(Vente)] = "ventes",
         [typeof(VenteItem)] = "ventes_items",
         [typeof(PaiementVente)] = "paiements_ventes",
+        [typeof(GroupePayment)] = "groupe_payments",
         [typeof(Caisse)] = "caisses",
         [typeof(CaisseTransaction)] = "caisse_transactions",
         [typeof(VentesParametres)] = "ventes_parametres",
@@ -515,6 +526,13 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
                 .HasForeignKey(x => x.VenteId).OnDelete(DeleteBehavior.Cascade);
         });
 
+        b.Entity<GroupePayment>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.GroupId);
+            e.HasIndex(x => x.CreatedAt);
+        });
+
         b.Entity<Caisse>(e =>
         {
             e.HasKey(x => x.Id);
@@ -667,6 +685,24 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
     /// Applies the minor-units money converter to every decimal property in the model,
     /// so a new entity cannot accidentally fall back to EF's lossy TEXT storage.
     /// </summary>
+    /// <summary>SQLite only: groupe_payments.facture_ids is a PostgreSQL <c>uuid[]</c>, which
+    /// SQLite cannot hold, so it is kept as comma-separated text.</summary>
+    private static void ApplyArrayConverter(ModelBuilder b)
+    {
+        var converter = new ValueConverter<Guid[], string>(
+            ids => string.Join(',', ids),
+            text => text.Length == 0
+                ? Array.Empty<Guid>()
+                : text.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(Guid.Parse).ToArray());
+        var comparer = new ValueComparer<Guid[]>(
+            (a, c) => a != null && c != null && a.SequenceEqual(c),
+            ids => ids.Aggregate(0, (hash, id) => HashCode.Combine(hash, id)),
+            ids => ids.ToArray());
+
+        b.Entity<GroupePayment>().Property(x => x.FactureIds)
+            .HasConversion(converter, comparer);
+    }
+
     private static void ApplyMoneyConverter(ModelBuilder b)
     {
         foreach (var entity in b.Model.GetEntityTypes())

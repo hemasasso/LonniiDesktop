@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Json;
-using Lonnii.Api.Services;
 using Lonnii.Data;
 using Lonnii.Shared.Contracts;
 using Lonnii.Shared.Security;

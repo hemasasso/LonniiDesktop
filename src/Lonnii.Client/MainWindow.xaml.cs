@@ -6,9 +6,6 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Lonnii.Client.Services;
-using Lonnii.Client.Views;
-using Lonnii.Client.Views.Modules;
-using Lonnii.Client.Views.Dialogs;
 using Lonnii.Shared.Contracts;
 using Lonnii.Shared.Security;
 

@@ -336,6 +336,24 @@ public class LonniiApiClient
     public Task<VenteDto> AddPaiementAsync(string id, AddPaiementRequest request, CancellationToken ct = default) =>
         PostAsync<VenteDto>($"api/ventes/{id}/paiement", request, ct);
 
+    /// <summary>"Paiement Groupé": settles several unpaid factures at once.</summary>
+    public Task<GroupePaiementDto> PayGroupeAsync(GroupePaiementRequest request, CancellationToken ct = default) =>
+        PostAsync<GroupePaiementDto>("api/ventes/groupe-payments", request, ct);
+
+    /// <summary>History of group receipts, newest first.</summary>
+    public Task<GroupePaiementsResponse> GetGroupePaymentsAsync(
+        int page, int limit, DateOnly? dateDebut = null, DateOnly? dateFin = null, CancellationToken ct = default)
+    {
+        var query = new List<string> { $"page={page}", $"limit={limit}" };
+        if (dateDebut is { } debut) query.Add($"dateDebut={debut:yyyy-MM-dd}");
+        if (dateFin is { } fin) query.Add($"dateFin={fin:yyyy-MM-dd}");
+        if (dateDebut is not null || dateFin is not null) query.Add($"tzOffsetMinutes={LocalTzOffsetMinutes()}");
+        return GetAsync<GroupePaiementsResponse>("api/ventes/groupe-payments?" + string.Join("&", query), ct);
+    }
+
+    public Task SolderGroupeAvoirAsync(string id, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Put, $"api/ventes/groupe-payments/{id}/solder-avoir", null, ct);
+
     public Task CancelVenteAsync(string id, CancelVenteRequest request, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Put, $"api/ventes/{id}/annuler", request, ct);
 

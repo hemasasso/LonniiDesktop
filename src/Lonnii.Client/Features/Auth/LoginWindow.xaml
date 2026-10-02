@@ -1,0 +1,122 @@
+<Window x:Class="Lonnii.Client.Features.Auth.LoginWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Lonnii — Connexion"
+        Height="560" Width="820"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        Background="{DynamicResource Surface}">
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="320" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Brand panel -->
+        <Border Grid.Column="0" Background="{DynamicResource Accent}">
+            <StackPanel VerticalAlignment="Center" Margin="32">
+                <TextBlock Text="Lonnii" FontSize="36" FontWeight="Bold"
+                           Foreground="White" />
+                <TextBlock Text="Business" FontSize="20" Foreground="#D6DDFB" Margin="0,-4,0,0" />
+                <Rectangle Height="1" Fill="#5A76F3" Margin="0,22,0,22" />
+                <TextBlock Foreground="#E3E8FD" TextWrapping="Wrap" FontSize="13" LineHeight="20"
+                           Text="Poste de travail Windows connecté au serveur de l'entreprise." />
+                <TextBlock Foreground="#B9C6F8" TextWrapping="Wrap" FontSize="12" Margin="0,16,0,0"
+                           Text="Les données restent sur l'ordinateur hôte. Ce poste s'y connecte par le réseau local." />
+            </StackPanel>
+        </Border>
+
+        <!-- Form -->
+        <Grid Grid.Column="1" Margin="40,36,40,28">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <StackPanel Grid.Row="0">
+                <TextBlock Text="Connexion" Style="{StaticResource PageTitle}" />
+                <TextBlock Style="{StaticResource PageSubtitle}"
+                           Text="Identifiez-vous pour accéder à votre espace." />
+            </StackPanel>
+
+            <StackPanel Grid.Row="1" Margin="0,24,0,0">
+
+                <TextBlock Text="Serveur (hôte)" Style="{StaticResource FieldLabel}" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="HostBox" Grid.Column="0" />
+                    <Button x:Name="TestButton" Grid.Column="1" Margin="8,0,0,0"
+                            Style="{StaticResource SecondaryButton}"
+                            Content="Tester" Click="TestHost_Click" />
+                </Grid>
+                <TextBlock x:Name="HostHint" Style="{StaticResource PageSubtitle}"
+                           TextWrapping="Wrap"
+                           Text="Sur l'ordinateur hôte : localhost:5280. Sur un autre poste : l'adresse IP de l'hôte." />
+
+                <TextBlock Text="Email ou nom d'utilisateur" Style="{StaticResource FieldLabel}" Margin="0,18,0,4" />
+                <TextBox x:Name="IdentifierBox" />
+
+                <TextBlock Text="Mot de passe" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
+                <!--
+                  No KeyDown handler here: the "Se connecter" button is IsDefault, so Enter
+                  already submits. Handling both fired the sign-in twice at once.
+                -->
+                <PasswordBox x:Name="PasswordBox" />
+
+                <CheckBox x:Name="RememberMeCheck" Content="Rester connecté sur ce poste"
+                          Margin="0,12,0,0"
+                          ToolTip="Ne cochez pas sur un poste partagé entre plusieurs personnes." />
+
+                <!-- Shown only when the host has no account yet. -->
+                <Border x:Name="SetupPanel" Visibility="Collapsed" Margin="0,16,0,0"
+                        Background="{DynamicResource AccentLight}"
+                        BorderBrush="{DynamicResource Accent}" BorderThickness="1"
+                        CornerRadius="3" Padding="12,10">
+                    <StackPanel>
+                        <TextBlock Text="Ce serveur n'a encore aucun compte"
+                                   FontWeight="SemiBold" Foreground="{DynamicResource AccentDark}" />
+                        <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap"
+                                   Text="Activez-le avec le fichier d'identifiants que Lonnii vous a remis." />
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <Button Content="Activer avec un fichier…"
+                                    Style="{StaticResource PrimaryButton}" Click="Activate_Click" />
+                            <!--
+                                Kept for a host someone builds themselves, and for
+                                development. A shop we supplied always takes the button
+                                above: the workspace and its administrator come from the
+                                file, already registered on our licence server.
+                            -->
+                            <Button Content="Créer un compte manuellement…" Margin="8,0,0,0"
+                                    Style="{StaticResource SecondaryButton}" Click="CreateAccount_Click" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="ErrorPanel" Visibility="Collapsed" Margin="0,16,0,0"
+                        Background="{DynamicResource DangerLight}"
+                        BorderBrush="{DynamicResource Danger}" BorderThickness="1"
+                        CornerRadius="3" Padding="10,8">
+                    <TextBlock x:Name="ErrorText" Foreground="{DynamicResource Danger}"
+                               TextWrapping="Wrap" FontSize="12" />
+                </Border>
+
+            </StackPanel>
+
+            <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+                <TextBlock x:Name="BusyText" Text="Connexion…" Visibility="Collapsed"
+                           VerticalAlignment="Center" Margin="0,0,12,0"
+                           Foreground="{DynamicResource TextSecondary}" />
+                <Button Content="Quitter" Style="{StaticResource SecondaryButton}"
+                        Margin="0,0,8,0" Click="Cancel_Click" />
+                <Button x:Name="SignInButton" Content="Se connecter" IsDefault="True"
+                        Style="{StaticResource PrimaryButton}" Click="SignIn_Click" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

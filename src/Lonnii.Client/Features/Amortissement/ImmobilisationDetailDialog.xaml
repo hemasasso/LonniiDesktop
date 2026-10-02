@@ -1,0 +1,80 @@
+<Window x:Class="Lonnii.Client.Features.Amortissement.ImmobilisationDetailDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Tableau d'amortissement"
+        Width="860"
+        Height="640"
+        MinWidth="700"
+        MinHeight="480"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{DynamicResource Surface}">
+
+    <DockPanel>
+
+        <Border DockPanel.Dock="Top" Padding="18,14"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
+            <Grid>
+                <StackPanel>
+                    <TextBlock x:Name="HeaderText" Style="{StaticResource PageTitle}" />
+                    <TextBlock x:Name="HeaderHint" Style="{StaticResource PageSubtitle}" />
+                </StackPanel>
+                <Border x:Name="StatutBadge" HorizontalAlignment="Right" VerticalAlignment="Center"
+                        CornerRadius="10" Padding="10,3">
+                    <TextBlock x:Name="StatutText" FontWeight="SemiBold" FontSize="12" />
+                </Border>
+            </Grid>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" Padding="18,12"
+                Background="{DynamicResource SurfaceAlt}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="ExportButton" Content="⬇ Exporter le tableau" Margin="0,0,8,0"
+                        Style="{StaticResource SecondaryButton}" Click="Export_Click" />
+                <Button Content="Fermer" IsCancel="True" IsDefault="True"
+                        Style="{StaticResource PrimaryButton}" />
+            </StackPanel>
+        </Border>
+
+        <DockPanel Margin="18,14">
+            <WrapPanel x:Name="InfoPanel" DockPanel.Dock="Top" Margin="0,0,0,6" />
+
+            <Border x:Name="SortiePanel" DockPanel.Dock="Top" Visibility="Collapsed" Margin="0,4,0,12"
+                    Padding="12,10" CornerRadius="6" BorderThickness="1"
+                    Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}">
+                <TextBlock x:Name="SortieText" TextWrapping="Wrap" />
+            </Border>
+
+            <DataGrid x:Name="ScheduleGrid">
+                <DataGrid.RowStyle>
+                    <Style TargetType="DataGridRow">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsCurrentYear}" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource AccentLight}" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsApresSortie}" Value="True">
+                                <Setter Property="Foreground" Value="{DynamicResource TextMuted}" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </DataGrid.RowStyle>
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Année" Width="70" Binding="{Binding Annee}" />
+                    <DataGridTextColumn Header="N°" Width="45" Binding="{Binding NumeroAnnee}" />
+                    <DataGridTextColumn Header="Période" Width="190" Binding="{Binding Periode}" />
+                    <DataGridTextColumn Header="VNC début" Width="*" Binding="{Binding VncDebut}"
+                                        ElementStyle="{StaticResource NumericCell}" />
+                    <DataGridTextColumn Header="Dotation" Width="*" Binding="{Binding Dotation}"
+                                        ElementStyle="{StaticResource NumericCell}" />
+                    <DataGridTextColumn Header="Amort. cumulé" Width="*" Binding="{Binding Cumule}"
+                                        ElementStyle="{StaticResource NumericCell}" />
+                    <DataGridTextColumn Header="VNC fin" Width="*" Binding="{Binding VncFin}"
+                                        ElementStyle="{StaticResource NumericCell}" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </DockPanel>
+
+    </DockPanel>
+</Window>

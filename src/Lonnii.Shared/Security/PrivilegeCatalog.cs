@@ -210,6 +210,12 @@ public static class PrivilegeCatalog
         yield return new(Priv.Gestion.DeleteVente, "Supprimer une vente", "Supprimer une vente (sans paiements)", ventes, true);
         yield return new(Priv.Gestion.ViewVenteDetails, "Détails de vente", "Voir les détails complets d'une vente", ventes, false);
         yield return new(Priv.Gestion.SoldeAvoir, "Solder un Avoir", "Solder un avoir client", ventes, false);
+        // Not from any SQL file: Lonnii Business checks these two (gestion.js, ventes.js) but
+        // never seeds them, so the wording is the desktop's own.
+        yield return new(Priv.Gestion.GroupePayment, "Paiement groupé",
+            "Payer plusieurs factures impayées en une seule fois", ventes, false);
+        yield return new(Priv.Gestion.ViewGroupePaymentHistory, "Historique des paiements groupés",
+            "Consulter et réimprimer les reçus de paiements groupés", ventes, false);
         yield return new(Priv.Gestion.ExportVentes, "Exporter les ventes", "Exporter les données de ventes", ventes, false);
         yield return new(Priv.Gestion.ViewVentesAnalytics, "Statistiques ventes", "Voir les statistiques et analyses des ventes", ventes, false);
         yield return new(Priv.Gestion.ManageClients, "Gérer les clients", "Gérer les informations clients", ventes, false);

@@ -405,7 +405,9 @@ public sealed record CartItemRequest(
 
 /// <summary>Creates a sale from a cart. <paramref name="MontantPaye"/> may be less than the
 /// computed total (partial payment) or zero (unpaid). <paramref name="RemiseGlobale"/> is a
-/// flat amount taken off the sum of the lines, e.g. a negotiated rebate on the whole sale.</summary>
+/// flat amount taken off the sum of the lines, e.g. a negotiated rebate on the whole sale.
+/// With <paramref name="MonnaieEnAvoir"/>, a <paramref name="MontantPaye"/> above the total is
+/// kept in full and the excess becomes an avoir on the sale; otherwise it is capped at the total.</summary>
 public sealed record CreateVenteRequest(
     IReadOnlyList<CartItemRequest> Items,
     string ModePaiement,
@@ -415,7 +417,8 @@ public sealed record CreateVenteRequest(
     string? ClientTelephone = null,
     string? ClientEmail = null,
     string? Notes = null,
-    string? IdempotencyKey = null);
+    string? IdempotencyKey = null,
+    bool MonnaieEnAvoir = false);
 
 /// <summary>One line of a completed sale. <paramref name="Unite"/> is the unit sold in - only
 /// set for a Vente Mixte product (its bulk unit, e.g. "Carton", or its base unit) - and null
@@ -466,7 +469,8 @@ public sealed record VenteDto(
     DateTime? CancelledAt = null,
     IReadOnlyList<PaiementDto>? Paiements = null,
     decimal? TvaRate = null,
-    decimal? TvaAmount = null);
+    decimal? TvaAmount = null,
+    string? AvoirCreatedByName = null);
 
 /// <summary>
 /// A customer and what they have bought. Sales carry the customer's name and phone as text,
@@ -528,6 +532,48 @@ public sealed record VentesListResponse(IReadOnlyList<VenteListItemDto> Ventes);
 /// <summary>Adds a payment against an existing sale, e.g. settling a facture at the till.</summary>
 public sealed record AddPaiementRequest(
     decimal Montant, string ModePaiement, string? Reference = null, string? Notes = null);
+
+/// <summary>
+/// "Paiement Groupé": settles the whole remaining balance of each listed facture in one
+/// go. The server works out what is owed, so the client sends only what the customer
+/// handed over.
+/// </summary>
+/// <param name="MontantRecu">Cash handed over, when the customer paid more than owed and
+/// change is involved. Null or 0 means exactly the amount due.</param>
+/// <param name="MontantRemis">Change already given back, when <paramref name="MonnaieEnAvoir"/> is set.</param>
+/// <param name="MonnaieEnAvoir">The till could not give all the change: whatever of it was
+/// not <paramref name="MontantRemis"/> is kept as an avoir for the customer.</param>
+public sealed record GroupePaiementRequest(
+    IReadOnlyList<string> FactureIds,
+    string ModePaiement,
+    string? ClientName = null,
+    decimal? MontantRecu = null,
+    decimal MontantRemis = 0,
+    bool MonnaieEnAvoir = false);
+
+/// <summary>One facture of a group payment: what was settled, and the sale's full total.</summary>
+public sealed record GroupePaiementFactureDto(
+    string FactureId, string NumeroVente, decimal Montant, decimal MontantOriginal);
+
+/// <summary>A group payment and its combined receipt - returned when it is made and by the
+/// history list.</summary>
+public sealed record GroupePaiementDto(
+    string Id,
+    string? ClientName,
+    string? CaissierName,
+    DateTime Date,
+    string ModePaiement,
+    IReadOnlyList<GroupePaiementFactureDto> Factures,
+    decimal Total,
+    decimal MontantPaye,
+    decimal AvoirAmount,
+    decimal PartialChangeGiven,
+    bool IsAvoirSolded,
+    DateTime? AvoirSoldedAt = null,
+    string? AvoirSoldedByName = null);
+
+/// <summary>Response of <c>GET /api/ventes/groupe-payments</c>: one page, newest first.</summary>
+public sealed record GroupePaiementsResponse(IReadOnlyList<GroupePaiementDto> Payments, int Total);
 
 /// <summary>Cancels a sale; <paramref name="Motif"/> is mandatory, same as Lonnii Business.</summary>
 public sealed record CancelVenteRequest(string Motif);
@@ -875,14 +921,16 @@ public static class ReceiptSections
     public static readonly IReadOnlyList<string> Facture =
         All.Where(s => s is not (PaymentInfo or PaymentHistory or Cashier)).ToList();
 
-    public static string Label(string section, bool facture) => section switch
+    /// <param name="sellerLabel">The shop's own name for the seller ("Libellé du vendeur"),
+    /// which the Seller section follows instead of the fixed "Vendeur".</param>
+    public static string Label(string section, bool facture, string? sellerLabel = null) => section switch
     {
         Logo => "Logo",
         Company => "Nom de l'entreprise",
         CompanyContact => "Adresse, téléphone, email",
         CompanyLegal => "Mentions légales (RCCM, NIU…)",
         Client => "Client",
-        Seller => "Vendeur",
+        Seller => string.IsNullOrWhiteSpace(sellerLabel) ? "Vendeur" : sellerLabel.Trim(),
         Cashier => "Caissier",
         UnitPrice => "Colonne prix unitaire",
         Discounts => "Sous-total et remises",

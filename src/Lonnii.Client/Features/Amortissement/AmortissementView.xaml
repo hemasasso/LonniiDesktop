@@ -1,0 +1,148 @@
+<UserControl x:Class="Lonnii.Client.Features.Amortissement.AmortissementView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{DynamicResource Surface}">
+
+    <DockPanel>
+
+        <!-- Header -->
+        <Border DockPanel.Dock="Top" Padding="18,14"
+                Background="{DynamicResource Surface}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
+            <Grid>
+                <StackPanel Orientation="Horizontal">
+                    <Border Width="42" Height="42" CornerRadius="10" Background="{DynamicResource Accent}">
+                        <TextBlock Text="&#xE8EF;" FontFamily="Segoe MDL2 Assets" FontSize="19"
+                                   Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="Amortissements" FontSize="18" FontWeight="Bold"
+                                   Foreground="{DynamicResource Accent}" />
+                        <TextBlock x:Name="SubtitleText" Style="{StaticResource PageSubtitle}" />
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="ExportButton" Content="⬇ Exporter" Margin="0,0,8,0"
+                            Style="{StaticResource SecondaryButton}" Click="Export_Click" />
+                    <Button Content="Simuler" Margin="0,0,8,0"
+                            Style="{StaticResource SecondaryButton}" Click="Simulate_Click" />
+                    <Button x:Name="AddButton" Content="＋ Nouvelle Immobilisation"
+                            Style="{StaticResource PrimaryButton}" Click="Add_Click" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Status strip -->
+        <Border x:Name="MessagePanel" DockPanel.Dock="Bottom" Visibility="Collapsed"
+                Background="{DynamicResource DangerLight}"
+                BorderBrush="{DynamicResource Danger}" BorderThickness="0,1,0,0"
+                Padding="14,8">
+            <TextBlock x:Name="MessageText" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" />
+        </Border>
+
+        <!-- Summary tiles -->
+        <Border DockPanel.Dock="Top" Padding="16,14,6,4" Background="{DynamicResource Surface}">
+            <WrapPanel x:Name="TilesPanel" />
+        </Border>
+
+        <!-- Filters -->
+        <Border DockPanel.Dock="Top" Style="{StaticResource ToolbarPanel}" BorderThickness="0,1,0,1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal">
+                    <Grid Width="240" Margin="0,0,8,0">
+                        <TextBox x:Name="SearchBox" Padding="28,6,8,6" TextChanged="Filters_Changed" />
+                        <TextBlock Text="&#xE721;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                   Foreground="{DynamicResource TextMuted}" IsHitTestVisible="False"
+                                   VerticalAlignment="Center" Margin="10,0,0,0" />
+                    </Grid>
+                    <ComboBox x:Name="CategorieFilterCombo" Width="170" Margin="0,0,8,0"
+                              SelectionChanged="Filters_Changed" />
+                    <ComboBox x:Name="StatutFilterCombo" Width="170" SelectionChanged="Filters_Changed" />
+                </StackPanel>
+                <Button Grid.Column="1" Style="{StaticResource SecondaryButton}" Click="Refresh_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets"
+                                   Style="{StaticResource ButtonContentText}" Margin="0,0,6,0" />
+                        <TextBlock Text="Actualiser" Style="{StaticResource ButtonContentText}" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+        </Border>
+
+        <!-- Footer count -->
+        <Border DockPanel.Dock="Bottom" Padding="14,6" Background="{DynamicResource SurfaceAlt}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
+            <TextBlock x:Name="CountText" Style="{StaticResource PageSubtitle}" Margin="0" />
+        </Border>
+
+        <Grid>
+            <DataGrid x:Name="ImmosGrid" MouseDoubleClick="ImmosGrid_DoubleClick">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Nom" Width="*" MinWidth="160" Binding="{Binding Nom}" />
+                    <DataGridTextColumn Header="Catégorie" Width="110" Binding="{Binding Categorie}" />
+                    <DataGridTextColumn Header="Acquise le" Width="90" Binding="{Binding DateAcquisition}" />
+                    <DataGridTextColumn Header="Valeur brute" Width="120" Binding="{Binding Valeur}"
+                                        ElementStyle="{StaticResource NumericCell}" />
+                    <DataGridTextColumn Header="Durée" Width="65" Binding="{Binding Duree}" />
+                    <DataGridTextColumn Header="Méthode" Width="120" Binding="{Binding Methode}" />
+                    <DataGridTextColumn Header="Cumul" Width="115" Binding="{Binding Cumule}"
+                                        ElementStyle="{StaticResource NumericCell}" />
+                    <DataGridTextColumn Header="VNC" Width="115" Binding="{Binding Vnc}"
+                                        ElementStyle="{StaticResource NumericCell}" />
+                    <DataGridTemplateColumn Header="Statut" Width="130">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Border CornerRadius="9" Padding="8,1" HorizontalAlignment="Left"
+                                        BorderThickness="1" BorderBrush="{Binding StatutBrush}">
+                                    <TextBlock Text="{Binding Statut}" FontSize="11" FontWeight="SemiBold"
+                                               Foreground="{Binding StatutBrush}" />
+                                </Border>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTemplateColumn Header="" Width="112">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Style="{StaticResource IconButton}" Width="26" Height="24"
+                                            Content="&#xE7B3;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                            Foreground="{DynamicResource TextPrimary}"
+                                            ToolTip="Tableau d'amortissement" Click="View_Click" Tag="{Binding}" />
+                                    <Button Style="{StaticResource IconButton}" Width="26" Height="24"
+                                            Content="&#xE70F;" FontFamily="Segoe MDL2 Assets" FontSize="11"
+                                            Foreground="{DynamicResource TextPrimary}"
+                                            ToolTip="Modifier" Visibility="{Binding CanEdit}"
+                                            Click="Edit_Click" Tag="{Binding}" />
+                                    <Button Style="{StaticResource IconButton}" Width="26" Height="24"
+                                            Content="&#xE8AB;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                            Foreground="{DynamicResource TextPrimary}"
+                                            ToolTip="Céder / Réformer" Visibility="{Binding CanCeder}"
+                                            Click="Ceder_Click" Tag="{Binding}" />
+                                    <Button Style="{StaticResource IconButton}" Width="26" Height="24"
+                                            Content="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="11"
+                                            Foreground="{DynamicResource Danger}"
+                                            ToolTip="Supprimer" Visibility="{Binding CanDelete}"
+                                            Click="Delete_Click" Tag="{Binding}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <Border x:Name="EmptyPanel" Visibility="Collapsed" Background="{DynamicResource Surface}">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <TextBlock Text="&#xE8EF;" FontFamily="Segoe MDL2 Assets" FontSize="34"
+                               Foreground="{DynamicResource TextMuted}" HorizontalAlignment="Center" />
+                    <TextBlock x:Name="EmptyText" Text="Aucune immobilisation enregistrée."
+                               Style="{StaticResource PageSubtitle}" HorizontalAlignment="Center" Margin="0,10,0,0" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+    </DockPanel>
+</UserControl>

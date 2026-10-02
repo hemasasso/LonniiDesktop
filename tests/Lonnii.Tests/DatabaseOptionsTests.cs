@@ -1,4 +1,3 @@
-using Lonnii.Api.Services;
 
 namespace Lonnii.Tests;
 

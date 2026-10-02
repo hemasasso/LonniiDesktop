@@ -170,7 +170,7 @@ public class ComptabiliteTests : IAsyncLifetime
     [InlineData("Achats", SousTypesCompte.Achats)]
     [InlineData("Quelque chose d'autre", SousTypesCompte.AutresCharges)]
     public void Charge_categories_map_to_the_source_apps_accounts(string categorie, string sousType) =>
-        Assert.Equal(sousType, Lonnii.Api.Endpoints.BilanEndpoints.SousTypePourCategorie(categorie));
+        Assert.Equal(sousType, Lonnii.Api.Features.Bilan.BilanEndpoints.SousTypePourCategorie(categorie));
 
     // --- Endpoints ---
 

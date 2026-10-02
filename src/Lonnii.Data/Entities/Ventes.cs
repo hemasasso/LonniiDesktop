@@ -216,6 +216,58 @@ public class PaiementVente
     public Vente? Vente { get; set; }
 }
 
+/// <summary>
+/// One "Paiement Groupé": several unpaid factures settled together, with the single receipt
+/// that covers them. Ported from <c>groupe_payments</c> (add_groupe_payments_table.sql,
+/// add_avoir_to_groupe_payments.sql, add_partial_change_to_groupe_payments.sql); the three
+/// avoir-settling columns have no CREATE in the repo - inferred from <c>POST /solder-avoir</c>.
+///
+/// <para>
+/// The individual payments are ordinary <see cref="PaiementVente"/> rows, so every sale's own
+/// history stays correct; this row only exists so the combined receipt can be reprinted and
+/// so an avoir created by overpaying the group has somewhere to live (it belongs to the
+/// group, not to any one of its factures).
+/// </para>
+/// <para>
+/// Lonnii Business's <c>created_by</c> is an INTEGER and is filled with <c>parseInt</c> of a
+/// GUID user id, which is garbage for most users. It is left unmapped here (it stays NULL):
+/// <see cref="CaissierName"/> is what the receipt shows and each underlying payment already
+/// records its own author.
+/// </para>
+/// </summary>
+public class GroupePayment
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string GroupId { get; set; } = string.Empty;
+    public string? ClientName { get; set; }
+    public string? CaissierName { get; set; }
+
+    /// <summary>The factures settled, as the live <c>uuid[]</c>. SQLite has no arrays, so it
+    /// stores them as a comma-separated string (see <c>LonniiDbContext.ApplyArrayConverter</c>).</summary>
+    public Guid[] FactureIds { get; set; } = [];
+
+    /// <summary>JSON array of <c>{facture_id, numero_vente, montant}</c> - the lines of the receipt.</summary>
+    public string FacturesData { get; set; } = "[]";
+
+    /// <summary>What the factures still owed when they were settled.</summary>
+    public decimal TotalAmount { get; set; }
+
+    /// <summary>What the client really paid: <see cref="TotalAmount"/> plus any avoir kept.</summary>
+    public decimal MontantPaye { get; set; }
+
+    /// <summary>Credit owed to the client when they could not be given their full change.</summary>
+    public decimal AvoirAmount { get; set; }
+
+    /// <summary>Part of the change handed back immediately when an avoir was kept for the rest.</summary>
+    public decimal PartialChangeGiven { get; set; }
+
+    public string ModePaiement { get; set; } = Entities.ModePaiement.Cash;
+    public bool IsAvoirSolded { get; set; }
+    public DateTime? AvoirSoldedAt { get; set; }
+    public string? AvoirSoldedBy { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
 /// <summary>Cash register session status.</summary>
 public static class CaisseStatus
 {

@@ -1,6 +1,5 @@
 using System.Drawing;
 using System.Drawing.Imaging;
-using Lonnii.Api.Services;
 
 namespace Lonnii.Tests;
 

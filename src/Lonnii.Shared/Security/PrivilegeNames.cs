@@ -114,6 +114,12 @@ public static class Priv
         public const string AddPayment = "can_add_payment";
         public const string CancelVente = "can_cancel_vente";
         public const string SoldeAvoir = "can_solde_avoir";
+
+        /// <summary>Settle several unpaid factures in one go ("Paiement Groupé"), and the
+        /// history of those group receipts. Lonnii Business checks them in gestion.js but no
+        /// SQL file in its repo seeds them - they only exist in its live gestion_privileges.</summary>
+        public const string GroupePayment = "can_groupe_payment";
+        public const string ViewGroupePaymentHistory = "can_view_groupe_payment_history";
         public const string ExportVentes = "can_export_ventes";
         public const string ViewVentesAnalytics = "can_view_ventes_analytics";
         public const string ManageClients = "can_manage_clients";

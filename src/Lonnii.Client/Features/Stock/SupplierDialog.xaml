@@ -1,0 +1,127 @@
+<Window x:Class="Lonnii.Client.Features.Stock.SupplierDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Height="620" Width="560"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="{DynamicResource Surface}">
+
+    <DockPanel>
+
+        <Border DockPanel.Dock="Top" Padding="18,14"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
+            <StackPanel>
+                <TextBlock x:Name="HeaderText" Style="{StaticResource PageTitle}" />
+                <TextBlock x:Name="HeaderHint" Style="{StaticResource PageSubtitle}" />
+            </StackPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" Padding="18,12"
+                Background="{DynamicResource SurfaceAlt}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
+            <Grid>
+                <TextBlock x:Name="ErrorText" Foreground="{DynamicResource Danger}"
+                           VerticalAlignment="Center" TextWrapping="Wrap"
+                           MaxWidth="330" HorizontalAlignment="Left" FontSize="12" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Annuler" IsCancel="True" Margin="0,0,8,0"
+                            Style="{StaticResource SecondaryButton}" />
+                    <Button Content="Enregistrer" IsDefault="True"
+                            Style="{StaticResource PrimaryButton}" Click="Save_Click" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="18,16">
+
+                <TextBlock Text="Nom *" Style="{StaticResource FieldLabel}" />
+                <TextBox x:Name="NameBox" />
+
+                <TextBlock Text="Personne à contacter" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
+                <TextBox x:Name="ContactPersonBox" />
+
+                <Grid Margin="0,14,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Téléphone" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="PhoneBox" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Email" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="EmailBox" />
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock Text="Adresse" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
+                <TextBox x:Name="AddressBox" />
+
+                <Grid Margin="0,14,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Ville" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="CityBox" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Pays" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="CountryBox" />
+                    </StackPanel>
+                </Grid>
+
+                <Grid Margin="0,14,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="140" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Conditions de paiement" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="PaymentTermsBox" ToolTip="Texte libre, ex. « Net 30 »" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Note" Style="{StaticResource FieldLabel}" />
+                        <ComboBox x:Name="RatingBox" SelectedIndex="0">
+                            <ComboBoxItem Content="Non notée" Tag="{x:Null}" />
+                            <ComboBoxItem Content="1 / 5" Tag="1" />
+                            <ComboBoxItem Content="2 / 5" Tag="2" />
+                            <ComboBoxItem Content="3 / 5" Tag="3" />
+                            <ComboBoxItem Content="4 / 5" Tag="4" />
+                            <ComboBoxItem Content="5 / 5" Tag="5" />
+                        </ComboBox>
+                    </StackPanel>
+                </Grid>
+
+                <Grid Margin="0,14,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Montant dû" Style="{StaticResource FieldLabel}" />
+                        <TextBox x:Name="MontantDuBox" Text="0" LostFocus="Regroup_LostFocus"
+                                 ToolTip="Ce que le magasin doit encore à ce fournisseur - ex. une commande prise à crédit. Mis à jour à la main : augmentez-le à un nouvel achat à crédit, réduisez-le à un règlement." />
+                        <TextBlock Style="{StaticResource PageSubtitle}" Margin="0,4,0,0" TextWrapping="Wrap"
+                                   Text="Saisi à la main - aucune commande n'est suivie ici, seulement ce qui reste dû." />
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock Text="Notes" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
+                <TextBox x:Name="NotesBox" Height="64"
+                         TextWrapping="Wrap" AcceptsReturn="True"
+                         VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" />
+
+                <CheckBox x:Name="ActiveCheck" Content="Fournisseur actif" Margin="0,16,0,0"
+                          IsChecked="True" />
+                <TextBlock Style="{StaticResource PageSubtitle}" Margin="0,4,0,0" TextWrapping="Wrap"
+                           Text="Un fournisseur désactivé disparaît des choix proposés à la création d'un produit, mais reste affiché sur les produits qui l'utilisent déjà." />
+
+            </StackPanel>
+        </ScrollViewer>
+
+    </DockPanel>
+</Window>

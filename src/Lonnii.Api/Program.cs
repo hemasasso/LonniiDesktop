@@ -1,8 +1,5 @@
 using Microsoft.AspNetCore.Connections;
 using System.Net.Sockets;
-using Lonnii.Api.Endpoints;
-using Lonnii.Api.Security;
-using Lonnii.Api.Services;
 using Lonnii.Data;
 using Lonnii.Data.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -128,6 +125,7 @@ app.MapGroupEndpoints();
 app.MapPrivilegeEndpoints();
 app.MapStockEndpoints();
 app.MapVentesEndpoints();
+app.MapGroupePaymentEndpoints();
 app.MapClientsEndpoints();
 app.MapCaisseEndpoints();
 app.MapChargesEndpoints();

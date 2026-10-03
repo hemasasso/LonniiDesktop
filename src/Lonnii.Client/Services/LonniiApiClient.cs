@@ -33,6 +33,14 @@ public class LonniiApiClient
 
     private HttpClient _http = CreateHttpClient();
 
+    /// <summary>
+    /// Used only by the espace export and import, which move a whole database and cannot
+    /// live inside <see cref="_http"/>'s twenty-second timeout. Kept as a second client
+    /// rather than raised on the shared one, so one long transfer cannot make an ordinary
+    /// call hang for ten minutes.
+    /// </summary>
+    private HttpClient _transfers = CreateTransferClient();
+
     private string? _accessToken;
     private string? _groupSession;
 
@@ -43,6 +51,15 @@ public class LonniiApiClient
     {
         // A till on a slow Wi-Fi link should fail visibly rather than hang for a minute.
         Timeout = TimeSpan.FromSeconds(20),
+    };
+
+    private static HttpClient CreateTransferClient() => new()
+    {
+        // An espace archive may be several gigabytes, and this timeout covers the whole
+        // upload - a 5 GB file over a shop's Wi-Fi is comfortably an hour's work. The user
+        // can cancel by closing the dialog; what this guards against is a transfer that has
+        // silently stopped moving, not a slow one.
+        Timeout = TimeSpan.FromHours(3),
     };
 
     /// <summary>
@@ -73,11 +90,18 @@ public class LonniiApiClient
 
         // A genuinely different host gets a fresh client rather than a mutated one.
         var previous = _http;
+        var previousTransfers = _transfers;
+
         _http = CreateHttpClient();
         _http.BaseAddress = new Uri(address + "/");
+
+        _transfers = CreateTransferClient();
+        _transfers.BaseAddress = new Uri(address + "/");
+
         BaseAddress = address;
 
         previous.Dispose();
+        previousTransfers.Dispose();
     }
 
     /// <summary>The bearer token from the last successful sign-in.</summary>
@@ -644,6 +668,191 @@ public class LonniiApiClient
 
     public Task DeleteReceiptQrCodeAsync(CancellationToken ct = default) =>
         SendAsync(HttpMethod.Delete, "api/parametres/recu/qrcode", null, ct);
+
+    // --- Paramètres: données de l'espace (export / import) ---
+
+    /// <summary>Read and write size for an espace transfer. Larger than the usual buffer
+    /// because these files run to gigabytes.</summary>
+    private const int TransferChunkBytes = 1024 * 1024;
+
+    /// <summary>How far an espace transfer has got. <paramref name="Total"/> is zero when the
+    /// size is not known in advance.</summary>
+    public sealed record TransferProgress(long Transferred, long Total);
+
+    /// <summary>
+    /// Downloads the whole espace - rows and photos - into <paramref name="destinationPath"/>
+    /// as a single SQLite <c>.db</c> file, and returns what the host says it put in there.
+    ///
+    /// Streamed straight to disk rather than through a byte[]: an espace with a photo on
+    /// every product runs to gigabytes.
+    /// </summary>
+    public async Task<(int Records, int Images)> DownloadEspaceAsync(
+        string destinationPath,
+        IProgress<TransferProgress>? progress = null,
+        CancellationToken ct = default)
+    {
+        using var response = await SendTransferAsync(
+            HttpMethod.Get, "api/parametres/espace/export", null, ct);
+
+        var total = response.Content.Headers.ContentLength ?? 0;
+
+        await using (var file = new FileStream(
+            destinationPath, FileMode.Create, FileAccess.Write, FileShare.None, TransferChunkBytes, useAsync: true))
+        {
+            await using var body = await response.Content.ReadAsStreamAsync(ct);
+
+            // Copied by hand rather than with CopyToAsync so the dialog can say how far it
+            // has got: at these sizes a progress bar with nothing behind it looks like a hang.
+            var buffer = new byte[TransferChunkBytes];
+            long written = 0;
+
+            while (true)
+            {
+                var read = await body.ReadAsync(buffer, ct);
+                if (read == 0) break;
+
+                await file.WriteAsync(buffer.AsMemory(0, read), ct);
+
+                written += read;
+                progress?.Report(new TransferProgress(written, total));
+            }
+        }
+
+        return (Header("x-lonnii-records"), Header("x-lonnii-images"));
+
+        int Header(string name) =>
+            response.Headers.TryGetValues(name, out var values) &&
+            int.TryParse(values.FirstOrDefault(), out var value) ? value : 0;
+    }
+
+    /// <summary>
+    /// Loads an exported <c>.db</c> file into the espace this session is in. The host refuses
+    /// it unless that espace still has no data of its own, so the normal sequence is: create a
+    /// new espace, open it, then import.
+    /// </summary>
+    public async Task<EspaceImportResultDto> UploadEspaceAsync(
+        string sourcePath,
+        IProgress<TransferProgress>? progress = null,
+        CancellationToken ct = default)
+    {
+        await using var file = new FileStream(
+            sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read, TransferChunkBytes, useAsync: true);
+
+        // HttpClient pulls the body out of this stream as it sends, so counting what it reads
+        // is what the upload has actually put on the wire.
+        var content = new StreamContent(new ProgressStream(file, progress), TransferChunkBytes);
+        content.Headers.ContentType = new("application/octet-stream");
+
+        // StreamContent cannot work out the length through the wrapper, and without it the
+        // request goes out chunked - which costs the server its early size check.
+        content.Headers.ContentLength = file.Length;
+
+        using var response = await SendTransferAsync(
+            HttpMethod.Post, "api/parametres/espace/import", content, ct);
+
+        var result = await response.Content.ReadFromJsonAsync<EspaceImportResultDto>(JsonOptions, ct);
+        return result ?? throw new ApiException("Réponse vide du serveur", response.StatusCode);
+    }
+
+    /// <summary>
+    /// A read-only pass-through that reports how much has been read out of it. Used for the
+    /// upload, where the only way to know what has gone out is to watch HttpClient consume
+    /// the file.
+    /// </summary>
+    private sealed class ProgressStream(Stream inner, IProgress<TransferProgress>? progress) : Stream
+    {
+        private readonly long _total = inner.CanSeek ? inner.Length : 0;
+        private long _read;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => _total;
+
+        public override long Position
+        {
+            get => _read;
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            Count(inner.Read(buffer, offset, count));
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer, CancellationToken ct = default) =>
+            Count(await inner.ReadAsync(buffer, ct));
+
+        public override async Task<int> ReadAsync(
+            byte[] buffer, int offset, int count, CancellationToken ct) =>
+            Count(await inner.ReadAsync(buffer.AsMemory(offset, count), ct));
+
+        private int Count(int read)
+        {
+            if (read > 0)
+            {
+                _read += read;
+                progress?.Report(new TransferProgress(_read, _total));
+            }
+
+            return read;
+        }
+
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// Sends one espace transfer. Separate from <see cref="SendCoreAsync"/> because of the
+    /// timeout: the ordinary client gives up after twenty seconds, which is right for a till
+    /// waiting on a price and far too short for a database being copied over Wi-Fi.
+    /// </summary>
+    private async Task<HttpResponseMessage> SendTransferAsync(
+        HttpMethod method, string url, HttpContent? content, CancellationToken ct)
+    {
+        if (_http.BaseAddress is null)
+            throw new ApiException("Aucun serveur configuré", HttpStatusCode.ServiceUnavailable);
+
+        using var request = new HttpRequestMessage(method, url) { Content = content };
+
+        if (_accessToken is not null)
+            request.Headers.Authorization = new("Bearer", _accessToken);
+        if (_groupSession is not null)
+            request.Headers.Add("x-group-session", _groupSession);
+        request.Headers.Add("x-device-id", DeviceIdentity.Current);
+
+        HttpResponseMessage response;
+        try
+        {
+            // ResponseHeadersRead: the body is a file, and the caller streams it.
+            response = await _transfers.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new ApiException(
+                "Le transfert a expiré. Vérifiez le réseau local, puis réessayez.",
+                HttpStatusCode.RequestTimeout);
+        }
+        catch (HttpRequestException e)
+        {
+            throw new ApiException(
+                $"Impossible de joindre le serveur ({BaseAddress}). Vérifiez le réseau local.\n\n{e.Message}",
+                HttpStatusCode.ServiceUnavailable);
+        }
+
+        if (response.IsSuccessStatusCode) return response;
+
+        ApiError? error = null;
+        try { error = await response.Content.ReadFromJsonAsync<ApiError>(JsonOptions, ct); }
+        catch { /* not the expected shape; fall through to a generic message */ }
+
+        response.Dispose();
+
+        throw new ApiException(
+            error?.Error ?? $"Erreur serveur ({(int)response.StatusCode})",
+            response.StatusCode, error?.Required);
+    }
 
     // --- Images ---
 

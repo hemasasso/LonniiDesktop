@@ -1745,6 +1745,33 @@ public sealed record DataConsumptionResponse(
     int TotalMembers,
     IReadOnlyList<DataConsumptionRowDto> Rows);
 
+// --- Paramètres: transfert d'espace (export / import) ---
+
+/// <summary>
+/// What an exported <c>.db</c> file says about itself, read back from its manifest table
+/// before anything in it is trusted.
+/// </summary>
+/// <param name="FormatVersion">Bumped whenever the file layout changes; see
+/// <c>EspaceArchive.FormatVersion</c>. A file from a newer version is refused.</param>
+public sealed record EspaceExportManifestDto(
+    int FormatVersion,
+    DateTime ExportedAt,
+    string SourceGroupId,
+    string SourceGroupName,
+    int RecordCount,
+    int ImageCount);
+
+/// <summary>One line of the "what was transferred" table shown after an export or import.</summary>
+public sealed record EspaceTransferSectionDto(string Label, int Count);
+
+/// <summary>The outcome of a successful import.</summary>
+public sealed record EspaceImportResultDto(
+    string SourceGroupName,
+    DateTime ExportedAt,
+    int RecordCount,
+    int ImageCount,
+    IReadOnlyList<EspaceTransferSectionDto> Sections);
+
 // --- Errors ---
 
 /// <summary>A failure response. <paramref name="Required"/> names the missing privilege on a 403.</summary>

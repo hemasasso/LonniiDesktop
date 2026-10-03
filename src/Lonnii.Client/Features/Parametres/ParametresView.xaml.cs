@@ -64,6 +64,7 @@ public partial class ParametresView : UserControl
         PaymentSettingsPanel.Visibility = _session.IsAdmin && PaymentProviderRegistry.SettingsVisible ? Visibility.Visible : Visibility.Collapsed;
 
         BilanSettingsPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
+        EspaceDataPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
         if (_session.IsAdmin) _ = LoadCalculAutomatiqueAsync();
 
         PopulatePrivileges();
@@ -173,6 +174,17 @@ public partial class ParametresView : UserControl
 
     private void OpenPaymentProviders_Click(object sender, RoutedEventArgs e) =>
         new PaymentProvidersDialog { Owner = Window.GetWindow(this) }.ShowDialog();
+
+    /// <summary>Opens the espace export/import screen. Refreshes afterwards: an import brings
+    /// the file's currency and module settings with it.</summary>
+    private async void OpenEspaceTransfer_Click(object sender, RoutedEventArgs e)
+    {
+        new EspaceTransferDialog(_session) { Owner = Window.GetWindow(this) }.ShowDialog();
+
+        try { await _session.RefreshAsync(); }
+        catch (ApiException) { /* best-effort refresh; the dialog already reported any error */ }
+        Populate();
+    }
 
     private void OpenCustomerDisplay_Click(object sender, RoutedEventArgs e) =>
         new CustomerDisplaySettingsDialog { Owner = Window.GetWindow(this) }.ShowDialog();

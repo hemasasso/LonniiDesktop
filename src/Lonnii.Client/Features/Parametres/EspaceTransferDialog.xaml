@@ -1,0 +1,118 @@
+<Window x:Class="Lonnii.Client.Features.Parametres.EspaceTransferDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Données de l'espace"
+        Width="660" Height="620"
+        MinHeight="480"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{DynamicResource Surface}">
+
+    <DockPanel>
+
+        <Border DockPanel.Dock="Top" Padding="18,14"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
+            <StackPanel>
+                <TextBlock Text="Données de l'espace" Style="{StaticResource PageTitle}" />
+                <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap"
+                           Text="Téléchargez tout le contenu de cet espace dans un seul fichier .db, images comprises, et rechargez-le dans un autre espace." />
+            </StackPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" Padding="18,12"
+                Background="{DynamicResource SurfaceAlt}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="Fermer" IsCancel="True"
+                        Style="{StaticResource SecondaryButton}" Click="Close_Click" />
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <ProgressBar x:Name="Progress" Width="140" Height="6" IsIndeterminate="True"
+                                 Minimum="0" Maximum="1"
+                                 Visibility="Collapsed" VerticalAlignment="Center" />
+                    <TextBlock x:Name="StatusText" Margin="10,0,0,0" VerticalAlignment="Center"
+                               FontSize="12" TextWrapping="Wrap" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,14,10,14">
+            <StackPanel Margin="0,0,8,0">
+
+                <!-- Export -->
+                <TextBlock Text="TÉLÉCHARGER" Style="{StaticResource SectionHeader}" Margin="0,0,0,6" />
+                <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                        BorderThickness="1" CornerRadius="3" Padding="16,12">
+                    <StackPanel>
+                        <DockPanel>
+                            <Button x:Name="ExportButton" DockPanel.Dock="Right" Content="Télécharger…"
+                                    VerticalAlignment="Center" Style="{StaticResource PrimaryButton}"
+                                    Click="Export_Click" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock x:Name="ExportTitleText" FontWeight="SemiBold" />
+                                <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap"
+                                           Text="Stock, ventes, caisses, clients, charges, comptabilité, paramètres du reçu — et les photos des produits, le logo et le QR code." />
+                            </StackPanel>
+                        </DockPanel>
+                        <TextBlock Style="{StaticResource PageSubtitle}" Margin="0,10,0,0" TextWrapping="Wrap"
+                                   Text="Le fichier obtenu est une base SQLite. Il contient les données de votre entreprise : conservez-le comme vous conserveriez vos registres." />
+                    </StackPanel>
+                </Border>
+
+                <!-- Import -->
+                <StackPanel x:Name="ImportPanel">
+                    <TextBlock Text="IMPORTER" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12">
+                        <StackPanel>
+                            <DockPanel>
+                                <Button x:Name="ImportButton" DockPanel.Dock="Right" Content="Choisir un fichier…"
+                                        VerticalAlignment="Center" Style="{StaticResource SecondaryButton}"
+                                        Click="Import_Click" />
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="Charger un fichier .db dans cet espace" FontWeight="SemiBold" />
+                                    <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap"
+                                               Text="Possible uniquement dans un espace vide : créez un nouvel espace, ouvrez-le, puis importez." />
+                                </StackPanel>
+                            </DockPanel>
+                            <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Border}"
+                                    BorderThickness="1" CornerRadius="3" Padding="12,10" Margin="0,12,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="Ce qui n'est pas transféré" FontWeight="SemiBold" FontSize="12" />
+                                    <TextBlock Style="{StaticResource PageSubtitle}" Margin="0,4,0,0" TextWrapping="Wrap"
+                                               Text="Les membres, leurs mots de passe et leurs privilèges, les postes autorisés, le programme de travail et les journaux d'activité. Les comptes appartiennent au serveur, pas au fichier : ajoutez les membres du nouvel espace depuis Membres et privilèges." />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Not the Admin Général: import is theirs alone -->
+                <Border x:Name="ImportDeniedPanel" Visibility="Collapsed"
+                        Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                        BorderThickness="1" CornerRadius="3" Padding="16,12" Margin="0,20,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Importer" FontWeight="SemiBold" />
+                        <TextBlock Style="{StaticResource PageSubtitle}" Margin="0,4,0,0" TextWrapping="Wrap"
+                                   Text="Seul l'Administrateur Général de l'espace (celui qui l'a créé) peut charger un fichier : l'import écrit tout le contenu de l'espace en une fois." />
+                    </StackPanel>
+                </Border>
+
+                <!-- Result of the last operation -->
+                <StackPanel x:Name="ResultPanel" Visibility="Collapsed">
+                    <TextBlock x:Name="ResultHeaderText" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                    <Border BorderBrush="{DynamicResource Border}" BorderThickness="1" CornerRadius="3">
+                        <DataGrid x:Name="ResultGrid" MaxHeight="260" BorderThickness="0"
+                                  AutoGenerateColumns="False" IsReadOnly="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Données" Binding="{Binding Label}" Width="*" />
+                                <DataGridTextColumn Header="Enregistrements" Binding="{Binding Count}" Width="140" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Border>
+                </StackPanel>
+
+            </StackPanel>
+        </ScrollViewer>
+
+    </DockPanel>
+</Window>

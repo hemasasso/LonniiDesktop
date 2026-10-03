@@ -231,6 +231,25 @@
                     </Border>
                 </StackPanel>
 
+                <!-- Espace data: download as one .db file, or load one into an empty espace.
+                     Admin-only, like the settings above; the dialog itself hides the import
+                     half from anyone but the Admin Général, as the API does. -->
+                <StackPanel x:Name="EspaceDataPanel" Visibility="Collapsed">
+                    <TextBlock Text="DONNÉES DE L'ESPACE" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Ouvrir" VerticalAlignment="Center"
+                                    Style="{StaticResource SecondaryButton}" Click="OpenEspaceTransfer_Click" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Télécharger ou importer (.db)" FontWeight="SemiBold" />
+                                <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap"
+                                           Text="Tout le contenu de l'espace dans un seul fichier, images comprises — à recharger dans un nouvel espace vide." />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                </StackPanel>
+
                 <!-- Connection -->
                 <TextBlock Text="CONNEXION" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
                 <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"

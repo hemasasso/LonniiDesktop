@@ -107,6 +107,7 @@ database under `.lonnii-dev`, so you can debug without touching the real one.
 | Database | `C:\ProgramData\Lonnii\lonnii.db` on the host |
 | Product and category photos | `C:\ProgramData\Lonnii\images\products\` and `\images\categories\` on the host |
 | JWT signing key | `C:\ProgramData\Lonnii\jwt.key`, generated on first run |
+| Espace exports and imports in progress | `C:\ProgramData\Lonnii\transfers\`, deleted when the transfer ends — see [docs/espace-transfer.md](docs/espace-transfer.md) |
 | Client settings | `%APPDATA%\Lonnii\client-settings.json` per Windows user |
 | Client error log | `%APPDATA%\Lonnii\client-errors.log` |
 

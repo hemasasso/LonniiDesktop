@@ -72,6 +72,11 @@ builder.Services.AddScoped<RequireAdminFilter>();
 // Product and category photos live on the host laptop's disk, beside the database.
 builder.Services.AddSingleton(new ImageStorageService(dataDirectory));
 
+// Exporting or importing a whole espace builds its .db file here first - beside the
+// database, not in the system temp folder, since it can be hundreds of megabytes.
+builder.Services.AddSingleton(new EspaceTransferPaths(dataDirectory));
+builder.Services.AddScoped<EspaceTransferService>();
+
 builder.Services.AddOpenApi();
 
 // --- Listening address ----------------------------------------------------
@@ -134,6 +139,7 @@ app.MapAmortissementEndpoints();
 app.MapBilanEndpoints();
 app.MapProgrammeEndpoints();
 app.MapParametresEndpoints();
+app.MapEspaceTransferEndpoints();
 app.MapConsommationEndpoints();
 app.MapAuditEndpoints();
 app.MapImageEndpoints();

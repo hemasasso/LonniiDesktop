@@ -16,6 +16,9 @@ public static class PaymentProviderIds
 {
     public const string MobileMoney = "mobile_money";
 
+    /// <summary>Direct Orange Money Burkina Faso, without an aggregator.</summary>
+    public const string OrangeMoney = "orange_money";
+
     /// <summary>Debit and credit cards, whichever network (Visa, Mastercard, ...).</summary>
     public const string Card = "card";
 
@@ -100,6 +103,20 @@ public static class PaymentProviderRegistry
                 new(CustomerInputKeys.Phone, "Numéro du client", Hint: "ex. 70 00 00 00"),
                 new(CustomerInputKeys.Otp, "Code OTP", Secret: true,
                     Hint: "Orange : composez *144*4*6# · Moov : laissez vide"),
+            ]),
+        new(PaymentProviderIds.OrangeMoney, "Orange Money (direct)",
+            "Orange Money Burkina Faso directement, sans agrégateur — évite la commission LigdiCash.",
+            [
+                new("api_username",    "Identifiant API"),
+                new("api_password",    "Mot de passe API",  Secret: true),
+                new("merchant_msisdn", "Numéro marchand",   Hint: "ex. 22670000000"),
+                new("prod",            "Environnement",     Hint: "1 = production · 0 = test"),
+            ],
+            CustomerInputs:
+            [
+                new(CustomerInputKeys.Phone, "Numéro du client", Hint: "ex. 70 00 00 00"),
+                new(CustomerInputKeys.Otp, "Code OTP", Secret: true,
+                    Hint: "Le client compose *144*4*6# sur son téléphone"),
             ]),
         new(PaymentProviderIds.Card, "Carte bancaire (débit et crédit)",
             "Visa, Mastercard et autres réseaux, via un prestataire de paiement ou un terminal.",

@@ -44,6 +44,7 @@ public partial class MainWindow : Window
             BuildShell();
             CustomerDisplayService.Instance.Start(_session);
             PaymentProviderRegistry.Register(new LigdiCashProvider());
+            PaymentProviderRegistry.Register(new OrangeMoneyProvider());
         };
 
         ThemeManager.Changed += (_, _) => ApplyThemeButtonVisuals();

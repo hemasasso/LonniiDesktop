@@ -102,7 +102,12 @@ public sealed class LigdiCashProvider : IPaymentProvider
         }
         catch (HttpRequestException ex)
         {
-            return new PaymentOutcome(false, Error: ex.Message);
+            var netMsg = ex.InnerException?.Message ?? ex.Message;
+            return netMsg.Contains("connect", StringComparison.OrdinalIgnoreCase)
+                   || netMsg.Contains("refused", StringComparison.OrdinalIgnoreCase)
+                   || netMsg.Contains("respond", StringComparison.OrdinalIgnoreCase)
+                ? new PaymentOutcome(false, Error: "Impossible de joindre le serveur LigdiCash — vérifiez la connexion Internet.")
+                : new PaymentOutcome(false, Error: $"Erreur réseau : {ex.StatusCode?.ToString() ?? "connexion échouée"}.");
         }
         catch (JsonException)
         {

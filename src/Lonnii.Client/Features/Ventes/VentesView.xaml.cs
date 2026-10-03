@@ -244,6 +244,10 @@ public partial class VentesView : UserControl
         ClientsButton.Visibility = _canManageClients ? Visibility.Visible : Visibility.Collapsed;
         RemiseGlobalePanel.Visibility = _canApplyDiscount ? Visibility.Visible : Visibility.Collapsed;
 
+        // Orange Money direct appears only when at least one account is enabled in Paramètres.
+        PaymentOrangeButton.Visibility = PaymentProviderRegistry.EnabledAccounts(PaymentProviderIds.OrangeMoney).Count > 0
+            ? Visibility.Visible : Visibility.Collapsed;
+
         OpenCaisseButton.Visibility = _canAddPayment ? Visibility.Visible : Visibility.Collapsed;
         CaisseHistoryButton.Visibility = _canAddPayment && _canViewCaisseHistory ? Visibility.Visible : Visibility.Collapsed;
 
@@ -1606,9 +1610,10 @@ public partial class VentesView : UserControl
         var primary = (Style)FindResource("PrimaryButton");
         var secondary = (Style)FindResource("SecondaryButton");
 
-        PaymentCashButton.Style = _modePaiement == "cash" ? primary : secondary;
+        PaymentCashButton.Style   = _modePaiement == "cash"         ? primary : secondary;
         PaymentMobileButton.Style = _modePaiement == "mobile_money" ? primary : secondary;
-        PaymentCarteButton.Style = _modePaiement == "carte" ? primary : secondary;
+        PaymentOrangeButton.Style = _modePaiement == "orange_money" ? primary : secondary;
+        PaymentCarteButton.Style  = _modePaiement == "carte"        ? primary : secondary;
     }
 
     // --- Checkout ---
@@ -1672,6 +1677,19 @@ public partial class VentesView : UserControl
         {
             var accounts = PaymentProviderRegistry.EnabledAccounts(PaymentProviderIds.MobileMoney);
             var provider = PaymentProviderRegistry.Get(PaymentProviderIds.MobileMoney);
+            if (provider is not null && accounts.Count > 0)
+            {
+                var reference = $"V-{DateTime.Now:yyyyMMddHHmmss}";
+                var dialog = new MobileMoneyPaymentDialog(
+                    total, accounts, provider, reference, Window.GetWindow(this));
+                if (dialog.ShowDialog() != true) return;
+            }
+        }
+
+        if (!isFacture && _modePaiement == "orange_money")
+        {
+            var accounts = PaymentProviderRegistry.EnabledAccounts(PaymentProviderIds.OrangeMoney);
+            var provider = PaymentProviderRegistry.Get(PaymentProviderIds.OrangeMoney);
             if (provider is not null && accounts.Count > 0)
             {
                 var reference = $"V-{DateTime.Now:yyyyMMddHHmmss}";

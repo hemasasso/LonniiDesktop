@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using Lonnii.Client.Features.Payments;
 
 namespace Lonnii.Client.Features.Ventes;
 
@@ -41,6 +42,9 @@ public partial class AddPaymentDialog : Window
             UpdateMonnaieARendre();
         };
 
+        PaymentOrangeButton.Visibility = PaymentProviderRegistry.EnabledAccounts(PaymentProviderIds.OrangeMoney).Count > 0
+            ? Visibility.Visible : Visibility.Collapsed;
+
         ApplyPaymentVisuals();
         Loaded += (_, _) => MontantBox.Focus();
     }
@@ -67,9 +71,10 @@ public partial class AddPaymentDialog : Window
         var primary = (Style)FindResource("PrimaryButton");
         var secondary = (Style)FindResource("SecondaryButton");
 
-        PaymentCashButton.Style = _modePaiement == "cash" ? primary : secondary;
+        PaymentCashButton.Style   = _modePaiement == "cash"         ? primary : secondary;
         PaymentMobileButton.Style = _modePaiement == "mobile_money" ? primary : secondary;
-        PaymentCarteButton.Style = _modePaiement == "carte" ? primary : secondary;
+        PaymentOrangeButton.Style = _modePaiement == "orange_money" ? primary : secondary;
+        PaymentCarteButton.Style  = _modePaiement == "carte"        ? primary : secondary;
 
         MontantRecuPanel.Visibility = _modePaiement == "cash" ? Visibility.Visible : Visibility.Collapsed;
         if (_modePaiement != "cash") MontantRecuBox.Text = string.Empty;

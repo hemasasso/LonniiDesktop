@@ -50,7 +50,8 @@ public partial class MobileMoneyPaymentDialog : Window
         _accounts.Count == 1 ? _accounts[0] : _accounts[AccountCombo.SelectedIndex];
 
     private bool IsOrange =>
-        SelectedAccount.Values.TryGetValue("operator_id", out var id) && id == "11";
+        _provider.Info.Id == PaymentProviderIds.OrangeMoney
+        || (SelectedAccount.Values.TryGetValue("operator_id", out var id) && id == "11");
 
     private void UpdateOtpSection()
     {

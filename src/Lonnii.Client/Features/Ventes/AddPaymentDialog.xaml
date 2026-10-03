@@ -39,8 +39,15 @@
                     <TextBlock Text="Espèces" Style="{StaticResource ButtonContentText}" />
                 </Button>
                 <Button x:Name="PaymentMobileButton" Width="90" Height="34" Margin="0,0,8,0"
-                        Style="{StaticResource SecondaryButton}" Click="PaymentMode_Click" Tag="mobile_money">
+                        Style="{StaticResource SecondaryButton}" Click="PaymentMode_Click" Tag="mobile_money"
+                        ToolTip="Mobile Money via LigdiCash">
                     <TextBlock Text="Mobile Money" Style="{StaticResource ButtonContentText}" />
+                </Button>
+                <Button x:Name="PaymentOrangeButton" Width="110" Height="34" Margin="0,0,8,0"
+                        Visibility="Collapsed"
+                        Style="{StaticResource SecondaryButton}" Click="PaymentMode_Click" Tag="orange_money"
+                        ToolTip="Orange Money direct (sans LigdiCash)">
+                    <TextBlock Text="Orange Money" Style="{StaticResource ButtonContentText}" />
                 </Button>
                 <Button x:Name="PaymentCarteButton" Width="70" Height="34"
                         Style="{StaticResource SecondaryButton}" Click="PaymentMode_Click" Tag="carte">

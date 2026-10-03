@@ -916,14 +916,15 @@ public sealed class ReceiptDocument
 
     public static string PaymentLabel(string? modePaiement) => modePaiement switch
     {
-        "cash" => "Espèces",
+        "cash"         => "Espèces",
         "mobile_money" => "Mobile Money",
-        "carte" => "Carte",
-        "virement" => "Virement",
-        "cheque" => "Chèque",
-        "google_pay" => "Google Pay",
-        "apple_pay" => "Apple Pay",
-        "paypal" => "PayPal",
+        "orange_money" => "Orange Money",
+        "carte"        => "Carte",
+        "virement"     => "Virement",
+        "cheque"       => "Chèque",
+        "google_pay"   => "Google Pay",
+        "apple_pay"    => "Apple Pay",
+        "paypal"       => "PayPal",
         _ => modePaiement ?? "—",
     };
 

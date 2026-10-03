@@ -254,11 +254,12 @@ public partial class VenteDetailDialog : Window
 
     private static string PaymentLabel(string? modePaiement) => modePaiement switch
     {
-        "cash" => "Espèces",
+        "cash"         => "Espèces",
         "mobile_money" => "Mobile Money",
-        "carte" => "Carte",
-        "virement" => "Virement",
-        "cheque" => "Chèque",
+        "orange_money" => "Orange Money",
+        "carte"        => "Carte",
+        "virement"     => "Virement",
+        "cheque"       => "Chèque",
         _ => modePaiement ?? "Non spécifié",
     };
 

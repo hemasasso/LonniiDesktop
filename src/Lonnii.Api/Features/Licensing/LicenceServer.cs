@@ -25,6 +25,13 @@ public interface ILicenceServer
 {
     /// <summary>Activates an installation. Throws <see cref="ActivationRefusedException"/> on refusal.</summary>
     Task<ActivationResponse> ActivateAsync(string baseUrl, ActivationRequest request, CancellationToken ct);
+
+    /// <summary>
+    /// Renews this installation's licence: carries our changes down and resets the offline
+    /// clock. Throws <see cref="ActivationRefusedException"/> on refusal or when unreachable.
+    /// </summary>
+    Task<LicenceRefreshResponse> RefreshAsync(string baseUrl, LicenceRefreshRequest request, CancellationToken ct) =>
+        throw new NotSupportedException();
 }
 
 /// <summary>
@@ -34,13 +41,29 @@ public interface ILicenceServer
 /// </summary>
 public sealed class HttpLicenceServer(HttpClient http, ILogger<HttpLicenceServer> logger) : ILicenceServer
 {
-    public async Task<ActivationResponse> ActivateAsync(
-        string baseUrl, ActivationRequest request, CancellationToken ct)
+    public Task<ActivationResponse> ActivateAsync(
+        string baseUrl, ActivationRequest request, CancellationToken ct) =>
+        PostAsync<ActivationRequest, ActivationResponse>(
+            baseUrl, "api/activation",
+            "Impossible de joindre le serveur Lonnii. Connectez cet ordinateur à Internet " +
+            "le temps de l'activation, puis réessayez.",
+            request, ct);
+
+    public Task<LicenceRefreshResponse> RefreshAsync(
+        string baseUrl, LicenceRefreshRequest request, CancellationToken ct) =>
+        PostAsync<LicenceRefreshRequest, LicenceRefreshResponse>(
+            baseUrl, "api/licence/refresh",
+            "Impossible de joindre le serveur Lonnii. Connectez cet ordinateur à Internet " +
+            "pour renouveler la licence.",
+            request, ct);
+
+    private async Task<TResponse> PostAsync<TRequest, TResponse>(
+        string baseUrl, string path, string unreachableMessage, TRequest request, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(baseUrl))
             throw new ActivationRefusedException("Aucune adresse de serveur dans le fichier d'identifiants.");
 
-        var url = $"{baseUrl.TrimEnd('/')}/api/activation";
+        var url = $"{baseUrl.TrimEnd('/')}/{path}";
 
         HttpResponseMessage response;
         try
@@ -53,15 +76,13 @@ public sealed class HttpLicenceServer(HttpClient http, ILogger<HttpLicenceServer
             // different reactions from the shop, and a generic failure would send them
             // chasing the wrong one.
             logger.LogWarning(e, "Licence server unreachable at {Url}", url);
-            throw new ActivationRefusedException(
-                "Impossible de joindre le serveur Lonnii. Connectez cet ordinateur à Internet " +
-                "le temps de l'activation, puis réessayez.");
+            throw new ActivationRefusedException(unreachableMessage);
         }
 
         if (response.IsSuccessStatusCode)
         {
-            return await response.Content.ReadFromJsonAsync<ActivationResponse>(ct)
-                   ?? throw new ActivationRefusedException("Réponse d'activation illisible.");
+            return await response.Content.ReadFromJsonAsync<TResponse>(ct)
+                   ?? throw new ActivationRefusedException("Réponse du serveur Lonnii illisible.");
         }
 
         // Pass the server's own wording through: it already explains an expired
@@ -77,7 +98,7 @@ public sealed class HttpLicenceServer(HttpClient http, ILogger<HttpLicenceServer
         }
 
         throw new ActivationRefusedException(
-            message ?? "Activation refusée par le serveur Lonnii.",
+            message ?? "Demande refusée par le serveur Lonnii.",
             response.StatusCode);
     }
 }

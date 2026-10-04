@@ -63,6 +63,7 @@ builder.Services.AddHttpClient<ILicenceServer, HttpLicenceServer>(
 builder.Services.AddScoped<PrivilegeResolver>();
 builder.Services.AddScoped<DatabaseSeeder>();
 builder.Services.AddScoped<GroupSessionService>();
+builder.Services.AddScoped<LicenceGuard>();
 
 // Populated per request by GroupScopeFilter, then injected into group-scoped endpoints.
 builder.Services.AddScoped<GroupScope>();

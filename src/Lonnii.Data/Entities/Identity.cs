@@ -127,7 +127,8 @@ public class Groupe
 
     /// <summary>
     /// How many days this workspace may run without reaching the licence server before it
-    /// stops. The defence against an online-mode shop - bought cheaply, with a yearly fee -
+    /// stops - 14 by default (it was 7 until 2026-10-04). Applies to online mode only; local
+    /// mode is never sent a deadline. The defence against an online-mode shop - bought cheaply, with a yearly fee -
     /// simply unplugging the internet and using it for ever as if it were the far more
     /// expensive offline licence.
     ///
@@ -137,7 +138,7 @@ public class Groupe
     /// grantable without shipping a new build.
     /// </para>
     /// </summary>
-    public int MaxOfflineDays { get; set; } = 7;
+    public int MaxOfflineDays { get; set; } = 14;
 
     /// <summary>
     /// When this workspace last reached the licence server. Server time, never the client's,
@@ -152,6 +153,21 @@ public class Groupe
     /// could grant itself machines by adding rows on its own hardware.
     /// </summary>
     public string? LicenceServerUrl { get; set; }
+
+    /// <summary>
+    /// The moment this installation stops working unless it reaches the licence server first:
+    /// the server's own <c>MustReconnectBy</c>, stored as it arrived. Past it, the workspace
+    /// is locked - a hard stop, not a warning (decided 2026-10-04). Only meaningful when
+    /// <see cref="LicenceServerUrl"/> is set and the mode requires a subscription.
+    /// </summary>
+    public DateTime? LicenceDeadline { get; set; }
+
+    /// <summary>
+    /// The latest instant this installation has ever observed, from its own clock or the
+    /// server's. "Now" for the deadline is never earlier than this, so winding the computer's
+    /// clock back does not buy more days.
+    /// </summary>
+    public DateTime? LicenceClockMark { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

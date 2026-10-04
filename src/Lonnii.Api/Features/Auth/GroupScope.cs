@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Lonnii.Api.Features.Licensing;
 using Lonnii.Data;
 using Lonnii.Data.Services;
 using Lonnii.Shared.Contracts;
@@ -39,6 +40,7 @@ public class GroupScopeFilter(
     LonniiDbContext db,
     GroupSessionService sessions,
     PrivilegeResolver privileges,
+    LicenceGuard licence,
     GroupScope scope) : IEndpointFilter
 {
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
@@ -77,6 +79,15 @@ public class GroupScopeFilter(
         var session = await sessions.ResolveAsync(token, userId, ct);
         if (session is null)
             return Results.Json(new ApiError("Session de groupe invalide ou expirée"), statusCode: StatusCodes.Status401Unauthorized);
+
+        // Hard stop: past the offline deadline nothing in the workspace is served until the
+        // machine reaches the licence server again.
+        var licenceStatus = await licence.CheckAsync(session.GroupId, ct);
+        if (licenceStatus.Expired)
+        {
+            return Results.Json(new ApiError(licenceStatus.Message ?? LicenceGuard.ExpiredMessage),
+                statusCode: StatusCodes.Status423Locked);
+        }
 
         scope.UserId = userId;
         scope.GroupId = session.GroupId;

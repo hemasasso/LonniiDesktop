@@ -101,6 +101,13 @@ public class LicenceRefreshTests : IAsyncLifetime
         Assert.Equal(8, body!.MaxDevices);
     }
 
+    /// <summary>A workspace nobody has tuned gets two weeks offline, not one.</summary>
+    [Fact]
+    public void A_new_workspace_allows_fourteen_offline_days()
+    {
+        Assert.Equal(14, new Lonnii.Data.Entities.Groupe().MaxOfflineDays);
+    }
+
     /// <summary>
     /// The deadline is computed from the server's clock and sent down, so putting a till's
     /// clock back cannot buy extra offline days.

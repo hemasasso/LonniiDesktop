@@ -1,3 +1,4 @@
+using Lonnii.Api.Features.Licensing;
 using System.Security.Claims;
 using Lonnii.Api.Features.Images;
 using Lonnii.Data;
@@ -106,6 +107,7 @@ public static class GroupEndpoints
         LonniiDbContext db,
         GroupSessionService sessions,
         PrivilegeResolver privileges,
+        LicenceGuard licence,
         HttpContext http,
         CancellationToken ct)
     {
@@ -119,6 +121,13 @@ public static class GroupEndpoints
         if (groupe.IsBlocked)
             return Results.Json(new ApiError(groupe.BlockReason ?? "Ce groupe est bloqué."),
                 statusCode: StatusCodes.Status403Forbidden);
+
+        var licenceStatus = await licence.CheckAsync(groupe, ct);
+        if (licenceStatus.Expired)
+        {
+            return Results.Json(new ApiError(licenceStatus.Message ?? LicenceGuard.ExpiredMessage),
+                statusCode: StatusCodes.Status423Locked);
+        }
 
         // --- Machine check ---------------------------------------------------------
         // This is what stops a copied installation. A copy runs on different hardware, so

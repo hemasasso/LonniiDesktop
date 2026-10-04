@@ -194,6 +194,20 @@ public class LonniiApiClient
         PostAsync<DeviceDto>("api/devices/register", new RegisterDeviceRequest(
             email, password, DeviceIdentity.Current, DeviceIdentity.FriendlyName, AppVersion), ct);
 
+    /// <summary>
+    /// Asks the host to reach the licence server now and renew this workspace's deadline.
+    /// Not group-scoped on the host, so a locked workspace can still call it.
+    /// </summary>
+    public Task<LicenceStatusDto> SyncLicenceAsync(string groupId, CancellationToken ct = default) =>
+        PostAsync<LicenceStatusDto>("api/licence/sync", new LicenceSyncRequest(groupId), ct);
+
+    /// <summary>
+    /// Raised when the host refuses a call because the workspace is past its offline
+    /// deadline (HTTP 423). The shell answers with the lock screen; the call itself still
+    /// fails with an <see cref="ApiException"/>.
+    /// </summary>
+    public static event Action<string>? LicenceLocked;
+
     public Task<DeviceListResponse> GetDevicesAsync(CancellationToken ct = default) =>
         GetAsync<DeviceListResponse>("api/devices", ct);
 
@@ -869,6 +883,9 @@ public class LonniiApiClient
 
         response.Dispose();
 
+        if (response.StatusCode == HttpStatusCode.Locked)
+            LicenceLocked?.Invoke(error?.Error ?? "La licence de cet espace a expiré.");
+
         throw new ApiException(
             error?.Error ?? $"Erreur serveur ({(int)response.StatusCode})",
             response.StatusCode, error?.Required);
@@ -1047,6 +1064,9 @@ public class LonniiApiClient
         }
 
         response.Dispose();
+
+        if (response.StatusCode == HttpStatusCode.Locked)
+            LicenceLocked?.Invoke(error?.Error ?? "La licence de cet espace a expiré.");
 
         throw new ApiException(
             error?.Error ?? $"Erreur serveur ({(int)response.StatusCode})",

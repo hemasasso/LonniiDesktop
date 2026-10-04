@@ -52,11 +52,54 @@ public partial class MainWindow : Window
 
         _presenceTimer.Tick += async (_, _) => await SendPresenceAsync();
         _presenceTimer.Start();
+
+        // Licence: renew quietly in the background, and stop hard when the host says the
+        // offline deadline has passed.
+        LonniiApiClient.LicenceLocked += message => Dispatcher.InvokeAsync(() => ShowLicenceLock(message));
+        _licenceTimer.Tick += async (_, _) => await SyncLicenceAsync();
+        _licenceTimer.Start();
+        _session.Changed += (_, _) => _ = SyncLicenceAsync(onlyIfStale: true);
         Closing += (_, _) =>
         {
             EndPresence();
             CustomerDisplayService.Instance.Stop();
         };
+    }
+
+    // --- Licence (offline deadline) ---
+
+    /// <summary>Every three hours: far inside the 14-day deadline, so a shop that is simply
+    /// online never comes near it, and one that lost its connection for a weekend recovers
+    /// without anyone noticing.</summary>
+    private readonly System.Windows.Threading.DispatcherTimer _licenceTimer = new() { Interval = TimeSpan.FromHours(3) };
+
+    private DateTime _lastLicenceSync = DateTime.MinValue;
+
+    /// <summary>
+    /// Asks the host to renew the licence. Never surfaces an error: no connection is the
+    /// normal case for an hour or a day, and the deadline - not this call - is what stops
+    /// the till. A refused renewal (unpaid, revoked) shows up as the lock screen when the
+    /// deadline passes, with the server's reason on "Réessayer".
+    /// </summary>
+    private async Task SyncLicenceAsync(bool onlyIfStale = false)
+    {
+        if (_session.Groupe is not { } groupe) return;
+        if (onlyIfStale && DateTime.UtcNow - _lastLicenceSync < TimeSpan.FromMinutes(30)) return;
+
+        _lastLicenceSync = DateTime.UtcNow;
+        try { await _session.Api.SyncLicenceAsync(groupe.Id); }
+        catch (Exception ex) when (ex is ApiException or System.Net.Http.HttpRequestException or TaskCanceledException) { }
+    }
+
+    /// <summary>Blocks the shell behind the lock screen until the licence is renewed. Several
+    /// calls can fail at once when the lock lands, so only the first opens the window.</summary>
+    private void ShowLicenceLock(string message)
+    {
+        if (_session.Groupe is not { } groupe) return;
+
+        // Renewed: reload whatever the refused calls left empty.
+        if (Features.Licensing.LicenceLockWindow.ShowLocked(this, groupe.Id, message))
+            _ = RefreshAsync();
     }
 
     // --- Presence (Audit → présences) ---

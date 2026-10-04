@@ -33,7 +33,53 @@ public static class LicenceEndpoints
         var group = app.MapGroup("/api/licence").WithTags("Licence");
 
         group.MapPost("/refresh", RefreshAsync);
+
+        // The installation's side: the shop's own host asks the licence server for a fresh
+        // deadline, and reports where the workspace stands. Neither is group-scoped, because
+        // a locked workspace must still be able to renew itself.
+        group.MapPost("/sync", SyncAsync);
+        group.MapGet("/status/{groupId}", StatusAsync);
     }
+
+    /// <summary>
+    /// Reaches the licence server now and stores the answer. Called by every till at start-up
+    /// and every few hours, and by the lock screen's "Réessayer".
+    /// </summary>
+    private static async Task<IResult> SyncAsync(
+        LicenceSyncRequest request,
+        LonniiDbContext db,
+        LicenceGuard guard,
+        ILicenceServer licences,
+        HttpContext http,
+        CancellationToken ct)
+    {
+        var groupe = await db.Groupes.FirstOrDefaultAsync(g => g.Id == request.GroupId, ct);
+        if (groupe is null || !LicenceGuard.IsEnforced(groupe))
+            return Results.Ok(await guard.CheckAsync(request.GroupId, ct));
+
+        var deviceId = http.Request.Headers["x-device-id"].ToString();
+
+        try
+        {
+            var response = await licences.RefreshAsync(
+                groupe.LicenceServerUrl!, new LicenceRefreshRequest(groupe.Id, deviceId), ct);
+
+            await guard.ApplyRefreshAsync(groupe, response, ct);
+        }
+        catch (ActivationRefusedException e)
+        {
+            // Unreachable is a 503; a refusal keeps the server's own status (402 unpaid, 403
+            // device refused). Either way the deadline is left exactly where it was - a
+            // refused shop must not earn more days by asking.
+            return Results.Json(new ApiError(e.Message),
+                statusCode: (int)(e.Status ?? System.Net.HttpStatusCode.ServiceUnavailable));
+        }
+
+        return Results.Ok(await guard.CheckAsync(groupe, ct));
+    }
+
+    private static async Task<IResult> StatusAsync(string groupId, LicenceGuard guard, CancellationToken ct) =>
+        Results.Ok(await guard.CheckAsync(groupId, ct));
 
     private static async Task<IResult> RefreshAsync(
         LicenceRefreshRequest request,

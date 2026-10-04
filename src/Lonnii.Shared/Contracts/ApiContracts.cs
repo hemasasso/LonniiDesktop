@@ -1170,6 +1170,21 @@ public sealed record LicenceRefreshResponse(
     DateTime ServerTime,
     DateTime? MustReconnectBy);
 
+/// <summary>Asks this installation to reach the licence server now and renew its deadline.</summary>
+public sealed record LicenceSyncRequest(string GroupId);
+
+/// <summary>
+/// Where this workspace stands against its offline deadline.
+/// </summary>
+/// <param name="Enforced">False for local mode, and for a workspace with no licence server.</param>
+/// <param name="Expired">True once the deadline has passed: every group call is then refused.</param>
+public sealed record LicenceStatusDto(
+    bool Enforced,
+    bool Expired,
+    DateTime? Deadline,
+    int DaysLeft,
+    string? Message);
+
 // --- First launch ---
 
 /// <summary>

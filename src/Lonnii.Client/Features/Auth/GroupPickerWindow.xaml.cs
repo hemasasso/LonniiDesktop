@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
+using Lonnii.Client.Features;
 using Lonnii.Client.Services;
 using Lonnii.Shared.Contracts;
 using Microsoft.Win32;
@@ -144,6 +145,23 @@ public partial class GroupPickerWindow : Window
             Cursor = null;
 
             if (RegisterDeviceDialog.Show(this, App.Settings.LastIdentifier))
+            {
+                HideError();
+                await OpenSelectedAsync();
+                return;
+            }
+
+            ShowError(ex.Message);
+            OpenButton.IsEnabled = true;
+        }
+        catch (ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Locked)
+        {
+            // Past the offline deadline: the host refuses the workspace until this shop has
+            // reached the licence server. Offer the renewal here - there is no shell yet to
+            // show it - and carry on opening if it worked.
+            Cursor = null;
+
+            if (Licensing.LicenceLockWindow.ShowLocked(this, item.Groupe.Id, ex.Message))
             {
                 HideError();
                 await OpenSelectedAsync();

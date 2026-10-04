@@ -78,6 +78,23 @@ builder.Services.AddSingleton(new ImageStorageService(dataDirectory));
 builder.Services.AddSingleton(new EspaceTransferPaths(dataDirectory));
 builder.Services.AddScoped<EspaceTransferService>();
 
+// Cloud backup. On the OCI server these are the receiving end (BackupEndpoints); on a shop's
+// host the same binary also runs the sending side (CloudBackupService). Which one does
+// anything depends only on whether the workspace has a licence server to answer to.
+builder.Services.AddSingleton(new BackupTokens(jwtOptions.Secret));
+builder.Services.AddSingleton(new BackupStore(dataDirectory));
+builder.Services.AddSingleton(new CloudBackupPaths(databasePath));
+builder.Services.AddHttpClient(CloudBackupClient.HttpClientName, client =>
+{
+    // A snapshot crossing a shop's connection can take a while; the ordinary 20 seconds is
+    // right for a licence check and wrong for this.
+    client.Timeout = TimeSpan.FromMinutes(30);
+});
+builder.Services.AddScoped<CloudBackupClient>();
+builder.Services.AddScoped<CloudBackupRunner>();
+builder.Services.AddScoped<CloudRestoreService>();
+builder.Services.AddHostedService<CloudBackupService>();
+
 builder.Services.AddOpenApi();
 
 // --- Listening address ----------------------------------------------------
@@ -143,6 +160,8 @@ app.MapParametresEndpoints();
 app.MapEspaceTransferEndpoints();
 app.MapConsommationEndpoints();
 app.MapAuditEndpoints();
+app.MapBackupEndpoints();
+app.MapCloudBackupEndpoints();
 app.MapImageEndpoints();
 
 /// <summary>Lets a client confirm it is talking to a Lonnii host before signing in.</summary>

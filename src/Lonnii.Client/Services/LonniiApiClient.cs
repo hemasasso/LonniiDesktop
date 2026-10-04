@@ -703,6 +703,35 @@ public class LonniiApiClient
     public Task DeleteReceiptQrCodeAsync(CancellationToken ct = default) =>
         SendAsync(HttpMethod.Delete, "api/parametres/recu/qrcode", null, ct);
 
+    // --- Cloud backup ---
+
+    public Task<CloudBackupStatusDto> GetCloudBackupStatusAsync(CancellationToken ct = default) =>
+        GetAsync<CloudBackupStatusDto>("api/parametres/cloud-backup", ct);
+
+    public Task RunCloudBackupAsync(CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, "api/parametres/cloud-backup/run", null, ct);
+
+    public Task RestartCloudBackupAsync(CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, "api/parametres/cloud-backup/restart", null, ct);
+
+    /// <summary>Restores the espace from the cloud copy. Uses the long-timeout client: a
+    /// restore downloads a snapshot and every photo.</summary>
+    public Task<EspaceImportResultDto> RestoreFromCloudAsync(CancellationToken ct = default) =>
+        PostTransferAsync("api/parametres/cloud-backup/restore", ct);
+
+    /// <summary>First launch only: restores a freshly set-up host from the cloud copy,
+    /// before anyone has signed in.</summary>
+    public Task<EspaceImportResultDto> RestoreFromCloudAtSetupAsync(CancellationToken ct = default) =>
+        PostTransferAsync("api/setup/restore", ct);
+
+    private async Task<EspaceImportResultDto> PostTransferAsync(string url, CancellationToken ct)
+    {
+        using var response = await SendTransferAsync(HttpMethod.Post, url, null, ct);
+
+        return await response.Content.ReadFromJsonAsync<EspaceImportResultDto>(JsonOptions, ct)
+            ?? throw new ApiException("Réponse vide du serveur", response.StatusCode);
+    }
+
     // --- Paramètres: données de l'espace (export / import) ---
 
     /// <summary>Read and write size for an espace transfer. Larger than the usual buffer

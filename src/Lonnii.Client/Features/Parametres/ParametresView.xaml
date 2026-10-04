@@ -248,6 +248,18 @@
                             </StackPanel>
                         </DockPanel>
                     </Border>
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12" Margin="0,8,0,0">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Ouvrir" VerticalAlignment="Center"
+                                    Style="{StaticResource SecondaryButton}" Click="OpenCloudBackup_Click" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Sauvegarde en ligne" FontWeight="SemiBold" />
+                                <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap"
+                                           Text="Copie automatique des données et des photos sur le serveur Lonnii (mode en ligne), à restaurer si l'ordinateur est perdu." />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
                 </StackPanel>
 
                 <!-- Connection -->

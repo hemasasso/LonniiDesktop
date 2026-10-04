@@ -1092,7 +1092,8 @@ public sealed record ActivationResponse(
     bool SubscriptionRequired,
     string? SubscriptionStatus,
     DateTime? SubscriptionExpiresAt,
-    DateTime ActivatedAt);
+    DateTime ActivatedAt,
+    string? BackupToken = null);
 
 // --- Devices ---
 
@@ -1168,7 +1169,8 @@ public sealed record LicenceRefreshResponse(
     bool IsBlocked,
     string? BlockReason,
     DateTime ServerTime,
-    DateTime? MustReconnectBy);
+    DateTime? MustReconnectBy,
+    string? BackupToken = null);
 
 /// <summary>Asks this installation to reach the licence server now and renew its deadline.</summary>
 public sealed record LicenceSyncRequest(string GroupId);
@@ -1212,7 +1214,8 @@ public sealed record ApplyCredentialsResponse(
     string AdminEmail,
     string Mode,
     int MaxDevices,
-    int DevicesUsed);
+    int DevicesUsed,
+    BackupInfoDto? CloudBackup = null);
 
 // --- Charges ---
 
@@ -1787,6 +1790,48 @@ public sealed record EspaceImportResultDto(
     int RecordCount,
     int ImageCount,
     IReadOnlyList<EspaceTransferSectionDto> Sections);
+
+// --- Cloud backup ---
+
+/// <summary>One photo as the backup refers to it: the folder and the stored filename.</summary>
+public sealed record BackupImageRef(string Folder, string Name);
+
+/// <summary>What the licence server holds for a workspace, as it answers <c>GET /api/backup/info</c>.</summary>
+/// <param name="Epoch">
+/// Identifies one unbroken line of backups. A machine may only add to the line it started or
+/// restored from, which is what stops a freshly installed, empty host from overwriting a
+/// shop's real backup with nothing.
+/// </param>
+public sealed record BackupInfoDto(
+    bool Exists,
+    string? Epoch,
+    DateTime? SnapshotAt,
+    int RecordCount,
+    int ImageCount,
+    long SizeBytes);
+
+/// <summary>Opens (or confirms) a line of backups. <paramref name="Epoch"/> is null for a host that has never backed up.</summary>
+public sealed record BackupBeginRequest(string? Epoch);
+
+public sealed record BackupBeginResponse(string Epoch, bool Created);
+
+public sealed record BackupImagesRequest(IReadOnlyList<BackupImageRef> Images);
+
+/// <summary>The photos the server does not hold yet - the only ones worth uploading.</summary>
+public sealed record BackupImagesMissingDto(IReadOnlyList<BackupImageRef> Missing);
+
+/// <summary>Where the host stands with its cloud backup, shown in Paramètres.</summary>
+/// <param name="Applicable">False for a local-mode shop, or one with no licence server: nothing to back up to.</param>
+/// <param name="Reason">Why it is not applicable or not currently possible, in words for the shopkeeper.</param>
+public sealed record CloudBackupStatusDto(
+    bool Applicable,
+    bool Running,
+    DateTime? LastSuccessAt,
+    DateTime? LastAttemptAt,
+    string? LastError,
+    int LastRecordCount,
+    int LastImageCount,
+    string? Reason);
 
 // --- Errors ---
 

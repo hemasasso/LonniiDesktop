@@ -36,6 +36,7 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
 
     // Licensing
     public DbSet<Device> Devices => Set<Device>();
+    public DbSet<CloudBackupState> CloudBackupStates => Set<CloudBackupState>();
 
     // Identity
     public DbSet<User> Users => Set<User>();
@@ -140,6 +141,7 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
     {
         [typeof(DashboardSubscription)] = "dashboard_subscriptions",
         [typeof(Device)] = "devices",
+        [typeof(CloudBackupState)] = "cloud_backup_state",
         [typeof(User)] = "users",
         [typeof(Groupe)] = "groupes",
         [typeof(GroupMember)] = "groupe_membres",
@@ -291,6 +293,9 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
             // written by the admin dashboard against a separate database, and a subscription
             // is kept as billing history after a group is deleted.
         });
+
+        // Local to each installation; see CloudBackupState. One row per workspace.
+        b.Entity<CloudBackupState>(e => e.HasKey(x => x.GroupId));
 
         b.Entity<Device>(e =>
         {

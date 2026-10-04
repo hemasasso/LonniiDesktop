@@ -25,12 +25,19 @@ public static class SetupEndpoints
         // Anonymous, and open only while the database has no workspace - see the guard
         // below. There is no account to authenticate against yet; creating one is the point.
         group.MapPost("/apply", ApplyAsync);
+
+        // Anonymous like /apply, for the same reason: nobody can sign in until the shop's
+        // accounts exist, and bringing them back is what this does. It only ever runs on a
+        // workspace with no business data, and everything it loads comes from the licence
+        // server under this machine's own token.
+        group.MapPost("/restore", RestoreAsync);
     }
 
     private static async Task<IResult> ApplyAsync(
         ApplyCredentialsRequest request,
         LonniiDbContext db,
         ILicenceServer licences,
+        CloudBackupClient backups,
         CancellationToken ct)
     {
         // Once a workspace exists this endpoint would be a way to graft a second one onto a
@@ -136,7 +143,25 @@ public static class SetupEndpoints
             AppVersion = request.AppVersion,
         });
 
+        LicenceGuard.StoreBackupToken(db, groupe.Id, request.DeviceId, activation.BackupToken);
+
         await db.SaveChangesAsync(ct);
+
+        // Does this shop already have a backup? Asked now so the window can offer to restore it
+        // before anyone starts trading on the blank workspace. Best effort: if the server cannot
+        // be reached right now, the shop simply is not offered it here (Paramètres still can).
+        BackupInfoDto? existing = null;
+        if (!string.IsNullOrEmpty(activation.BackupToken) && !string.IsNullOrWhiteSpace(groupe.LicenceServerUrl))
+        {
+            try
+            {
+                var info = await backups
+                    .For(groupe.LicenceServerUrl, groupe.Id, request.DeviceId, activation.BackupToken, epoch: null)
+                    .InfoAsync(ct);
+                existing = info.Exists ? info : null;
+            }
+            catch (CloudBackupException) { }
+        }
 
         return Results.Ok(new ApplyCredentialsResponse(
             GroupId: groupe.Id,
@@ -144,6 +169,23 @@ public static class SetupEndpoints
             AdminEmail: admin.Email,
             Mode: groupe.Mode,
             MaxDevices: groupe.MaxDevices,
-            DevicesUsed: activation.DevicesUsed));
+            DevicesUsed: activation.DevicesUsed,
+            CloudBackup: existing));
+    }
+
+    private static async Task<IResult> RestoreAsync(
+        LonniiDbContext db, CloudRestoreService restore, CancellationToken ct)
+    {
+        // A host with several espaces is not a fresh install, and restoring "the" workspace
+        // would be a guess.
+        var ids = await db.Groupes.Select(g => g.Id).Take(2).ToListAsync(ct);
+        if (ids.Count != 1)
+        {
+            return Results.Json(
+                new ApiError("La restauration au premier lancement ne s'applique qu'à une installation avec un seul espace."),
+                statusCode: StatusCodes.Status409Conflict);
+        }
+
+        return CloudBackupEndpoints.ToResult(await restore.RestoreAsync(ids[0], ct));
     }
 }

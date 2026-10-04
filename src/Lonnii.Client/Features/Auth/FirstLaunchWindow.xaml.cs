@@ -78,6 +78,11 @@ public partial class FirstLaunchWindow : Window
                 $"Postes autorisés : {result.MaxDevices}.",
                 "Activation réussie", MessageBoxButton.OK, MessageBoxImage.Information);
 
+            // A shop that already has an online backup is a replaced or reinstalled machine:
+            // offer to bring it back now, before anyone trades on the blank workspace.
+            if (result.CloudBackup is { } backup)
+                await OfferRestoreAsync(backup);
+
             DialogResult = true;
         }
         catch (ApiException ex)
@@ -86,6 +91,41 @@ public partial class FirstLaunchWindow : Window
             // distinguishes an expired subscription from an exhausted machine allowance
             // better than anything this window could say.
             ShowError(ex.Message);
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    private async Task OfferRestoreAsync(Lonnii.Shared.Contracts.BackupInfoDto backup)
+    {
+        var when = backup.SnapshotAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm");
+
+        var answer = MessageBox.Show(this,
+            $"Une sauvegarde en ligne de cet espace existe (du {when}, {backup.RecordCount} enregistrements).\n\n" +
+            "La restaurer maintenant ? Vos produits, ventes, photos et comptes seront récupérés.\n\n" +
+            "Si vous répondez Non, cette sauvegarde est conservée ; vous pourrez la restaurer plus tard " +
+            "depuis Paramètres → Sauvegarde en ligne.",
+            "Sauvegarde trouvée", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+        if (answer != MessageBoxResult.Yes) return;
+
+        BusyText.Text = "Restauration en cours… (peut durer quelques minutes)";
+        SetBusy(true);
+        try
+        {
+            var restored = await _session.Api.RestoreFromCloudAtSetupAsync();
+
+            MessageBox.Show(this,
+                $"Restauration terminée : {restored.RecordCount} enregistrements, {restored.ImageCount} images.",
+                "Restauration", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (ApiException ex)
+        {
+            MessageBox.Show(this,
+                $"{ex.Message}\n\nVous pourrez réessayer depuis Paramètres → Sauvegarde en ligne.",
+                "Restauration impossible", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         finally
         {

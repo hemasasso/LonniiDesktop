@@ -186,6 +186,17 @@ public partial class ParametresView : UserControl
         Populate();
     }
 
+    /// <summary>Opens the cloud backup status and its controls. Refreshes afterwards: a restore
+    /// brings the espace's settings and staff back with it.</summary>
+    private async void OpenCloudBackup_Click(object sender, RoutedEventArgs e)
+    {
+        new CloudBackupDialog(_session) { Owner = Window.GetWindow(this) }.ShowDialog();
+
+        try { await _session.RefreshAsync(); }
+        catch (ApiException) { /* best-effort refresh; the dialog already reported any error */ }
+        Populate();
+    }
+
     private void OpenCustomerDisplay_Click(object sender, RoutedEventArgs e) =>
         new CustomerDisplaySettingsDialog { Owner = Window.GetWindow(this) }.ShowDialog();
 

@@ -85,8 +85,11 @@ public class LicenceGuard(LonniiDbContext db)
     }
 
     /// <summary>Applies the server's answer: a fresh deadline, and the server's view of the workspace.</summary>
-    public async Task ApplyRefreshAsync(Groupe groupe, LicenceRefreshResponse response, CancellationToken ct)
+    public async Task ApplyRefreshAsync(
+        Groupe groupe, LicenceRefreshResponse response, string deviceId, CancellationToken ct)
     {
+        StoreBackupToken(db, groupe.Id, deviceId, response.BackupToken);
+
         // The server is the authority: it overrides whatever this installation believed.
         if (DeploymentModes.All.Contains(response.Mode)) groupe.Mode = response.Mode;
         groupe.MaxDevices = response.MaxDevices;
@@ -103,6 +106,22 @@ public class LicenceGuard(LonniiDbContext db)
         }.Max();
 
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Keeps the key to the cloud backup the server just issued, with the machine id it
+    /// belongs to. A null token (local mode) leaves whatever is stored alone.</summary>
+    public static void StoreBackupToken(LonniiDbContext db, string groupId, string deviceId, string? token)
+    {
+        if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(deviceId)) return;
+
+        var state = db.CloudBackupStates.Local.FirstOrDefault(s => s.GroupId == groupId)
+            ?? db.CloudBackupStates.FirstOrDefault(s => s.GroupId == groupId);
+
+        if (state is null)
+            db.CloudBackupStates.Add(state = new CloudBackupState { GroupId = groupId });
+
+        state.DeviceToken = token;
+        state.DeviceId = deviceId;
     }
 
     private static LicenceStatusDto NotEnforced() =>

@@ -22,7 +22,8 @@ internal sealed record EspaceSettings(
     bool CurrencyBefore,
     bool GestionAccess,
     bool PrestationsEnabled,
-    string? PrestationsLocation);
+    string? PrestationsLocation,
+    string? PhotoUrl = null);
 
 /// <summary>
 /// An exported espace: an ordinary SQLite database carrying the Lonnii schema - so it opens

@@ -50,6 +50,54 @@ internal sealed class ExportImageSink(ImageStorageService images, EspaceArchive 
 }
 
 /// <summary>
+/// Cloud-backup export: the rows keep their image URLs and the bytes stay out of the archive.
+/// Photos travel separately, by name, so a backup every few minutes uploads each photo once
+/// instead of re-sending every one inside every snapshot.
+/// </summary>
+internal sealed class ReferenceImageSink(ImageStorageService images) : IEspaceImageSink
+{
+    private readonly Dictionary<string, (string Folder, string Name)> _refs = [];
+
+    public int Count => _refs.Count;
+
+    public IEnumerable<(string Folder, string Name)> Refs => _refs.Values;
+
+    public Task<string?> TransferAsync(string? sourceUrl, string targetEntityId, bool lossless, CancellationToken ct)
+    {
+        // A row pointing at a file that is gone gets no photo rather than a broken link.
+        if (EspaceImages.Parse(sourceUrl) is not { } image || images.ExistingPath(image.Folder, image.FileName) is null)
+            return Task.FromResult<string?>(null);
+
+        _refs[sourceUrl!] = (image.Folder, image.FileName);
+        return Task.FromResult<string?>(sourceUrl);
+    }
+
+    public void Add(string? url)
+    {
+        if (EspaceImages.Parse(url) is { } image && images.ExistingPath(image.Folder, image.FileName) is not null)
+            _refs[url!] = (image.Folder, image.FileName);
+    }
+}
+
+/// <summary>
+/// Cloud restore: the photos were already downloaded under their original names, so a row
+/// keeps its URL if the file is on disk and loses it (rather than showing a broken link) if not.
+/// </summary>
+internal sealed class KeepImageSink(ImageStorageService images) : IEspaceImageSink
+{
+    public int Count { get; private set; }
+
+    public Task<string?> TransferAsync(string? sourceUrl, string targetEntityId, bool lossless, CancellationToken ct)
+    {
+        if (EspaceImages.Parse(sourceUrl) is not { } image || images.ExistingPath(image.Folder, image.FileName) is null)
+            return Task.FromResult<string?>(null);
+
+        Count++;
+        return Task.FromResult<string?>(sourceUrl);
+    }
+}
+
+/// <summary>
 /// Writes each photo from the archive back onto the host's disk, under a filename built from
 /// the receiving row's id. Files already written are remembered so a failed import can take
 /// them back off the disk.

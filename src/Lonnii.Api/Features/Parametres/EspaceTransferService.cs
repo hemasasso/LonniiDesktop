@@ -86,8 +86,30 @@ public sealed class EspaceTransferService(
         return new EspaceExportResult(path, FileNameFor(groupe.Nom), manifest);
     }
 
+    /// <summary>
+    /// The cloud backup's snapshot: the same archive, rows only, with photos listed rather than
+    /// embedded. Keys are kept, so restoring it gives back the shop exactly as it was.
+    /// </summary>
+    public async Task<(EspaceExportManifestDto Manifest, IReadOnlyList<(string Folder, string Name)> Images)?>
+        ExportSnapshotAsync(string groupId, string path, CancellationToken ct)
+    {
+        var groupe = await db.Groupes.AsNoTracking().FirstOrDefaultAsync(g => g.Id == groupId, ct);
+        if (groupe is null) return null;
+
+        var sink = default(ReferenceImageSink);
+        var manifest = await WriteArchiveAsync(
+            groupId, groupe.Nom, SettingsOf(groupe) with { PhotoUrl = groupe.PhotoUrl }, path, ct,
+            archive => sink = new ReferenceImageSink(images),
+            beforeCopy: archive => AccountsSnapshot.WriteAsync(db, archive.Db, groupId, ct));
+
+        sink!.Add(groupe.PhotoUrl);
+        return (manifest, sink.Refs.ToList());
+    }
+
     private async Task<EspaceExportManifestDto> WriteArchiveAsync(
-        string groupId, string groupName, EspaceSettings settings, string path, CancellationToken ct)
+        string groupId, string groupName, EspaceSettings settings, string path, CancellationToken ct,
+        Func<EspaceArchive, IEspaceImageSink>? sinkFactory = null,
+        Func<EspaceArchive, Task>? beforeCopy = null)
     {
         EspaceExportManifestDto manifest;
 
@@ -95,11 +117,12 @@ public sealed class EspaceTransferService(
         {
             await using var archive = await EspaceArchive.CreateAsync(path, ct);
 
-            var sink = new ExportImageSink(images, archive);
+            var sink = sinkFactory?.Invoke(archive) ?? new ExportImageSink(images, archive);
             // renewIds: false - the archive keeps the espace's own keys, so its rows and the
             // image URLs stored on them still agree with each other.
             var copier = new EspaceCopier(db, archive.Db, groupId, groupId, sink, renewIds: false);
 
+            if (beforeCopy is not null) await beforeCopy(archive);
             await copier.RunAsync(ct);
 
             manifest = new EspaceExportManifestDto(
@@ -297,6 +320,91 @@ public sealed class EspaceTransferService(
         // outside the transaction, so a rollback would restore a settings row pointing at
         // photos that no longer exist. At worst two unreferenced files remain on the host.
         await db.VentesParametres.Where(x => x.GroupeId == g).ExecuteDeleteAsync(ct);
+    }
+
+    // --- Restore from the cloud ----------------------------------------------------
+
+    /// <summary>
+    /// Loads a cloud snapshot into a workspace that holds no business data yet, keeping every
+    /// key and image URL as it was - unlike <see cref="ImportAsync"/>, which renumbers - and
+    /// bringing the staff accounts back with it. The photos must already be on disk.
+    /// </summary>
+    internal async Task<EspaceImportOutcome> RestoreAsync(string groupId, string archivePath, CancellationToken ct)
+    {
+        try
+        {
+            if (!await db.Groupes.AnyAsync(g => g.Id == groupId, ct))
+                return new EspaceImportOutcome(Error: "Espace introuvable.");
+
+            await using var archive = EspaceArchive.Open(archivePath);
+
+            if (await archive.ReadManifestAsync(ct) is not { } file)
+                return new EspaceImportOutcome(Error: "La sauvegarde en ligne est illisible ou endommagée.");
+
+            if (file.Manifest.FormatVersion > EspaceArchive.FormatVersion)
+            {
+                return new EspaceImportOutcome(
+                    Error: "Cette sauvegarde a été créée par une version plus récente de Lonnii. Mettez l'application à jour.");
+            }
+
+            // A backup of one workspace must never be poured into another.
+            if (!string.Equals(file.Manifest.SourceGroupId, groupId, StringComparison.OrdinalIgnoreCase))
+                return new EspaceImportOutcome(Error: "Cette sauvegarde appartient à un autre espace.");
+
+            if (await FindConflictsAsync(groupId, ct) is { Count: > 0 } conflicts)
+                return new EspaceImportOutcome(Conflict: conflicts);
+
+            var sink = new KeepImageSink(images);
+            var copier = new EspaceCopier(archive.Db, db, groupId, groupId, sink, renewIds: false);
+            int accounts;
+
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            try
+            {
+                accounts = await AccountsSnapshot.RestoreAsync(archive.Db, db, groupId, ct);
+
+                await ClearReplaceableAsync(groupId, ct);
+                await copier.RunAsync(ct);
+
+                db.ChangeTracker.AutoDetectChangesEnabled = true;
+
+                var groupe = await db.Groupes.FirstAsync(g => g.Id == groupId, ct);
+                Apply(file.Settings, groupe);
+
+                // Only if the file really came down: a photo that failed to download is no photo.
+                groupe.PhotoUrl = EspaceImages.Parse(file.Settings.PhotoUrl) is { } photo
+                    && images.ExistingPath(photo.Folder, photo.FileName) is not null
+                    ? file.Settings.PhotoUrl
+                    : null;
+
+                await db.SaveChangesAsync(ct);
+                await transaction.CommitAsync(ct);
+            }
+            catch (Exception e)
+            {
+                await transaction.RollbackAsync(ct);
+                logger.LogError(e, "Restauration de l'espace {GroupId} abandonnée", groupId);
+
+                return new EspaceImportOutcome(
+                    Error: "La restauration a échoué et rien n'a été enregistré. Réessayez.");
+            }
+
+            logger.LogInformation(
+                "Restauration de l'espace {GroupId} : {Records} enregistrements, {Accounts} comptes, {Images} images",
+                groupId, copier.RecordCount, accounts, sink.Count);
+
+            return new EspaceImportOutcome(Result: new EspaceImportResultDto(
+                SourceGroupName: file.Manifest.SourceGroupName,
+                ExportedAt: file.Manifest.ExportedAt,
+                RecordCount: copier.RecordCount,
+                ImageCount: sink.Count,
+                Sections: copier.Sections));
+        }
+        finally
+        {
+            EspaceArchive.ReleaseFiles();
+            Discard(archivePath);
+        }
     }
 
     // --- Espace settings ---------------------------------------------------------

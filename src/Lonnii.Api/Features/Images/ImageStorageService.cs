@@ -154,6 +154,32 @@ public class ImageStorageService
         return new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
     }
 
+    /// <summary>Where a photo of this name would be stored, for putting back a file that
+    /// already has its final name (cloud restore). Null for an unknown folder or a name that is
+    /// not a bare file name.</summary>
+    public string? PathFor(string folder, string fileName)
+    {
+        if (!Folders.All.Contains(folder)) return null;
+        if (string.IsNullOrEmpty(fileName) || Path.GetFileName(fileName) != fileName) return null;
+
+        return Path.Combine(_root, folder, fileName);
+    }
+
+    /// <summary>The full path of a stored photo, or null when it is not there. Same
+    /// containment rules as <see cref="OpenRead"/>.</summary>
+    public string? ExistingPath(string folder, string fileName)
+    {
+        if (!Folders.All.Contains(folder)) return null;
+
+        var safeName = Path.GetFileName(fileName);
+        if (string.IsNullOrEmpty(safeName)) return null;
+
+        var path = Path.GetFullPath(Path.Combine(_root, folder, safeName));
+        var fullRoot = Path.GetFullPath(Path.Combine(_root, folder)) + Path.DirectorySeparatorChar;
+
+        return path.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase) && File.Exists(path) ? path : null;
+    }
+
     /// <summary>
     /// The entity id a stored filename was generated for, i.e. everything before the
     /// last <c>_</c>. Used to check that a requested photo belongs to the caller's group

@@ -1,3 +1,4 @@
+using Lonnii.Api.Features.Backup;
 using Lonnii.Data;
 using Lonnii.Data.Entities;
 using Lonnii.Shared.Contracts;
@@ -64,7 +65,7 @@ public static class LicenceEndpoints
             var response = await licences.RefreshAsync(
                 groupe.LicenceServerUrl!, new LicenceRefreshRequest(groupe.Id, deviceId), ct);
 
-            await guard.ApplyRefreshAsync(groupe, response, ct);
+            await guard.ApplyRefreshAsync(groupe, response, deviceId, ct);
         }
         catch (ActivationRefusedException e)
         {
@@ -85,6 +86,7 @@ public static class LicenceEndpoints
         LicenceRefreshRequest request,
         LonniiDbContext db,
         HttpContext http,
+        BackupTokens backupTokens,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.GroupId) || string.IsNullOrWhiteSpace(request.DeviceId))
@@ -165,6 +167,9 @@ public static class LicenceEndpoints
             // internet - a deadline there would punish the customer who paid the most.
             // Such a shop still calls this when we change something for it, which is what
             // "only at installation and when the machine allowance changes" means.
-            MustReconnectBy: subscriptionRequired ? now.AddDays(groupe.MaxOfflineDays) : null));
+            MustReconnectBy: subscriptionRequired ? now.AddDays(groupe.MaxOfflineDays) : null,
+            // Also sent here, not only at activation, so an installation activated before
+            // backups existed picks up its key on its next refresh.
+            BackupToken: subscriptionRequired ? backupTokens.Create(groupe.Id, request.DeviceId) : null));
     }
 }

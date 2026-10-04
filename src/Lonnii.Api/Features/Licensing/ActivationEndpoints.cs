@@ -1,3 +1,4 @@
+using Lonnii.Api.Features.Backup;
 using Lonnii.Data;
 using Lonnii.Data.Entities;
 using Lonnii.Shared.Contracts;
@@ -41,6 +42,7 @@ public static class ActivationEndpoints
         ActivationRequest request,
         LonniiDbContext db,
         HttpContext http,
+        BackupTokens backupTokens,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.GroupId) || string.IsNullOrWhiteSpace(request.DeviceId))
@@ -145,6 +147,9 @@ public static class ActivationEndpoints
             SubscriptionRequired: subscriptionRequired,
             SubscriptionStatus: subscription?.Statut,
             SubscriptionExpiresAt: subscription?.ContractEndDate,
-            ActivatedAt: DateTime.UtcNow));
+            ActivatedAt: DateTime.UtcNow,
+            // Online shops only: the key to their cloud backup. Activation has just verified
+            // the admin's password, which is what makes this the moment to hand it out.
+            BackupToken: subscriptionRequired ? backupTokens.Create(groupe.Id, request.DeviceId) : null));
     }
 }

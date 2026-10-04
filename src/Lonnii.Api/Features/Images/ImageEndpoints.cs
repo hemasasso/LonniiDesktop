@@ -36,10 +36,12 @@ public static class ImageEndpoints
                 await db.Products.AnyAsync(p => p.Id == entityId && p.GroupId == scope.GroupId, ct),
             ImageStorageService.Folders.Categories =>
                 await db.Categories.AnyAsync(c => c.Id == entityId && c.GroupId == scope.GroupId, ct),
-            // A receipt logo and QR code are stored under the group's own id, so the
-            // ownership check needs no database round trip - and cannot be satisfied by any
-            // id but the caller's own group.
-            ImageStorageService.Folders.ReceiptLogos or ImageStorageService.Folders.ReceiptQrCodes =>
+            // Receipt logo, QR code and espace cover photo are all stored under the group's
+            // own id, so ownership is a bare string comparison - no database round trip, and
+            // a different group's id cannot satisfy it.
+            ImageStorageService.Folders.ReceiptLogos
+                or ImageStorageService.Folders.ReceiptQrCodes
+                or ImageStorageService.Folders.EspacePhotos =>
                 entityId == scope.GroupId,
             _ => false,
         };

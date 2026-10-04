@@ -46,7 +46,7 @@
                     <Setter Property="Template">
                         <Setter.Value>
                             <ControlTemplate TargetType="ListBoxItem">
-                                <Border x:Name="Card" Width="170" Height="146"
+                                <Border x:Name="Card" Width="170" Height="156"
                                         CornerRadius="6" Padding="12"
                                         Background="{DynamicResource SurfaceAlt}"
                                         BorderBrush="{DynamicResource Border}"
@@ -84,37 +84,50 @@
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
-                        <!-- Avatar and, for the space's creator, a crown. -->
+                        <!--
+                            Avatar row: photo if one is loaded, otherwise the coloured-circle
+                            initial. The crown shows for the Admin Général in both states.
+                        -->
                         <Grid Grid.Row="0">
+                            <!-- Photo (shown when Photo != null) -->
+                            <Border Width="40" Height="40" CornerRadius="4"
+                                    HorizontalAlignment="Left" ClipToBounds="True"
+                                    Visibility="{Binding HasPhoto, Converter={StaticResource BoolToVis}}">
+                                <Image Source="{Binding Photo}" Stretch="UniformToFill" />
+                            </Border>
+
+                            <!-- Initial circle (shown when no photo) -->
                             <Border Width="32" Height="32" CornerRadius="16"
                                     HorizontalAlignment="Left"
-                                    Background="{DynamicResource Accent}">
-                                <TextBlock Text="{Binding Nom, Converter={StaticResource Initial}}"
+                                    Background="{DynamicResource Accent}"
+                                    Visibility="{Binding HasPhoto, Converter={StaticResource BoolToVisInv}}">
+                                <TextBlock Text="{Binding Groupe.Nom, Converter={StaticResource Initial}}"
                                            Foreground="{DynamicResource TextOnAccent}"
                                            FontSize="15" FontWeight="SemiBold"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
+
                             <TextBlock Text="&#x1F451;" FontSize="12"
                                        HorizontalAlignment="Right" VerticalAlignment="Top"
                                        ToolTip="Vous avez créé cet espace"
-                                       Visibility="{Binding IsAdminGeneral,
+                                       Visibility="{Binding Groupe.IsAdminGeneral,
                                                     Converter={StaticResource BoolToVis}}" />
                         </Grid>
 
-                        <TextBlock Grid.Row="1" Text="{Binding Nom}" Margin="0,8,0,0"
+                        <TextBlock Grid.Row="1" Text="{Binding Groupe.Nom}" Margin="0,8,0,0"
                                    FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap"
                                    MaxHeight="34" TextTrimming="CharacterEllipsis"
                                    Foreground="{DynamicResource TextPrimary}"
-                                   ToolTip="{Binding Nom}" />
+                                   ToolTip="{Binding Groupe.Nom}" />
 
                         <TextBlock Grid.Row="2" Margin="0,4,0,0" FontSize="11"
                                    Foreground="{DynamicResource TextSecondary}"
-                                   Text="{Binding Role, Converter={StaticResource RoleLabel}}"
+                                   Text="{Binding Groupe.Role, Converter={StaticResource RoleLabel}}"
                                    TextTrimming="CharacterEllipsis" />
 
                         <TextBlock Grid.Row="3" Margin="0,6,0,0" FontSize="11"
                                    Foreground="{DynamicResource TextMuted}">
-                            <Run Text="{Binding MemberCount, Mode=OneWay}" />
+                            <Run Text="{Binding Groupe.MemberCount, Mode=OneWay}" />
                             <Run Text="membres" />
                         </TextBlock>
                     </Grid>
@@ -144,8 +157,22 @@
         </Border>
 
         <Grid Grid.Row="3" Margin="0,16,0,0">
-            <Button Content="Créer un espace…" HorizontalAlignment="Left"
-                    Style="{StaticResource SecondaryButton}" Click="Create_Click" />
+            <!-- Left side: create + admin-only actions (photo + delete) -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                <Button Content="Créer un espace…" Style="{StaticResource SecondaryButton}"
+                        Click="Create_Click" />
+                <Button x:Name="PhotoButton" Content="📷 Photo…"
+                        Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
+                        ToolTip="Changer la photo de cet espace"
+                        Visibility="Collapsed"
+                        Click="Photo_Click" />
+                <Button x:Name="DeleteButton" Content="🗑 Supprimer…"
+                        Style="{StaticResource DangerButton}" Margin="8,0,0,0"
+                        ToolTip="Supprimer définitivement cet espace et toutes ses données"
+                        Visibility="Collapsed"
+                        Click="Delete_Click" />
+            </StackPanel>
+
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button Content="Annuler" Style="{StaticResource SecondaryButton}"
                         Margin="0,0,8,0" Click="Cancel_Click" />

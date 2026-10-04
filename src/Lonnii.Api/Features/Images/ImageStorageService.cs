@@ -36,8 +36,13 @@ public class ImageStorageService
         /// <c>ImageEndpoints</c> check ownership by comparing it to the caller's group.</summary>
         public const string ReceiptQrCodes = "receipt-qrcodes";
 
+        /// <summary>Cover photos for espaces, shown in the group picker. Like the logo and QR
+        /// code, the file is named for the group id so ownership can be checked without a
+        /// database round trip.</summary>
+        public const string EspacePhotos = "espace-photos";
+
         /// <summary>Every folder this service will read from or write to.</summary>
-        public static readonly string[] All = [Products, Categories, ReceiptLogos, ReceiptQrCodes];
+        public static readonly string[] All = [Products, Categories, ReceiptLogos, ReceiptQrCodes, EspacePhotos];
     }
 
     /// <summary>Longest edge a stored photo is allowed to have, in pixels.</summary>

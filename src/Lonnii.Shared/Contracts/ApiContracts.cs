@@ -64,7 +64,8 @@ public sealed record GroupeDto(
     int MemberCount,
     DateTime CreatedAt,
     string CurrencyLabel,
-    bool CurrencyBefore = false);
+    bool CurrencyBefore = false,
+    string? PhotoUrl = null);
 
 /// <summary>Request to create a group. The caller becomes its Admin Général.</summary>
 public sealed record CreateGroupeRequest(string Nom, bool GestionAccess = true);

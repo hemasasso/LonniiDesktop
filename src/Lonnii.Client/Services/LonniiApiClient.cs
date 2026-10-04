@@ -155,6 +155,26 @@ public class LonniiApiClient
         PostAsync<GroupSessionResponse>($"api/groupes/{groupId}/session", new { }, ct);
 
     /// <summary>
+    /// Permanently deletes an espace and all its data. Only the Admin Général (the creator)
+    /// of the espace may call this; the API refuses anyone else with 403.
+    /// </summary>
+    public Task DeleteGroupeAsync(string groupId, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Delete, $"api/groupes/{groupId}", null, ct);
+
+    /// <summary>Closes the current group session (the x-group-session token).</summary>
+    public Task CloseGroupSessionAsync(CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Delete, "api/groupe/session", null, ct);
+
+    /// <summary>Uploads a cover photo for the current espace, replacing the previous one.</summary>
+    public Task<GroupeDto> UploadEspacePhotoAsync(
+        byte[] content, string fileName, CancellationToken ct = default) =>
+        UploadImageAsync<GroupeDto>("api/groupe/photo", content, fileName, ct);
+
+    /// <summary>Removes the current espace's cover photo.</summary>
+    public Task DeleteEspacePhotoAsync(CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Delete, "api/groupe/photo", null, ct);
+
+    /// <summary>
     /// Brings a fresh installation to life from the credentials file. The file's bytes are
     /// sent rather than a path: the person setting the shop up is usually at a till, and the
     /// file is on their machine, not on the host running the API.
@@ -885,7 +905,11 @@ public class LonniiApiClient
         return await response.Content.ReadAsByteArrayAsync(ct);
     }
 
-    private async Task<ImageUploadResponse> UploadImageAsync(
+    private Task<ImageUploadResponse> UploadImageAsync(
+        string url, byte[] content, string fileName, CancellationToken ct) =>
+        UploadImageAsync<ImageUploadResponse>(url, content, fileName, ct);
+
+    private async Task<T> UploadImageAsync<T>(
         string url, byte[] content, string fileName, CancellationToken ct)
     {
         if (_http.BaseAddress is null)
@@ -935,7 +959,7 @@ public class LonniiApiClient
                     response.StatusCode, error?.Required);
             }
 
-            var result = await response.Content.ReadFromJsonAsync<ImageUploadResponse>(JsonOptions, ct);
+            var result = await response.Content.ReadFromJsonAsync<T>(JsonOptions, ct);
             return result ?? throw new ApiException("Réponse vide du serveur", response.StatusCode);
         }
     }

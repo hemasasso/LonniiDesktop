@@ -84,6 +84,12 @@ public class Groupe
     /// </summary>
     public bool CurrencyBefore { get; set; }
 
+    /// <summary>
+    /// Optional cover photo shown in the group picker, so a user with several espaces can
+    /// tell them apart at a glance. Stored and served the same way as product photos.
+    /// </summary>
+    public string? PhotoUrl { get; set; }
+
     public bool IsBlocked { get; set; }
     public string? BlockReason { get; set; }
     public DateTime? BlockedAt { get; set; }

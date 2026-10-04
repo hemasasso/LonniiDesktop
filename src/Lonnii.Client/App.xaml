@@ -16,6 +16,7 @@
             <local:CurrencyConverter x:Key="Currency" />
             <local:CostPriceMissingConverter x:Key="CostPriceMissing" />
             <BooleanToVisibilityConverter x:Key="BoolToVis" />
+            <local:InverseBoolToVisibilityConverter x:Key="BoolToVisInv" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

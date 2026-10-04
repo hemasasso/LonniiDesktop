@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Lonnii.Api.Features.Images;
 using Lonnii.Data;
 using Lonnii.Data.Entities;
 using Lonnii.Data.Services;
@@ -18,6 +19,7 @@ public static class GroupEndpoints
         groups.MapGet("/", ListAsync);
         groups.MapPost("/", CreateAsync);
         groups.MapPost("/{groupId}/session", OpenSessionAsync);
+        groups.MapDelete("/{groupId}", DeleteAsync).RequireAuthorization();
 
         var scoped = app.MapGroup("/api/groupe").WithTags("Groupes");
         scoped.MapGet("/members", ListMembersAsync).RequireGroupScope();
@@ -27,6 +29,11 @@ public static class GroupEndpoints
             .RequireGroupScope().RequireGroupAdmin();
         scoped.MapPut("/currency", UpdateCurrencyAsync).RequireGroupScope().RequireGroupAdmin();
         scoped.MapDelete("/session", CloseSessionAsync).RequireGroupScope();
+
+        scoped.MapPost("/photo", UploadPhotoAsync)
+            .RequireGroupScope().RequireGroupAdmin().DisableAntiforgery();
+        scoped.MapDelete("/photo", DeletePhotoAsync)
+            .RequireGroupScope().RequireGroupAdmin();
     }
 
     /// <summary>Every group the caller created or belongs to.</summary>
@@ -360,7 +367,163 @@ public static class GroupEndpoints
         return Results.Ok(ToDto(groupe, scope.Privileges.Role, scope.IsAdminGeneral, memberCount));
     }
 
+    // --- Espace deletion ---------------------------------------------------------
+
+    /// <summary>
+    /// Permanently deletes an espace and all its data. Restricted to the Admin Général
+    /// (the creator): only someone with complete, unconditional ownership of the workspace
+    /// can destroy it. A sub_admin cannot delete it even with every privilege granted.
+    ///
+    /// Cascade order matters on SQLite, which enforces FK constraints. Children are removed
+    /// before their parents: vente items before ventes, amortissement schedules before
+    /// immobilisations, caisse transactions before caisse sessions, etc.
+    /// </summary>
+    private static async Task<IResult> DeleteAsync(
+        string groupId,
+        ClaimsPrincipal principal,
+        LonniiDbContext db,
+        ImageStorageService images,
+        CancellationToken ct)
+    {
+        var userId = principal.FindFirstValue(TokenService.UserIdClaim)!;
+
+        var groupe = await db.Groupes.FirstOrDefaultAsync(g => g.Id == groupId, ct);
+        if (groupe is null) return Results.NotFound(new ApiError("Espace introuvable."));
+
+        if (groupe.IdUserAdmin != userId)
+            return Results.Json(
+                new ApiError("Seul le créateur de l'espace peut le supprimer."),
+                statusCode: StatusCodes.Status403Forbidden);
+
+        // --- Children first (FK order) ---
+
+        // Ventes children - VenteItem and PaiementVente have no GroupId; they are joined
+        // through VenteId, so we filter via a subquery on the parent.
+        var venteIds = db.Ventes.Where(v => v.GroupId == groupId).Select(v => v.Id);
+        await db.VenteItems.Where(x => venteIds.Contains(x.VenteId)).ExecuteDeleteAsync(ct);
+        await db.PaiementsVentes.Where(x => venteIds.Contains(x.VenteId)).ExecuteDeleteAsync(ct);
+        await db.VentesUserActivities.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.GroupePayments.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.Ventes.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+
+        // Caisse children
+        await db.CaisseTransactions.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.Caisses.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+
+        // Stock children
+        await db.StockHistories.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.StockSnapshots.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.StockUserActivities.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.Products.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.Categories.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.Suppliers.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.StockSettings.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+
+        // Charges
+        await db.Charges.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.ChargeCategories.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+
+        // Bilan / Comptabilite children
+        await db.AmortissementEcheances.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.Immobilisations.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.BilanEcritures.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.BilanComptes.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.ResultatComptes.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.ComptabiliteParametres.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+
+        // Programme
+        await db.ProgrammeEntries.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.ProgrammeAnnouncements.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+
+        // Audit
+        await db.MemberWorkLogs.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+
+        // Clients
+        await db.Clients.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+
+        // Receipt settings (images deleted below)
+        var parametres = await db.VentesParametres.FirstOrDefaultAsync(p => p.GroupeId == groupId, ct);
+
+        // Devices
+        await db.Devices.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+
+        // Memberships and privileges
+        await db.OptionPrivilegeAudits.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.GestionPrivilegeAudits.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.PrivilegeAudits.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.OptionUserPrivileges.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.GestionUserPrivileges.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.GestionUserRoles.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.UserPrivileges.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.UserRoles.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.GroupeSessions.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.GroupMembers.Where(x => x.IdGroupe == groupId).ExecuteDeleteAsync(ct);
+
+        // Receipt settings row
+        if (parametres is not null) db.VentesParametres.Remove(parametres);
+
+        // The espace itself
+        db.Groupes.Remove(groupe);
+        await db.SaveChangesAsync(ct);
+
+        // Clean up all stored images for this espace (best-effort, after the DB commit).
+        images.DeleteIfOwned(parametres?.LogoPath);
+        images.DeleteIfOwned(parametres?.QrCodePath);
+        images.DeleteIfOwned(groupe.PhotoUrl);
+
+        return Results.NoContent();
+    }
+
+    // --- Espace photo ------------------------------------------------------------
+
+    /// <summary>
+    /// Stores a cover photo for this espace. Shown in the group picker to help a user
+    /// with several espaces tell them apart at a glance. Admin-only so a till operator
+    /// cannot silently rebrand the workspace.
+    /// </summary>
+    private static async Task<IResult> UploadPhotoAsync(
+        IFormFile file, GroupScope scope, LonniiDbContext db, ImageStorageService images, CancellationToken ct)
+    {
+        if (file.Length == 0 || file.Length > ImageStorageService.MaxUploadBytes)
+            return Results.BadRequest(new ApiError("Le fichier est vide ou trop volumineux (8 Mo max)."));
+
+        var groupe = await db.Groupes.FirstAsync(g => g.Id == scope.GroupId, ct);
+
+        string url;
+        await using (var stream = file.OpenReadStream())
+        {
+            try
+            {
+                url = images.Save(
+                    ImageStorageService.Folders.EspacePhotos,
+                    scope.GroupId, stream, groupe.PhotoUrl, lossless: false);
+            }
+            catch (InvalidImageException)
+            {
+                return Results.BadRequest(new ApiError("Le fichier n'est pas une image valide."));
+            }
+        }
+
+        groupe.PhotoUrl = url;
+        await db.SaveChangesAsync(ct);
+
+        var memberCount = await db.GroupMembers.CountAsync(m => m.IdGroupe == scope.GroupId, ct);
+        return Results.Ok(ToDto(groupe, scope.Privileges.Role, scope.IsAdminGeneral, memberCount));
+    }
+
+    /// <summary>Removes the espace cover photo.</summary>
+    private static async Task<IResult> DeletePhotoAsync(
+        GroupScope scope, LonniiDbContext db, ImageStorageService images, CancellationToken ct)
+    {
+        var groupe = await db.Groupes.FirstAsync(g => g.Id == scope.GroupId, ct);
+        images.DeleteIfOwned(groupe.PhotoUrl);
+        groupe.PhotoUrl = null;
+        await db.SaveChangesAsync(ct);
+        return Results.NoContent();
+    }
+
     private static GroupeDto ToDto(Groupe g, string role, bool isAdminGeneral, int memberCount) => new(
         g.Id, g.Nom, isAdminGeneral, role, g.GestionAccess,
-        g.PrestationsEnabled, g.PrestationsLocation, memberCount, g.CreatedAt, g.CurrencyLabel, g.CurrencyBefore);
+        g.PrestationsEnabled, g.PrestationsLocation, memberCount, g.CreatedAt, g.CurrencyLabel, g.CurrencyBefore,
+        g.PhotoUrl);
 }

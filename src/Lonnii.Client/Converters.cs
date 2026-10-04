@@ -202,6 +202,20 @@ public class CostPriceMissingConverter : IValueConverter
 }
 
 /// <summary>
+/// Inverted <see cref="BooleanToVisibilityConverter"/>: <c>true</c> → Collapsed,
+/// <c>false</c> → Visible. Used wherever a fallback element should appear only when
+/// the primary element does not.
+/// </summary>
+public class InverseBoolToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) =>
+        value is true ? Visibility.Collapsed : Visibility.Visible;
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException("Display-only.");
+}
+
+/// <summary>
 /// Turns a stored role such as <c>member</c> into its French label.
 ///
 /// The role is stored in English so the schema matches Lonnii Business and a future

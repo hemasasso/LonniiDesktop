@@ -38,6 +38,14 @@ public static class ActivationEndpoints
         group.MapPost("/", ActivateAsync);
     }
 
+    /// <summary>The refusal for a workspace we have not approved: waiting, or declined.</summary>
+    internal static IResult NotApproved(Groupe groupe) =>
+        Results.Json(
+            new ApiError(groupe.ApprovalStatus == ApprovalStatuses.Rejected
+                ? "Cette inscription n'a pas été acceptée. Contactez le support."
+                : "Votre inscription est en attente d'approbation. Nous vous contacterons très bientôt."),
+            statusCode: StatusCodes.Status403Forbidden);
+
     private static async Task<IResult> ActivateAsync(
         ActivationRequest request,
         LonniiDbContext db,
@@ -71,6 +79,11 @@ public static class ActivationEndpoints
             || await db.GroupMembers.AnyAsync(m => m.IdGroupe == groupe.Id && m.IdUser == user.IdUser, ct);
 
         if (!belongs) return refusal;
+
+        // A shop that registered itself is not let in until we have approved it. Said only now,
+        // after the credentials checked out, so the answer is for the owner and nobody else.
+        if (groupe.ApprovalStatus != ApprovalStatuses.Approved)
+            return NotApproved(groupe);
 
         // Blocked and deleted are separate states, and blocked has its own message: this one
         // is a customer we know, so telling them why is useful rather than a leak.

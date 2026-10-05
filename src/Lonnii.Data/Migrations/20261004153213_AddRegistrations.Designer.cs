@@ -3,6 +3,7 @@ using System;
 using Lonnii.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Lonnii.Data.Migrations
 {
     [DbContext(typeof(LonniiDbContext))]
-    partial class LonniiDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261004153213_AddRegistrations")]
+    partial class AddRegistrations
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
@@ -2592,7 +2595,7 @@ namespace Lonnii.Data.Migrations
 
                     b.Property<string>("FirstName")
                         .HasColumnType("TEXT")
-                        .HasColumnName("firstname");
+                        .HasColumnName("first_name");
 
                     b.Property<bool>("IsBlocked")
                         .HasColumnType("INTEGER")
@@ -2608,7 +2611,7 @@ namespace Lonnii.Data.Migrations
 
                     b.Property<string>("LastName")
                         .HasColumnType("TEXT")
-                        .HasColumnName("lastname");
+                        .HasColumnName("last_name");
 
                     b.Property<DateTime?>("LastSeen")
                         .HasColumnType("TEXT")

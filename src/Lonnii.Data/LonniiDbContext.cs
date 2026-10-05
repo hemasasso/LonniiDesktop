@@ -36,6 +36,7 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
 
     // Licensing
     public DbSet<Device> Devices => Set<Device>();
+    public DbSet<RegistrationRequest> RegistrationRequests => Set<RegistrationRequest>();
     public DbSet<CloudBackupState> CloudBackupStates => Set<CloudBackupState>();
 
     // Identity
@@ -127,6 +128,7 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         {
             // The live column is jsonb; Npgsql would otherwise send the string as text and be refused.
             b.Entity<GroupePayment>().Property(x => x.FacturesData).HasColumnType("jsonb");
+
         }
 
         // Run last: index filters written above already use snake_case column names.
@@ -142,6 +144,7 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         [typeof(DashboardSubscription)] = "dashboard_subscriptions",
         [typeof(Device)] = "devices",
         [typeof(CloudBackupState)] = "cloud_backup_state",
+        [typeof(RegistrationRequest)] = "registration_requests",
         [typeof(User)] = "users",
         [typeof(Groupe)] = "groupes",
         [typeof(GroupMember)] = "groupe_membres",
@@ -193,6 +196,10 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
     private static readonly Dictionary<(Type, string), string> ColumnNames = new()
     {
         [(typeof(User), nameof(User.IdUser))] = "iduser",
+        // The live users table (Lonnii Business) calls these firstname / lastname. Mapped rather than
+        // adding first_name / last_name beside them: two columns for one fact would drift apart.
+        [(typeof(User), nameof(User.FirstName))] = "firstname",
+        [(typeof(User), nameof(User.LastName))] = "lastname",
         [(typeof(Product), nameof(Product.TypeProduit))] = "stock_type",
         [(typeof(Groupe), nameof(Groupe.IdUserAdmin))] = "iduser_admin",
         // Live column is prestations_access; the property keeps the clearer name.
@@ -320,9 +327,18 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
             e.Property(x => x.Email).IsRequired();
         });
 
+        b.Entity<RegistrationRequest>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.Email);
+        });
+
         b.Entity<Groupe>(e =>
         {
             e.HasKey(x => x.Id);
+            // The database default matters as much as the CLR one: rows that exist before this
+            // column was added, on either provider, must read back as approved.
+            e.Property(x => x.ApprovalStatus).HasDefaultValue(Lonnii.Shared.Security.ApprovalStatuses.Approved).HasMaxLength(20);
             e.HasIndex(x => x.IdUserAdmin);
             e.HasOne(x => x.Admin)
                 .WithMany()

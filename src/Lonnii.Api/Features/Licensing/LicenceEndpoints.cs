@@ -55,9 +55,17 @@ public static class LicenceEndpoints
         CancellationToken ct)
     {
         var groupe = await db.Groupes.FirstOrDefaultAsync(g => g.Id == request.GroupId, ct);
-        if (groupe is null || !LicenceGuard.IsEnforced(groupe))
+
+        // A shop with no licence server to answer to has nothing to check in with: the server itself, or a
+        // host that was never activated against ours.
+        if (groupe is null || string.IsNullOrWhiteSpace(groupe.LicenceServerUrl))
             return Results.Ok(await guard.CheckAsync(request.GroupId, ct));
 
+        // Every shop activated against our server checks in - local ones too. That is how a local shop
+        // learns it was made online, or given more machines, or blocked: the server is the authority for
+        // all three and has no way to reach a shop that never asks. What differs is the cost of failing:
+        // only an online shop can be locked for not reaching us.
+        var enforced = LicenceGuard.IsEnforced(groupe);
         var deviceId = http.Request.Headers["x-device-id"].ToString();
 
         try
@@ -66,6 +74,12 @@ public static class LicenceEndpoints
                 groupe.LicenceServerUrl!, new LicenceRefreshRequest(groupe.Id, deviceId), ct);
 
             await guard.ApplyRefreshAsync(groupe, response, deviceId, ct);
+        }
+        catch (ActivationRefusedException) when (!enforced)
+        {
+            // A local shop works offline for ever: being unreachable, or not (yet) recognised by the server,
+            // changes nothing and shows nothing. It tries again at the next sync.
+            return Results.Ok(await guard.CheckAsync(groupe, ct));
         }
         catch (ActivationRefusedException e)
         {
@@ -100,6 +114,9 @@ public static class LicenceEndpoints
                 new ApiError("Espace introuvable. Contactez le support."),
                 statusCode: StatusCodes.Status403Forbidden);
         }
+
+        if (groupe.ApprovalStatus != ApprovalStatuses.Approved)
+            return ActivationEndpoints.NotApproved(groupe);
 
         var device = await db.Devices.FirstOrDefaultAsync(
             d => d.GroupId == groupe.Id && d.DeviceId == request.DeviceId, ct);

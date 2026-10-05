@@ -93,7 +93,26 @@ builder.Services.AddHttpClient(CloudBackupClient.HttpClientName, client =>
 builder.Services.AddScoped<CloudBackupClient>();
 builder.Services.AddScoped<CloudBackupRunner>();
 builder.Services.AddScoped<CloudRestoreService>();
-builder.Services.AddHostedService<CloudBackupService>();
+// The sending side of the backup belongs to a shop's own host (SQLite). The licence server runs on
+// PostgreSQL and is the one that *receives* backups: it has no cloud_backup_state table, and a job
+// asking for it would only log a failure every interval.
+if (!databaseOptions.IsPostgres)
+    builder.Services.AddHostedService<CloudBackupService>();
+// Lets a till on the same network find this host without being told its address.
+builder.Services.AddHostedService<LanDiscoveryService>();
+
+// Registration (OCI only - see RegistrationEndpoints). The confirmation code goes out by SMTP;
+// the log sender exists for development and is never used in production.
+var emailOptions = new EmailOptions();
+builder.Configuration.GetSection(EmailOptions.SectionName).Bind(emailOptions);
+builder.Services.AddSingleton(emailOptions);
+builder.Services.AddSingleton(new RegistrationLimiter());
+builder.Services.AddSingleton(new PendingRegistrationStore(dataDirectory));
+
+if (builder.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(emailOptions.Host))
+    builder.Services.AddSingleton<IEmailSender, LogEmailSender>();
+else
+    builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
 
 builder.Services.AddOpenApi();
 
@@ -103,7 +122,26 @@ builder.Services.AddOpenApi();
 // certificate on a local network buys nothing and every client would have to trust it.
 // Do not expose this port beyond the local network.
 var port = builder.Configuration.GetValue("Lonnii:Port", 5280);
-builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+// On the OCI server set Lonnii__BindAddress=127.0.0.1 so only the reverse proxy in front of it can
+// reach the API; a shop's host keeps the default, since its tills connect over the LAN.
+var bindAddress = builder.Configuration["Lonnii:BindAddress"] is { Length: > 0 } configured ? configured : "0.0.0.0";
+builder.WebHost.UseUrls($"http://{bindAddress}:{port}");
+
+// Behind a reverse proxy every request arrives from the proxy, so the client's real address (which the
+// sign-up rate limit and the access log depend on) is only in X-Forwarded-For. Trusted only when told
+// the proxy exists - otherwise anyone could forge it.
+if (builder.Configuration.GetValue("Lonnii:BehindProxy", false))
+{
+    builder.Services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
+                                   | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto;
+        options.KnownIPNetworks.Clear();
+        options.KnownProxies.Clear();
+        options.KnownProxies.Add(System.Net.IPAddress.Loopback);
+        options.KnownProxies.Add(System.Net.IPAddress.IPv6Loopback);
+    });
+}
 
 var app = builder.Build();
 
@@ -115,26 +153,30 @@ using (var startupScope = app.Services.CreateScope())
     if (databaseOptions.AllowsAutomaticMigration)
     {
         await seeder.MigrateAndSeedAsync();
+
+        var sessions = startupScope.ServiceProvider.GetRequiredService<GroupSessionService>();
+        await sessions.PurgeExpiredAsync();
     }
     else
     {
-        // Never migrate PostgreSQL from here - see DatabaseOptions.AllowsAutomaticMigration.
-        // Seeding still runs: it only upserts the privilege catalogues, which is additive
-        // and is how a new privilege reaches an existing workspace.
+        // PostgreSQL is the licence server, sharing its database with Lonnii Business. It writes
+        // only what licensing needs (shops, devices, registrations, backups), and at start-up it
+        // writes nothing at all:
+        //  - no schema changes: EF never migrates it (see DatabaseOptions.AllowsAutomaticMigration);
+        //  - no privilege seeding: that would rewrite the display names, categories and the
+        //    is_admin_only flag of rows the web app enforces, and add desktop-only privileges to
+        //    its lists - and the server has no use for them, privileges only matter on a shop's host;
+        //  - no session purge: groupe_sessions belongs to the web app.
         app.Logger.LogInformation(
-            "PostgreSQL : migrations non appliquées automatiquement. " +
-            "Le schéma se modifie par SQL additif écrit à la main, jamais par les migrations EF " +
-            "(elles sont générées pour SQLite).");
-
-        await seeder.SeedAsync();
+            "PostgreSQL : aucune migration ni écriture au démarrage (serveur de licences). " +
+            "Le schéma se modifie par SQL additif écrit à la main, jamais par les migrations EF.");
     }
-
-    var sessions = startupScope.ServiceProvider.GetRequiredService<GroupSessionService>();
-    await sessions.PurgeExpiredAsync();
 }
 
 if (app.Environment.IsDevelopment())
     app.MapOpenApi();
+
+if (builder.Configuration.GetValue("Lonnii:BehindProxy", false)) app.UseForwardedHeaders();
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -161,6 +203,8 @@ app.MapEspaceTransferEndpoints();
 app.MapConsommationEndpoints();
 app.MapAuditEndpoints();
 app.MapBackupEndpoints();
+app.MapRegistrationEndpoints();
+app.MapHostRegistrationEndpoints();
 app.MapCloudBackupEndpoints();
 app.MapImageEndpoints();
 

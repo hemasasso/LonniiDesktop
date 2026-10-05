@@ -36,7 +36,11 @@ public sealed record ResetMemberPasswordRequest(string NewPassword);
 /// first administrator account on a brand-new installation, instead of showing a
 /// sign-in form that nobody can possibly satisfy.
 /// </summary>
-public sealed record SetupStateResponse(bool HasAnyAccount);
+/// <param name="ManualSetupAllowed">
+/// False on a shipped host: the first account can only come from registering with Lonnii (or the
+/// credentials file), so the sign-in window does not offer to create one by hand.
+/// </param>
+public sealed record SetupStateResponse(bool HasAnyAccount, bool ManualSetupAllowed = true);
 
 /// <summary>A user, as returned to the client. Never carries a password hash.</summary>
 public sealed record UserDto(
@@ -68,7 +72,11 @@ public sealed record GroupeDto(
     string? PhotoUrl = null);
 
 /// <summary>Request to create a group. The caller becomes its Admin Général.</summary>
-public sealed record CreateGroupeRequest(string Nom, bool GestionAccess = true);
+/// <param name="Password">
+/// The caller's own password. A new espace is registered with Lonnii first, and Lonnii knows the
+/// caller only by email and password - the host holds just a hash, which proves nothing to it.
+/// </param>
+public sealed record CreateGroupeRequest(string Nom, bool GestionAccess = true, string? Password = null);
 
 /// <summary>Changes the currency label shown with every amount in this workspace, and
 /// whether it goes before the amount (<c>$ 1 000</c>) or after it (<c>1 000 FCFA</c>).</summary>
@@ -1832,6 +1840,44 @@ public sealed record CloudBackupStatusDto(
     int LastRecordCount,
     int LastImageCount,
     string? Reason);
+
+// --- Registration (licence server) ---
+
+public sealed record RegistrationStartRequest(
+    string ShopName,
+    string Email,
+    string Password,
+    string DeviceId,
+    string? DeviceName = null);
+
+public sealed record RegistrationStartResponse(string RequestId, DateTime ExpiresAt);
+
+public sealed record RegistrationVerifyRequest(string RequestId, string Code);
+
+/// <summary>The shop now exists on the licence server, awaiting our approval.</summary>
+public sealed record RegistrationVerifyResponse(string GroupId, string ApprovalStatus);
+
+/// <summary>
+/// An existing shop owner adds another espace. Authenticated by email and password, like
+/// activation: the caller is a host that has nothing to sign in with yet.
+/// </summary>
+public sealed record RegistrationEspaceRequest(string Email, string Password, string ShopName, string DeviceId);
+
+// --- Registration (as the desktop host exposes it to its own client) ---
+
+/// <summary>The email and shop name come back with the code: the host keeps no state between the two steps.</summary>
+public sealed record SetupRegisterVerifyRequest(string RequestId, string Code, string Email, string ShopName);
+
+/// <summary>Whether this host has a registration awaiting our approval, so the window can resume it.</summary>
+public sealed record PendingRegistrationDto(bool Pending, string? Email, string? ShopName);
+
+/// <summary>Turns an approved registration into a working installation. The password is asked
+/// again rather than stored: the host never keeps it between launches.</summary>
+public sealed record SetupActivatePendingRequest(
+    string Password,
+    string DeviceId,
+    string? DeviceName = null,
+    string? AppVersion = null);
 
 // --- Errors ---
 

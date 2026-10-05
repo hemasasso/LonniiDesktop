@@ -191,15 +191,26 @@ public partial class GroupPickerWindow : Window
         var name = PromptDialog.Show(this, "Créer un espace", "Nom de l'espace :");
         if (string.IsNullOrWhiteSpace(name)) return;
 
+        // A new espace is registered with Lonnii before it exists, and Lonnii only knows the
+        // owner by password - the host keeps nothing it could present instead.
+        var password = PasswordPromptDialog.Show(this, "Créer un espace",
+            "Saisissez votre mot de passe pour enregistrer ce nouvel espace auprès de Lonnii.");
+        if (password is null) return;
+
+        Cursor = Cursors.Wait;
         try
         {
-            await _session.Api.CreateGroupeAsync(name.Trim());
+            await _session.Api.CreateGroupeAsync(name.Trim(), password);
             HideError();
             await LoadAsync();
         }
         catch (ApiException ex)
         {
             ShowError(ex.Message);
+        }
+        finally
+        {
+            Cursor = null;
         }
     }
 

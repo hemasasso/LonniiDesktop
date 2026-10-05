@@ -25,9 +25,69 @@ public partial class LoginWindow : Window
             if (string.IsNullOrWhiteSpace(IdentifierBox.Text)) IdentifierBox.Focus();
             else PasswordBox.Focus();
 
+            await FindHostAsync();
+
             // Quietly find out whether this host still needs its first account.
             await CheckSetupStateAsync();
         };
+    }
+
+    /// <summary>
+    /// Settles which host to talk to without asking: the address used last time if it still
+    /// answers, otherwise whatever answers on the local network. Only when neither works does
+    /// the address field appear.
+    /// </summary>
+    private async Task FindHostAsync()
+    {
+        DiscoveryText.Text = "Recherche du serveur Lonnii sur le réseau…";
+
+        var saved = HostBox.Text.Trim();
+        if (saved.Length > 0 && await ReachableAsync(saved))
+        {
+            ShowFound(saved, null);
+            return;
+        }
+
+        var hosts = await HostDiscovery.FindAsync(TimeSpan.FromSeconds(2));
+        if (hosts.Count > 0)
+        {
+            HostBox.Text = hosts[0].Address;
+            ShowFound(hosts[0].Address, hosts[0].Name);
+
+            if (hosts.Count > 1)
+            {
+                // Two hosts on one network is unusual but real (a second shop, a test machine):
+                // the first is used, and the rest are listed so the right one can be typed in.
+                HostHint.Text = "Plusieurs serveurs trouvés : " +
+                                string.Join(", ", hosts.Select(h => $"{h.Name} ({h.Address})")) + ".";
+                HostPanel.Visibility = Visibility.Visible;
+            }
+
+            return;
+        }
+
+        DiscoveryText.Text = "Aucun serveur Lonnii trouvé automatiquement sur ce réseau.";
+        HostPanel.Visibility = Visibility.Visible;
+    }
+
+    private async Task<bool> ReachableAsync(string address)
+    {
+        _session.Api.Connect(address);
+        using var quickly = new CancellationTokenSource(TimeSpan.FromMilliseconds(1500));
+        return await _session.Api.PingAsync(quickly.Token);
+    }
+
+    private void ShowFound(string address, string? name)
+    {
+        DiscoveryText.Text = name is null ? $"Serveur : {address}" : $"Serveur trouvé : {name} ({address})";
+        ChangeHostButton.Visibility = Visibility.Visible;
+    }
+
+    private void ChangeHost_Click(object sender, RoutedEventArgs e)
+    {
+        HostPanel.Visibility = Visibility.Visible;
+        ChangeHostButton.Visibility = Visibility.Collapsed;
+        HostBox.Focus();
     }
 
     /// <summary>
@@ -43,6 +103,9 @@ public partial class LoginWindow : Window
         {
             _session.Api.Connect(HostBox.Text);
             var state = await _session.Api.GetSetupStateAsync();
+
+            // Hand-made accounts exist for development; a shipped host registers with Lonnii.
+            ManualAccountButton.Visibility = state.ManualSetupAllowed ? Visibility.Visible : Visibility.Collapsed;
             ShowSetupPanel(!state.HasAnyAccount);
         }
         catch (ApiException)
@@ -64,6 +127,23 @@ public partial class LoginWindow : Window
     private async void Activate_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new FirstLaunchWindow { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        PasswordBox.Clear();
+        HideError();
+
+        await CheckSetupStateAsync();
+
+        IdentifierBox.Focus();
+        HostHint.Text = "Espace activé. Connectez-vous avec le compte administrateur.";
+    }
+
+    /// <summary>
+    /// A new shop registers with Lonnii, and is activated here once we have approved it.
+    /// </summary>
+    private async void Register_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new RegistrationWindow(_session) { Owner = this };
         if (dialog.ShowDialog() != true) return;
 
         PasswordBox.Clear();

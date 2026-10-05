@@ -1,6 +1,7 @@
 <Window x:Class="Lonnii.Client.Features.Auth.FirstLaunchWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:Lonnii.Client.Common.Controls"
         Title="Lonnii — Activation"
         Height="440" Width="520"
         WindowStartupLocation="CenterScreen"
@@ -41,7 +42,7 @@
         <!-- The passphrase -->
         <StackPanel Grid.Row="2" Margin="0,0,0,14">
             <TextBlock Text="Phrase secrète" Style="{StaticResource FieldLabel}" />
-            <PasswordBox x:Name="PassphraseBox" Margin="0,4,0,0" Padding="8,6" />
+            <controls:RevealPasswordBox x:Name="PassphraseBox" Margin="0,4,0,0" />
         </StackPanel>
 
         <!--

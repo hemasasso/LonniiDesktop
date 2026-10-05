@@ -91,8 +91,18 @@ public static class AuthEndpoints
     /// Says whether this host has any account yet, so a fresh installation can offer to
     /// create the first administrator rather than presenting an unusable sign-in form.
     /// </summary>
-    private static async Task<IResult> SetupStateAsync(LonniiDbContext db, CancellationToken ct) =>
-        Results.Ok(new SetupStateResponse(await db.Users.AnyAsync(ct)));
+    private static async Task<IResult> SetupStateAsync(
+        LonniiDbContext db, IConfiguration config, CancellationToken ct) =>
+        Results.Ok(new SetupStateResponse(await db.Users.AnyAsync(ct), ManualSetupAllowed(config)));
+
+    /// <summary>
+    /// Whether the first account may be created by hand on this host. Off unless
+    /// <c>Lonnii:AllowManualSetup</c> says otherwise: a shipped host gets its first account by
+    /// registering with Lonnii or from a credentials file, so every shop is known to us. It exists
+    /// for development and for the tests, which build workspaces without a licence server.
+    /// </summary>
+    internal static bool ManualSetupAllowed(IConfiguration config) =>
+        config.GetValue("Lonnii:AllowManualSetup", false);
 
     /// <summary>
     /// Creates the first account on a fresh host, which becomes the owner of whatever
@@ -106,8 +116,15 @@ public static class AuthEndpoints
     /// puts the new person in a group - registering alone never granted any access anyway.
     /// </summary>
     private static async Task<IResult> RegisterAsync(
-        RegisterRequest request, LonniiDbContext db, CancellationToken ct)
+        RegisterRequest request, LonniiDbContext db, IConfiguration config, CancellationToken ct)
     {
+        if (!ManualSetupAllowed(config))
+        {
+            return Results.Json(
+                new ApiError("La création manuelle de compte est désactivée. Utilisez « Créer mon espace » ou un fichier d'identifiants."),
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
         if (await db.Users.AnyAsync(ct))
         {
             return Results.Json(

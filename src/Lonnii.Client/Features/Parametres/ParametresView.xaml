@@ -188,10 +188,13 @@
                             <ComboBox x:Name="ConsumptionYearCombo" Width="120"
                                       SelectionChanged="ConsumptionYear_Changed" />
                         </StackPanel>
-                        <TextBlock Text="CONSOMMATION DONNÉES" Style="{StaticResource SectionHeader}"
-                                   VerticalAlignment="Center" />
+                        <!-- Collapsed until the header is clicked: the figures are rarely wanted. -->
+                        <TextBlock x:Name="ConsumptionHeader" Text="▸  CONSOMMATION DONNÉES"
+                                   Style="{StaticResource SectionHeader}" VerticalAlignment="Center"
+                                   Cursor="Hand" MouseLeftButtonUp="ConsumptionHeader_Click" />
                     </DockPanel>
-                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                    <Border x:Name="ConsumptionBody" Visibility="Collapsed"
+                            Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
                             BorderThickness="1" CornerRadius="3" Padding="16,12">
                         <StackPanel>
                             <UniformGrid Columns="4">

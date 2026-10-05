@@ -38,6 +38,7 @@ public class LicenceEnforcementTests : IAsyncLifetime
     {
         public Exception? Refuse { get; set; }
         public int MaxOfflineDays { get; set; } = 14;
+        public string? BackupToken { get; set; }
         public int Calls { get; private set; }
 
         public Task<ActivationResponse> ActivateAsync(
@@ -53,7 +54,7 @@ public class LicenceEnforcementTests : IAsyncLifetime
             var now = DateTime.UtcNow;
             return Task.FromResult(new LicenceRefreshResponse(
                 request.GroupId, "Pharmacie Nord", DeploymentModes.Online, 5, 1, "FCFA",
-                true, "Active", now.AddDays(200), false, null, now, now.AddDays(MaxOfflineDays)));
+                true, "Active", now.AddDays(200), false, null, now, now.AddDays(MaxOfflineDays), BackupToken));
         }
     }
 
@@ -273,5 +274,87 @@ public class LicenceEnforcementTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, sync.StatusCode);
         Assert.Equal(before, (await ReadGroupe()).LicenceDeadline);
+    }
+
+    // --- A local shop checks in too ---
+    // The server is the authority for a shop's mode, machine allowance and blocked flag. A shop that never
+    // contacts it can never be told: found when a local shop was made online in the dashboard and the
+    // desktop stayed local for ever.
+
+    [Fact]
+    public async Task A_local_shop_learns_from_the_server_that_it_is_now_online()
+    {
+        _licences.BackupToken = "token-for-this-till";
+        await Mutate(g =>
+        {
+            g.Mode = DeploymentModes.Local;
+            g.MaxDevices = 3;
+            g.LicenceDeadline = null;
+        });
+
+        var sync = await SyncAsync();
+
+        Assert.Equal(HttpStatusCode.OK, sync.StatusCode);
+        Assert.Equal(1, _licences.Calls);
+
+        var groupe = await ReadGroupe();
+        Assert.Equal(DeploymentModes.Online, groupe.Mode);
+        Assert.Equal(5, groupe.MaxDevices);
+        Assert.NotNull(groupe.LicenceDeadline);
+
+        var status = (await sync.Content.ReadFromJsonAsync<LicenceStatusDto>())!;
+        Assert.True(status.Enforced);
+        Assert.Equal(14, status.DaysLeft);
+
+        // And it can now back up: the key to its cloud backup arrived with the answer.
+        using var scope = _factory.Services.CreateScope();
+        var state = await scope.ServiceProvider.GetRequiredService<LonniiDbContext>()
+            .CloudBackupStates.AsNoTracking().SingleAsync();
+        Assert.Equal("token-for-this-till", state.DeviceToken);
+        Assert.Equal(Device, state.DeviceId);
+    }
+
+    [Fact]
+    public async Task A_local_shop_that_cannot_reach_the_server_stays_local_and_hears_nothing_about_it()
+    {
+        await Mutate(g => g.Mode = DeploymentModes.Local);
+        _licences.Refuse = new ActivationRefusedException("Impossible de joindre le serveur Lonnii.");
+
+        var sync = await SyncAsync();
+
+        Assert.Equal(HttpStatusCode.OK, sync.StatusCode);
+        var groupe = await ReadGroupe();
+        Assert.Equal(DeploymentModes.Local, groupe.Mode);
+        Assert.Null(groupe.LicenceDeadline);
+        Assert.Equal(HttpStatusCode.OK, (await OpenSessionAsync()).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_local_shop_the_server_refuses_is_never_locked_for_it()
+    {
+        await Mutate(g => g.Mode = DeploymentModes.Local);
+        _licences.Refuse = new ActivationRefusedException("Ce poste n'est pas autorisé.", HttpStatusCode.Forbidden);
+
+        var sync = await SyncAsync();
+
+        Assert.Equal(HttpStatusCode.OK, sync.StatusCode);
+        Assert.False((await sync.Content.ReadFromJsonAsync<LicenceStatusDto>())!.Enforced);
+        Assert.Equal(HttpStatusCode.OK, (await OpenSessionAsync()).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_shop_with_no_licence_server_never_calls_one()
+    {
+        await Mutate(g =>
+        {
+            g.Mode = DeploymentModes.Local;
+            g.LicenceServerUrl = null;
+        });
+
+        var sync = await SyncAsync();
+
+        Assert.Equal(HttpStatusCode.OK, sync.StatusCode);
+        Assert.Equal(0, _licences.Calls);
+        Assert.Equal(DeploymentModes.Local, (await ReadGroupe()).Mode);
     }
 }

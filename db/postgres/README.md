@@ -45,6 +45,8 @@ psql -h <host> -p 5432 -U <user> -d <database> -f 001_groupes_desktop_columns.sq
 | `009_receipt_templates.sql` | `ventes_parametres`: receipt/facture layout, hidden sections, company address/phone/email, legal info, legal footer, TVA rate — desktop-only columns | no — new columns, nothing to compare |
 | `010_tva_ajoutee.sql` | `ventes_parametres`: tva_mode, receipt/facture_print_after_sale; `ventes`: tva_rate, tva_amount — desktop-only columns | no — new columns, nothing to compare |
 | `011_groupe_payments.sql` | `groupe_payments` (Paiement Groupé) — the web app's own table; avoir_solded_* columns are inferred from `POST /solder-avoir` | no — compare against the live table before running |
+| `014_registrations.sql` | `groupes.approval_status` (existing rows become `approved`); `registration_requests` | applied by hand by the owner, 2026-10-04 (not re-checked by me) |
+| `015_groupe_photo.sql` | `groupes.photo_url` | no - new column, nothing to compare |
 
 ## `ventes_parametres` is Lonnii Business's, not ours
 
@@ -89,6 +91,13 @@ the desktop.
 `dashboard_subscriptions` needed **no** script: the live table already has every column the
 model reads. The model was corrected to match it instead — its primary key is an
 auto-incrementing `integer`, not the GUID string that was inferred from route code.
+
+## Column names that differ from the model
+
+`users.firstname` / `users.lastname` are named that way live. The model maps onto them (see
+`ColumnNames` in `LonniiDbContext`; pinned by `LiveSchemaCompatibilityTests`) instead of adding
+`first_name` / `last_name` beside them. Found 2026-10-04 by running the model's column list against a
+copy of the live database - see `docs/oci-deployment.md`.
 
 ## Not yet verified
 

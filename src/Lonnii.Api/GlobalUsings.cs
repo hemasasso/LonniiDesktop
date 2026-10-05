@@ -14,4 +14,5 @@ global using Lonnii.Api.Features.Parametres;
 global using Lonnii.Api.Features.Audit;
 global using Lonnii.Api.Features.Images;
 global using Lonnii.Api.Features.Backup;
+global using Lonnii.Api.Features.Registration;
 global using Lonnii.Api.Features.Infrastructure;

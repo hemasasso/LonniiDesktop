@@ -70,6 +70,9 @@ public static class GroupEndpoints
         CreateGroupeRequest request,
         ClaimsPrincipal principal,
         LonniiDbContext db,
+        ILicenceServer licences,
+        IConfiguration config,
+        HttpContext http,
         CancellationToken ct)
     {
         var userId = principal.FindFirstValue(TokenService.UserIdClaim)!;
@@ -84,7 +87,31 @@ public static class GroupEndpoints
             GestionAccess = request.GestionAccess,
         };
 
+        // Every espace is registered with Lonnii before it exists here, so we know all of them.
+        // Skipped only when there is nowhere to register (no licence server configured) or the
+        // switch is off - which is how development and the tests run.
+        var serverUrl = await db.Groupes
+            .Where(g => g.IdUserAdmin == userId && g.LicenceServerUrl != null && g.LicenceServerUrl != "")
+            .Select(g => g.LicenceServerUrl)
+            .FirstOrDefaultAsync(ct)
+            ?? config["Lonnii:LicenceServerUrl"];
+
+        Device? device = null;
+        string? backupToken = null;
+
+        if (config.GetValue("Lonnii:OnlineRegistration:Required", true) && !string.IsNullOrWhiteSpace(serverUrl))
+        {
+            var (refusal, registered) = await RegisterOnlineAsync(
+                request, userId, serverUrl, db, licences, http, groupe, ct);
+            if (refusal is not null) return refusal;
+
+            device = registered.Device;
+            backupToken = registered.BackupToken;
+        }
+
         db.Groupes.Add(groupe);
+        if (device is not null) db.Devices.Add(device);
+        if (device is not null) LicenceGuard.StoreBackupToken(db, groupe.Id, device.DeviceId, backupToken);
         db.GroupMembers.Add(new GroupMember { IdGroupe = groupe.Id, IdUser = userId });
         db.UserRoles.Add(new UserRole
         {
@@ -98,6 +125,67 @@ public static class GroupEndpoints
 
         return Results.Created($"/api/groupes/{groupe.Id}",
             ToDto(groupe, GroupRoles.Admin, isAdminGeneral: true, memberCount: 1));
+    }
+
+    /// <summary>
+    /// Registers a new espace with the licence server and fills <paramref name="groupe"/> with what
+    /// it answers - its id above all, so the same espace is the same everywhere. Then activates
+    /// this machine for it, which binds the machine and brings back the mode and device allowance.
+    /// </summary>
+    private static async Task<(IResult? Refusal, (Device? Device, string? BackupToken))> RegisterOnlineAsync(
+        CreateGroupeRequest request,
+        string userId,
+        string serverUrl,
+        LonniiDbContext db,
+        ILicenceServer licences,
+        HttpContext http,
+        Groupe groupe,
+        CancellationToken ct)
+    {
+        static IResult Refuse(string message, int status) =>
+            Results.Json(new ApiError(message), statusCode: status);
+
+        if (string.IsNullOrEmpty(request.Password))
+        {
+            return (Refuse("Saisissez votre mot de passe pour enregistrer le nouvel espace auprès de Lonnii.",
+                StatusCodes.Status400BadRequest), default);
+        }
+
+        var deviceId = http.Request.Headers["x-device-id"].ToString();
+        if (string.IsNullOrWhiteSpace(deviceId))
+            return (Refuse("Identifiant de poste manquant.", StatusCodes.Status400BadRequest), default);
+
+        var email = await db.Users.Where(u => u.IdUser == userId).Select(u => u.Email).FirstAsync(ct);
+
+        try
+        {
+            var registered = await licences.RegisterEspaceAsync(
+                serverUrl, new RegistrationEspaceRequest(email, request.Password, groupe.Nom, deviceId), ct);
+
+            var activation = await licences.ActivateAsync(
+                serverUrl,
+                new ActivationRequest(registered.GroupId, email, request.Password, deviceId,
+                    Environment.MachineName, DevicePlatforms.Windows),
+                ct);
+
+            groupe.Id = activation.GroupId;
+            groupe.Nom = activation.GroupName;
+            groupe.Mode = activation.Mode;
+            groupe.MaxDevices = activation.MaxDevices;
+            groupe.CurrencyLabel = activation.CurrencyLabel;
+            groupe.LicenceServerUrl = serverUrl;
+            groupe.LastLicenceCheckAt = activation.ActivatedAt;
+
+            // This machine is one of the new espace's machines, recorded here too so the local
+            // API can enforce the limit for the tills that have no internet of their own.
+            var device = new Device { GroupId = groupe.Id, DeviceId = deviceId, DeviceName = Environment.MachineName };
+
+            return (null, (device, activation.BackupToken));
+        }
+        catch (ActivationRefusedException e)
+        {
+            return (Refuse(e.Message, (int?)e.Status ?? StatusCodes.Status503ServiceUnavailable), default);
+        }
     }
 
     /// <summary>Opens a group session and returns the token for the <c>x-group-session</c> header.</summary>

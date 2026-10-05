@@ -22,3 +22,21 @@ public static class DeploymentModes
     /// <summary>Local-mode workspaces are never checked against a subscription.</summary>
     public static bool RequiresSubscription(string? mode) => mode == Online;
 }
+
+/// <summary>
+/// Whether we have agreed to a workspace using the product. Stored in <c>groupes.approval_status</c>.
+///
+/// <para>
+/// A shop that registers itself starts <see cref="Pending"/> and cannot activate until we move
+/// it to <see cref="Approved"/> - nobody should be using the app without talking to us first.
+/// Every workspace that existed before registration was introduced is <see cref="Approved"/>.
+/// </para>
+/// </summary>
+public static class ApprovalStatuses
+{
+    public const string Approved = "approved";
+    public const string Pending = "pending";
+    public const string Rejected = "rejected";
+
+    public static readonly IReadOnlyList<string> All = [Approved, Pending, Rejected];
+}

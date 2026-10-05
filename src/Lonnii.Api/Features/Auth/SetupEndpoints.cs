@@ -96,13 +96,35 @@ public static class SetupEndpoints
                 statusCode: (int?)e.Status ?? StatusCodes.Status403Forbidden);
         }
 
+        return await CreateWorkspaceAsync(
+            db, backups, activation,
+            credentials.AdminEmail, credentials.AdminPassword, credentials.ServerUrl,
+            request.DeviceId, request.DeviceName, request.AppVersion, ct);
+    }
+
+    /// <summary>
+    /// Builds the local workspace from what the licence server just confirmed. Shared by the
+    /// credentials-file path and by "I registered, now approved".
+    /// </summary>
+    internal static async Task<IResult> CreateWorkspaceAsync(
+        LonniiDbContext db,
+        CloudBackupClient backups,
+        ActivationResponse activation,
+        string adminEmail,
+        string adminPassword,
+        string? serverUrl,
+        string deviceId,
+        string? deviceName,
+        string? appVersion,
+        CancellationToken ct)
+    {
         // Everything below is local. The server's answer is the authority for mode,
         // max_devices and the currency - never the file, which the customer holds and
         // could have edited before we started checking signatures on it.
         var admin = new User
         {
-            Email = credentials.AdminEmail,
-            Password = BCrypt.Net.BCrypt.HashPassword(credentials.AdminPassword),
+            Email = adminEmail,
+            Password = BCrypt.Net.BCrypt.HashPassword(adminPassword),
             IsVerified = true,
         };
 
@@ -116,7 +138,7 @@ public static class SetupEndpoints
             CurrencyLabel = activation.CurrencyLabel,
             GestionAccess = true,
             // Kept so later licence refreshes and till registrations know where to call.
-            LicenceServerUrl = credentials.ServerUrl,
+            LicenceServerUrl = serverUrl,
             LastLicenceCheckAt = activation.ActivatedAt,
         };
 
@@ -138,12 +160,12 @@ public static class SetupEndpoints
         db.Devices.Add(new Device
         {
             GroupId = groupe.Id,
-            DeviceId = request.DeviceId,
-            DeviceName = request.DeviceName,
-            AppVersion = request.AppVersion,
+            DeviceId = deviceId,
+            DeviceName = deviceName,
+            AppVersion = appVersion,
         });
 
-        LicenceGuard.StoreBackupToken(db, groupe.Id, request.DeviceId, activation.BackupToken);
+        LicenceGuard.StoreBackupToken(db, groupe.Id, deviceId, activation.BackupToken);
 
         await db.SaveChangesAsync(ct);
 
@@ -156,7 +178,7 @@ public static class SetupEndpoints
             try
             {
                 var info = await backups
-                    .For(groupe.LicenceServerUrl, groupe.Id, request.DeviceId, activation.BackupToken, epoch: null)
+                    .For(groupe.LicenceServerUrl, groupe.Id, deviceId, activation.BackupToken, epoch: null)
                     .InfoAsync(ct);
                 existing = info.Exists ? info : null;
             }

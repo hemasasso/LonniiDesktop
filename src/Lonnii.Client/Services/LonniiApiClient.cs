@@ -148,8 +148,12 @@ public class LonniiApiClient
     public Task<List<GroupeDto>> GetGroupesAsync(CancellationToken ct = default) =>
         GetAsync<List<GroupeDto>>("api/groupes", ct);
 
-    public Task<GroupeDto> CreateGroupeAsync(string nom, CancellationToken ct = default) =>
-        PostAsync<GroupeDto>("api/groupes", new CreateGroupeRequest(nom), ct);
+    /// <summary>
+    /// Creates an espace. The password is the caller's own: the espace is registered with Lonnii
+    /// first, and Lonnii knows the caller only by email and password.
+    /// </summary>
+    public Task<GroupeDto> CreateGroupeAsync(string nom, string? password = null, CancellationToken ct = default) =>
+        PostAsync<GroupeDto>("api/groupes", new CreateGroupeRequest(nom, Password: password), ct);
 
     public Task<GroupSessionResponse> OpenGroupSessionAsync(string groupId, CancellationToken ct = default) =>
         PostAsync<GroupSessionResponse>($"api/groupes/{groupId}/session", new { }, ct);
@@ -702,6 +706,28 @@ public class LonniiApiClient
 
     public Task DeleteReceiptQrCodeAsync(CancellationToken ct = default) =>
         SendAsync(HttpMethod.Delete, "api/parametres/recu/qrcode", null, ct);
+
+    // --- Registration (first launch) ---
+
+    public Task<RegistrationStartResponse> RegistrationStartAsync(
+        RegistrationStartRequest request, CancellationToken ct = default) =>
+        PostAsync<RegistrationStartResponse>("api/setup/register/start", request, ct);
+
+    public Task<RegistrationVerifyResponse> RegistrationVerifyAsync(
+        SetupRegisterVerifyRequest request, CancellationToken ct = default) =>
+        PostAsync<RegistrationVerifyResponse>("api/setup/register/verify", request, ct);
+
+    public Task<PendingRegistrationDto> GetPendingRegistrationAsync(CancellationToken ct = default) =>
+        GetAsync<PendingRegistrationDto>("api/setup/register/pending", ct);
+
+    /// <summary>Activates a registration we have approved, building the workspace on this host.</summary>
+    public Task<ApplyCredentialsResponse> ActivatePendingRegistrationAsync(
+        string password, CancellationToken ct = default) =>
+        PostAsync<ApplyCredentialsResponse>("api/setup/register/activate", new SetupActivatePendingRequest(
+            password, DeviceIdentity.Current, DeviceIdentity.FriendlyName, AppVersion), ct);
+
+    public Task CancelPendingRegistrationAsync(CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Delete, "api/setup/register/pending", null, ct);
 
     // --- Cloud backup ---
 

@@ -127,6 +127,13 @@ public partial class ParametresView : UserControl
         ConsumptionYearCombo.SelectedIndex = 0;
     }
 
+    private void ConsumptionHeader_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        var open = ConsumptionBody.Visibility != Visibility.Visible;
+        ConsumptionBody.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        ConsumptionHeader.Text = (open ? "▾  " : "▸  ") + "CONSOMMATION DONNÉES";
+    }
+
     private async void ConsumptionYear_Changed(object sender, SelectionChangedEventArgs e)
     {
         var year = (ConsumptionYearCombo.SelectedItem as ComboBoxItem)?.Tag as int?;

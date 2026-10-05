@@ -169,6 +169,13 @@ public class Groupe
     /// </summary>
     public DateTime? LicenceClockMark { get; set; }
 
+    /// <summary>
+    /// One of <see cref="ApprovalStatuses"/>. A self-registered shop is <c>pending</c> until we
+    /// approve it; activation and licence refresh refuse anything else. Defaults to approved so
+    /// every workspace that predates registration - and every local one created in the app - is unaffected.
+    /// </summary>
+    public string ApprovalStatus { get; set; } = ApprovalStatuses.Approved;
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public User? Admin { get; set; }

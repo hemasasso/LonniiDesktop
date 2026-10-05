@@ -42,6 +42,21 @@ public class LiveSchemaCompatibilityTests
         Assert.Equal(column, ColumnOf<Vente>(db, property));
     }
 
+    /// <summary>
+    /// Lonnii Business names these firstname / lastname. Found when the model's column list was
+    /// checked against a copy of the live database: the guessed first_name made every query that
+    /// touched a user fail with a missing-column error on PostgreSQL.
+    /// </summary>
+    [Theory]
+    [InlineData(nameof(User.FirstName), "firstname")]
+    [InlineData(nameof(User.LastName), "lastname")]
+    public void User_names_map_onto_the_live_column_names(string property, string column)
+    {
+        using var db = Context();
+
+        Assert.Equal(column, ColumnOf<User>(db, property));
+    }
+
     [Fact]
     public void Groupe_prestations_flag_maps_onto_prestations_access()
     {

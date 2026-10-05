@@ -1,0 +1,82 @@
+<Window x:Class="Lonnii.Client.Features.Auth.RegistrationWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:Lonnii.Client.Common.Controls"
+        Title="Lonnii — Créer mon espace"
+        Height="560" Width="520"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="{DynamicResource Surface}">
+
+    <Grid Margin="28">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock x:Name="TitleText" Style="{StaticResource PageTitle}" />
+            <TextBlock x:Name="SubtitleText" Style="{StaticResource PageSubtitle}" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <!-- Step 1: the shop and its administrator. -->
+        <StackPanel x:Name="FormPanel" Grid.Row="1">
+            <TextBlock Text="Nom de la boutique" Style="{StaticResource FieldLabel}" />
+            <TextBox x:Name="ShopBox" Margin="0,4,0,12" Padding="8,6" MaxLength="100" />
+
+            <TextBlock Text="Email de l'administrateur" Style="{StaticResource FieldLabel}" />
+            <TextBox x:Name="EmailBox" Margin="0,4,0,12" Padding="8,6" />
+
+            <TextBlock Text="Mot de passe" Style="{StaticResource FieldLabel}" />
+            <controls:RevealPasswordBox x:Name="PasswordBox" Margin="0,4,0,12" />
+
+            <TextBlock Text="Confirmer le mot de passe" Style="{StaticResource FieldLabel}" />
+            <controls:RevealPasswordBox x:Name="ConfirmBox" Margin="0,4,0,0" />
+        </StackPanel>
+
+        <!-- Step 2: the code we emailed. -->
+        <StackPanel x:Name="CodePanel" Grid.Row="1" Visibility="Collapsed">
+            <TextBlock Text="Code de confirmation" Style="{StaticResource FieldLabel}" />
+            <TextBox x:Name="CodeBox" Margin="0,4,0,0" Padding="8,6" MaxLength="6"
+                     FontSize="22" FontFamily="Consolas" HorizontalContentAlignment="Center" />
+            <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap" Margin="0,10,0,0"
+                       Text="Le code est valable 15 minutes. Pensez à regarder dans les courriers indésirables." />
+        </StackPanel>
+
+        <!-- Step 3: confirmed, waiting for us. Asked for again at activation: never stored. -->
+        <StackPanel x:Name="WaitingPanel" Grid.Row="1" Visibility="Collapsed">
+            <Border Background="{DynamicResource AccentLight}" BorderBrush="{DynamicResource Accent}"
+                    BorderThickness="1" CornerRadius="3" Padding="12,10">
+                <TextBlock x:Name="WaitingText" TextWrapping="Wrap"
+                           Foreground="{DynamicResource AccentDark}" />
+            </Border>
+
+            <TextBlock Text="Mot de passe" Style="{StaticResource FieldLabel}" Margin="0,18,0,0" />
+            <controls:RevealPasswordBox x:Name="ActivationPasswordBox" Margin="0,4,0,0" />
+            <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap" Margin="0,8,0,0"
+                       Text="Saisissez-le à nouveau pour terminer l'activation dès que votre inscription est approuvée." />
+        </StackPanel>
+
+        <Border x:Name="ErrorPanel" Grid.Row="2" Visibility="Collapsed" Margin="0,12,0,0"
+                Background="{DynamicResource DangerLight}"
+                BorderBrush="{DynamicResource Danger}" BorderThickness="1"
+                CornerRadius="3" Padding="10,8">
+            <TextBlock x:Name="ErrorText" Foreground="{DynamicResource Danger}"
+                       TextWrapping="Wrap" FontSize="12" />
+        </Border>
+
+        <Grid Grid.Row="3" Margin="0,16,0,0">
+            <TextBlock x:Name="BusyText" VerticalAlignment="Center" FontSize="12"
+                       Foreground="{DynamicResource TextSecondary}" Visibility="Collapsed" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="SecondaryAction" Margin="0,0,8,0"
+                        Style="{StaticResource SecondaryButton}" Click="Secondary_Click" />
+                <Button x:Name="PrimaryAction" IsDefault="True"
+                        Style="{StaticResource PrimaryButton}" Click="Primary_Click" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

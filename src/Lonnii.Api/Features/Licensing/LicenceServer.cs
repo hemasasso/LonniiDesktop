@@ -32,6 +32,21 @@ public interface ILicenceServer
     /// </summary>
     Task<LicenceRefreshResponse> RefreshAsync(string baseUrl, LicenceRefreshRequest request, CancellationToken ct) =>
         throw new NotSupportedException();
+
+    /// <summary>Asks the server to register a new shop and email the owner a code.</summary>
+    Task<RegistrationStartResponse> RegistrationStartAsync(
+        string baseUrl, RegistrationStartRequest request, CancellationToken ct) =>
+        throw new NotSupportedException();
+
+    /// <summary>Registers one more espace for a shop owner we have already approved.</summary>
+    Task<RegistrationVerifyResponse> RegisterEspaceAsync(
+        string baseUrl, RegistrationEspaceRequest request, CancellationToken ct) =>
+        throw new NotSupportedException();
+
+    /// <summary>Confirms the emailed code; the shop then exists on the server, pending our approval.</summary>
+    Task<RegistrationVerifyResponse> RegistrationVerifyAsync(
+        string baseUrl, RegistrationVerifyRequest request, CancellationToken ct) =>
+        throw new NotSupportedException();
 }
 
 /// <summary>
@@ -55,6 +70,27 @@ public sealed class HttpLicenceServer(HttpClient http, ILogger<HttpLicenceServer
             baseUrl, "api/licence/refresh",
             "Impossible de joindre le serveur Lonnii. Connectez cet ordinateur à Internet " +
             "pour renouveler la licence.",
+            request, ct);
+
+    public Task<RegistrationStartResponse> RegistrationStartAsync(
+        string baseUrl, RegistrationStartRequest request, CancellationToken ct) =>
+        PostAsync<RegistrationStartRequest, RegistrationStartResponse>(
+            baseUrl, "api/registration/start",
+            "Impossible de joindre le serveur Lonnii. Vérifiez la connexion Internet, puis réessayez.",
+            request, ct);
+
+    public Task<RegistrationVerifyResponse> RegisterEspaceAsync(
+        string baseUrl, RegistrationEspaceRequest request, CancellationToken ct) =>
+        PostAsync<RegistrationEspaceRequest, RegistrationVerifyResponse>(
+            baseUrl, "api/registration/espace",
+            "Impossible de joindre le serveur Lonnii. Connectez cet ordinateur à Internet pour créer un espace.",
+            request, ct);
+
+    public Task<RegistrationVerifyResponse> RegistrationVerifyAsync(
+        string baseUrl, RegistrationVerifyRequest request, CancellationToken ct) =>
+        PostAsync<RegistrationVerifyRequest, RegistrationVerifyResponse>(
+            baseUrl, "api/registration/verify",
+            "Impossible de joindre le serveur Lonnii. Vérifiez la connexion Internet, puis réessayez.",
             request, ct);
 
     private async Task<TResponse> PostAsync<TRequest, TResponse>(

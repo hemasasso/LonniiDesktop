@@ -140,3 +140,18 @@ Found while registering a shop against the copy, all fixed in the code:
 `password_history` has a foreign key to `users` (insert order matters - the model does not describe it);
 `user_roles.role` is the enum `role_type` (written with an explicit cast on PostgreSQL only); and at start-up
 the API must not touch PostgreSQL at all (no privilege seeding, no session purge).
+
+## Backups and monitoring (2026-10-06)
+
+- **Nightly** (`deploy/oci/lonnii-backup.sh`, cron 02:15 UTC): dump of `lonnii_DaB_43` as a **read-only** role
+  (`backup_ro`, member of `pg_read_all_data`, password in `/root/.pgpass`), verified with `pg_restore --list`, plus
+  `jwt.key`; 14 days kept in `/var/backups/lonnii` (mode 700). Same disk as the database, so it protects against a
+  mistake, not against losing the server.
+- **Off-server:** Oracle Cloud boot-volume backup policy (console: boot volume -> Backup Policy), plus a copy pulled
+  to another machine now and then. The customers' cloud backups (`/var/lib/lonnii-api/backups`) are covered by the
+  boot-volume backup, not by the nightly script.
+- **Restore test:** `pg_restore -d <scratch db> /var/backups/lonnii/db-<stamp>.dump` into an empty database; an
+  untested backup is a guess.
+- **aaPanel's security scan** (2026-10-06) is a generic checklist: ignore TCP Wrappers (not in Oracle Linux 8), SSH
+  password-change interval (SSH passwords are off), SSH idle timeout (set in sshd_config), empty-password sudo
+  (only Oracle's cloud agent, limited commands - needed), and do not use "One-click repair".

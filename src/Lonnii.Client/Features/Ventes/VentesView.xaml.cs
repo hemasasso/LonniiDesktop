@@ -44,6 +44,8 @@ public partial class VentesView : UserControl
     private DateOnly? _venteDateFin;
     private string _venteDateFilterTag = "today";
     private bool _suppressVenteDateFilterEvent;
+    private readonly ScanKeyCapture _scan;
+
     private int _ventePage = 1;
     private int _ventePageSize = 10;
     private string _venteSortField = "Date";
@@ -235,6 +237,10 @@ public partial class VentesView : UserControl
         _canViewCaisseHistory = _session.Can(Priv.Gestion.ViewCaisseHistory);
         _canResolveCaisseEcart = _session.Can(Priv.Gestion.ResolveCaisseEcart);
         InitializeComponent();
+
+        // The cashier's scanner types into this box. On a French keyboard layout its digits arrive
+        // as symbols; this puts the real code back.
+        _scan = new ScanKeyCapture(SearchBox, autoCorrect: false);
 
         SubtitleText.Text = _session.Groupe?.Nom;
         UpdateRemiseModeLabel();
@@ -637,17 +643,36 @@ public partial class VentesView : UserControl
         // A barcode scanner types the code then sends Enter on its own - if it matches exactly
         // one product, ring it up straight away instead of making the cashier find and click
         // its tile, then clear the box so the next scan starts from an empty search again.
-        var scanned = SearchBox.Text.Trim();
+        //
+        // On a French keyboard layout the scanner's digits can land as symbols, so the code is first
+        // read the best way the key presses allow; if that finds nothing, the other reading (what a
+        // US layout would have typed) is tried before giving up.
+        var typed = SearchBox.Text;
+        var alternate = _scan.Alternate(typed)?.Trim();
+        var scanned = _scan.Resolve(typed).Trim();
+        if (scanned != typed.Trim()) SearchBox.Text = scanned;
         await LoadAsync();
 
-        var matches = scanned.Length == 0 ? [] : _products.Where(p => p.Barcode == scanned || p.Sku == scanned).ToList();
+        List<ProductDto> Find(string code) =>
+            code.Length == 0 ? [] : _products.Where(p => p.Barcode == code || p.Sku == code).ToList();
+
+        var matches = Find(scanned);
+        if (matches.Count == 0 && alternate is { Length: > 0 } && alternate != scanned)
+        {
+            SearchBox.Text = alternate;
+            await LoadAsync();
+            matches = Find(alternate);
+        }
+
         if (matches is [var product])
         {
             AddToCart(product);
+            ScanTone.Play();
             SearchBox.Text = string.Empty;
             await LoadAsync();
         }
 
+        _scan.Reset();
         SearchBox.Focus();
     }
 

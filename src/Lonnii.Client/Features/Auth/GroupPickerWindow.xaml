@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Lonnii — Choisir un espace"
-        Height="530" Width="620"
-        WindowStartupLocation="CenterOwner"
+        Height="580" Width="720"
+        WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
         Background="{DynamicResource Surface}">
 
@@ -15,10 +15,10 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Margin="0,0,0,14">
-            <TextBlock Text="Espaces de travail" Style="{StaticResource PageTitle}" />
-            <TextBlock Style="{StaticResource PageSubtitle}"
-                       Text="Choisissez l'espace dans lequel travailler." />
+        <StackPanel Grid.Row="0" Margin="0,0,0,18">
+            <TextBlock Text="Espaces de travail" Style="{StaticResource PageTitle}" FontSize="24" />
+            <TextBlock Style="{StaticResource PageSubtitle}" Margin="0,4,0,0"
+                       Text="Choisissez l'espace dans lequel travailler. Double-cliquez pour l'ouvrir." />
         </StackPanel>
 
         <!--
@@ -42,30 +42,44 @@
             <!-- Strips the default row highlight so selection reads as an accented card. -->
             <ListBox.ItemContainerStyle>
                 <Style TargetType="ListBoxItem">
-                    <Setter Property="Margin" Value="0,0,10,10" />
+                    <Setter Property="Margin" Value="0,0,16,16" />
+                    <Setter Property="Cursor" Value="Hand" />
                     <Setter Property="Template">
                         <Setter.Value>
                             <ControlTemplate TargetType="ListBoxItem">
-                                <Border x:Name="Card" Width="170" Height="156"
-                                        CornerRadius="6" Padding="12"
-                                        Background="{DynamicResource SurfaceAlt}"
+                                <Border x:Name="Card" Width="180" Height="170"
+                                        CornerRadius="12" Padding="0"
+                                        Background="{DynamicResource Surface}"
                                         BorderBrush="{DynamicResource Border}"
                                         BorderThickness="1">
+                                    <Border.Effect>
+                                        <DropShadowEffect Color="#000000" Opacity="0.08" BlurRadius="10"
+                                                          ShadowDepth="2" Direction="270" />
+                                    </Border.Effect>
                                     <ContentPresenter />
                                 </Border>
                                 <ControlTemplate.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
                                         <Setter TargetName="Card" Property="BorderBrush"
                                                 Value="{DynamicResource BorderStrong}" />
+                                        <Setter TargetName="Card" Property="Effect">
+                                            <Setter.Value>
+                                                <DropShadowEffect Color="#000000" Opacity="0.16" BlurRadius="16"
+                                                                  ShadowDepth="4" Direction="270" />
+                                            </Setter.Value>
+                                        </Setter>
                                     </Trigger>
                                     <!-- After IsMouseOver, so selection wins while hovering. -->
                                     <Trigger Property="IsSelected" Value="True">
-                                        <Setter TargetName="Card" Property="Background"
-                                                Value="{DynamicResource AccentLight}" />
                                         <Setter TargetName="Card" Property="BorderBrush"
                                                 Value="{DynamicResource Accent}" />
                                         <Setter TargetName="Card" Property="BorderThickness" Value="2" />
-                                        <Setter TargetName="Card" Property="Padding" Value="11" />
+                                        <Setter TargetName="Card" Property="Effect">
+                                            <Setter.Value>
+                                                <DropShadowEffect Color="#4361EE" Opacity="0.35" BlurRadius="18"
+                                                                  ShadowDepth="3" Direction="270" />
+                                            </Setter.Value>
+                                        </Setter>
                                     </Trigger>
                                 </ControlTemplate.Triggers>
                             </ControlTemplate>
@@ -78,58 +92,62 @@
                 <DataTemplate>
                     <Grid>
                         <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="72" />
                             <RowDefinition Height="*" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
                         <!--
-                            Avatar row: photo if one is loaded, otherwise the coloured-circle
-                            initial. The crown shows for the Admin Général in both states.
+                            Cover: the espace photo when it has one, otherwise a blue gradient with
+                            its initial. Two layers rather than one switching, so the rounded top
+                            corners hold in both states (an image brush follows the corner radius;
+                            an Image element would not).
                         -->
-                        <Grid Grid.Row="0">
-                            <!-- Photo (shown when Photo != null) -->
-                            <Border Width="40" Height="40" CornerRadius="4"
-                                    HorizontalAlignment="Left" ClipToBounds="True"
-                                    Visibility="{Binding HasPhoto, Converter={StaticResource BoolToVis}}">
-                                <Image Source="{Binding Photo}" Stretch="UniformToFill" />
+                        <Border Grid.Row="0" CornerRadius="11,11,0,0">
+                            <Border.Background>
+                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                    <GradientStop Color="#5675F8" Offset="0" />
+                                    <GradientStop Color="#3347D1" Offset="1" />
+                                </LinearGradientBrush>
+                            </Border.Background>
+                            <TextBlock Text="{Binding Groupe.Nom, Converter={StaticResource Initial}}"
+                                       Foreground="White" Opacity="0.95"
+                                       FontSize="34" FontWeight="Bold"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <Border Grid.Row="0" CornerRadius="11,11,0,0" Background="{DynamicResource SurfaceAlt}"
+                                Visibility="{Binding HasPhoto, Converter={StaticResource BoolToVis}}">
+                            <Border Margin="8" CornerRadius="6">
+                                <Border.Background>
+                                    <ImageBrush ImageSource="{Binding Photo}" Stretch="Uniform" />
+                                </Border.Background>
                             </Border>
+                        </Border>
 
-                            <!-- Initial circle (shown when no photo) -->
-                            <Border Width="32" Height="32" CornerRadius="16"
-                                    HorizontalAlignment="Left"
-                                    Background="{DynamicResource Accent}"
-                                    Visibility="{Binding HasPhoto, Converter={StaticResource BoolToVisInv}}">
-                                <TextBlock Text="{Binding Groupe.Nom, Converter={StaticResource Initial}}"
-                                           Foreground="{DynamicResource TextOnAccent}"
-                                           FontSize="15" FontWeight="SemiBold"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
-                            </Border>
+                        <!-- Created by the signed-in user. -->
+                        <Border Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                Margin="0,8,8,0" CornerRadius="10" Padding="7,2"
+                                Background="#99000000"
+                                ToolTip="Vous avez créé cet espace"
+                                Visibility="{Binding Groupe.IsAdminGeneral, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="&#x1F451;" FontSize="13" Foreground="#FBBF24" />
+                        </Border>
 
-                            <TextBlock Text="&#x1F451;" FontSize="12"
-                                       HorizontalAlignment="Right" VerticalAlignment="Top"
-                                       ToolTip="Vous avez créé cet espace"
-                                       Visibility="{Binding Groupe.IsAdminGeneral,
-                                                    Converter={StaticResource BoolToVis}}" />
-                        </Grid>
-
-                        <TextBlock Grid.Row="1" Text="{Binding Groupe.Nom}" Margin="0,8,0,0"
-                                   FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap"
-                                   MaxHeight="34" TextTrimming="CharacterEllipsis"
-                                   Foreground="{DynamicResource TextPrimary}"
-                                   ToolTip="{Binding Groupe.Nom}" />
-
-                        <TextBlock Grid.Row="2" Margin="0,4,0,0" FontSize="11"
-                                   Foreground="{DynamicResource TextSecondary}"
-                                   Text="{Binding Groupe.Role, Converter={StaticResource RoleLabel}}"
-                                   TextTrimming="CharacterEllipsis" />
-
-                        <TextBlock Grid.Row="3" Margin="0,6,0,0" FontSize="11"
-                                   Foreground="{DynamicResource TextMuted}">
-                            <Run Text="{Binding Groupe.MemberCount, Mode=OneWay}" />
-                            <Run Text="membres" />
-                        </TextBlock>
+                        <StackPanel Grid.Row="1" Margin="14,8,14,10" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Groupe.Nom}"
+                                       FontSize="14" FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis"
+                                       Foreground="{DynamicResource TextPrimary}"
+                                       ToolTip="{Binding Groupe.Nom}" />
+                            <TextBlock Margin="0,3,0,0" FontSize="12"
+                                       Foreground="{DynamicResource Accent}" FontWeight="Medium"
+                                       Text="{Binding Groupe.Role, Converter={StaticResource RoleLabel}}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Margin="0,6,0,0" FontSize="11"
+                                       Foreground="{DynamicResource TextMuted}">
+                                <Run Text="{Binding Groupe.MemberCount, Mode=OneWay}" />
+                                <Run Text="membres" />
+                            </TextBlock>
+                        </StackPanel>
                     </Grid>
                 </DataTemplate>
             </ListBox.ItemTemplate>
@@ -144,7 +162,7 @@
                            HorizontalAlignment="Center" />
                 <TextBlock Style="{StaticResource PageSubtitle}" TextAlignment="Center"
                            Margin="0,6,0,0" MaxWidth="360" TextWrapping="Wrap"
-                           Text="Vous n'appartenez à aucun espace. Créez le vôtre, ou demandez à un administrateur de vous ajouter au sien." />
+                           Text="Vous n'appartenez à aucun espace. Demandez à un administrateur de vous ajouter au sien." />
             </StackPanel>
         </Border>
 
@@ -157,20 +175,10 @@
         </Border>
 
         <Grid Grid.Row="3" Margin="0,16,0,0">
-            <!-- Left side: create + admin-only actions (photo + delete) -->
+            <!-- Left side: creating an espace, for the Admin Général only. Photo and deletion are in Paramètres. -->
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
-                <Button Content="Créer un espace…" Style="{StaticResource SecondaryButton}"
-                        Click="Create_Click" />
-                <Button x:Name="PhotoButton" Content="📷 Photo…"
-                        Style="{StaticResource SecondaryButton}" Margin="8,0,0,0"
-                        ToolTip="Changer la photo de cet espace"
-                        Visibility="Collapsed"
-                        Click="Photo_Click" />
-                <Button x:Name="DeleteButton" Content="🗑 Supprimer…"
-                        Style="{StaticResource DangerButton}" Margin="8,0,0,0"
-                        ToolTip="Supprimer définitivement cet espace et toutes ses données"
-                        Visibility="Collapsed"
-                        Click="Delete_Click" />
+                <Button x:Name="CreateButton" Content="Créer un espace…" Visibility="Collapsed"
+                        Style="{StaticResource SecondaryButton}" Click="Create_Click" />
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">

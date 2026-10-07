@@ -174,6 +174,16 @@ public class LonniiApiClient
         byte[] content, string fileName, CancellationToken ct = default) =>
         UploadImageAsync<GroupeDto>("api/groupe/photo", content, fileName, ct);
 
+    /// <summary>
+    /// An espace's cover photo, for the group picker. Needs only the signed-in user, not an open
+    /// espace session: the picker shows photos before any espace is open.
+    /// </summary>
+    public async Task<byte[]> GetEspacePhotoBytesAsync(string groupId, CancellationToken ct = default)
+    {
+        using var response = await SendCoreAsync(HttpMethod.Get, $"api/groupes/{groupId}/photo", null, ct);
+        return await response.Content.ReadAsByteArrayAsync(ct);
+    }
+
     /// <summary>Removes the current espace's cover photo.</summary>
     public Task DeleteEspacePhotoAsync(CancellationToken ct = default) =>
         SendAsync(HttpMethod.Delete, "api/groupe/photo", null, ct);

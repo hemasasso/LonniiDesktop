@@ -26,7 +26,11 @@
 
   <ItemGroup>
     <Resource Include="Assets\icon-light.ico" />
+
+    <!-- Played by file path (MediaPlayer cannot open a resource), so it is copied beside the program. -->
+    <Content Include="Assets\Lonnii_Bus_ScanTone.mp3" CopyToOutputDirectory="PreserveNewest" />
     <Resource Include="Assets\icon-dark.ico" />
+    <Resource Include="Assets\icon-light.png" />
 
     <!-- Yellow bolt mark, no black ink, for the always-dark top nav bar. -->
     <Resource Include="Assets\icon-dark.png" />

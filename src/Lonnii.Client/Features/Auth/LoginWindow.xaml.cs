@@ -12,12 +12,15 @@ public partial class LoginWindow : Window
 {
     private readonly AppSession _session = App.Session;
 
+    /// <summary>The server in use. Never typed: found by the search, this machine, or a repair code.</summary>
+    private string _host = string.Empty;
+
     public LoginWindow()
     {
         InitializeComponent();
         Icon = AppIcon.Current;
 
-        HostBox.Text = App.Settings.HostAddress;
+        _host = App.Settings.HostAddress;
         IdentifierBox.Text = App.Settings.LastIdentifier ?? string.Empty;
 
         Loaded += async (_, _) =>
@@ -34,41 +37,82 @@ public partial class LoginWindow : Window
 
     /// <summary>
     /// Settles which host to talk to without asking: the address used last time if it still
-    /// answers, otherwise whatever answers on the local network. Only when neither works does
-    /// the address field appear.
+    /// answers, otherwise whatever answers on the local network. It keeps looking for
+    /// <see cref="SearchSeconds"/> before giving up. A found server is shown without its
+    /// address and cannot be changed from here, so a worker cannot repoint the till by
+    /// accident or learn the port; only when nothing is found does the address field appear.
     /// </summary>
+    private const int SearchSeconds = 30;
+
     private async Task FindHostAsync()
     {
-        DiscoveryText.Text = "Recherche du serveur Lonnii sur le réseau…";
+        RepairButton.Visibility = Visibility.Collapsed;
+        _serverFound = false;
+        _blocked = false;
+        UpdateSignIn();
+        SetDiscovery("Recherche du serveur… Veuillez patienter jusqu'à la connexion au serveur.", "TextSecondary", "Success", blink: true);
 
-        var saved = HostBox.Text.Trim();
-        if (saved.Length > 0 && await ReachableAsync(saved))
+        var deadline = DateTime.UtcNow.AddSeconds(SearchSeconds);
+        do
         {
-            ShowFound(saved, null);
-            return;
-        }
-
-        var hosts = await HostDiscovery.FindAsync(TimeSpan.FromSeconds(2));
-        if (hosts.Count > 0)
-        {
-            HostBox.Text = hosts[0].Address;
-            ShowFound(hosts[0].Address, hosts[0].Name);
-
-            if (hosts.Count > 1)
+            // Only an address that proves itself is tried without searching: this machine, or
+            // one we authorised. Whatever else the settings file says is ignored.
+            var known = ServerTrust.RepairedAddress(App.Settings) ?? _host;
+            if (ServerTrust.IsAllowedWithoutSearch(known, App.Settings) && await ReachableAsync(known))
             {
-                // Two hosts on one network is unusual but real (a second shop, a test machine):
-                // the first is used, and the rest are listed so the right one can be typed in.
-                HostHint.Text = "Plusieurs serveurs trouvés : " +
-                                string.Join(", ", hosts.Select(h => $"{h.Name} ({h.Address})")) + ".";
-                HostPanel.Visibility = Visibility.Visible;
+                _host = known;
+                ShowFound();
+                return;
             }
 
-            return;
+            var hosts = await HostDiscovery.FindAsync(TimeSpan.FromSeconds(2));
+            if (hosts.Count > 0)
+            {
+                _host = hosts[0].Address;
+                _session.Api.Connect(_host);
+                ShowFound();
+                return;
+            }
         }
+        while (IsLoaded && DateTime.UtcNow < deadline);
 
-        DiscoveryText.Text = "Aucun serveur Lonnii trouvé automatiquement sur ce réseau.";
-        HostPanel.Visibility = Visibility.Visible;
+        SetDiscovery("Serveur introuvable.", "Danger", "Danger", blink: false);
+        RepairButton.Visibility = Visibility.Visible;
     }
+
+    private async void Repair_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new RepairWindow { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        _host = App.Settings.HostAddress;
+        await FindHostAsync();
+        await CheckSetupStateAsync();
+    }
+
+    /// <summary>The server line's text, in the theme colour that says what it means: green when found.</summary>
+    private void SetDiscovery(string text, string textBrush, string dotBrush, bool blink)
+    {
+        DiscoveryText.Text = text;
+        DiscoveryText.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, textBrush);
+        StatusDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, dotBrush);
+
+        // One full fade out and back per second while searching (1 Hz); steady otherwise.
+        StatusDot.BeginAnimation(OpacityProperty, blink
+            ? new System.Windows.Media.Animation.DoubleAnimation(1, 0.1, TimeSpan.FromSeconds(0.5))
+            {
+                AutoReverse = true,
+                RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever,
+            }
+            : null);
+        if (!blink) StatusDot.Opacity = 1;
+    }
+
+    private bool _serverFound, _blocked, _needsSetup, _busy;
+
+    /// <summary>Sign-in is possible only with a server found, nothing blocking it, and no work in progress.</summary>
+    private void UpdateSignIn() =>
+        SignInButton.IsEnabled = _serverFound && !_blocked && !_needsSetup && !_busy;
 
     private async Task<bool> ReachableAsync(string address)
     {
@@ -77,17 +121,12 @@ public partial class LoginWindow : Window
         return await _session.Api.PingAsync(quickly.Token);
     }
 
-    private void ShowFound(string address, string? name)
+    private void ShowFound()
     {
-        DiscoveryText.Text = name is null ? $"Serveur : {address}" : $"Serveur trouvé : {name} ({address})";
-        ChangeHostButton.Visibility = Visibility.Visible;
-    }
-
-    private void ChangeHost_Click(object sender, RoutedEventArgs e)
-    {
-        HostPanel.Visibility = Visibility.Visible;
-        ChangeHostButton.Visibility = Visibility.Collapsed;
-        HostBox.Focus();
+        _serverFound = true;
+        UpdateSignIn();
+        SetDiscovery("Serveur trouvé. Vous pouvez vous connecter maintenant.", "Success", "Success", blink: false);
+        RepairButton.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>
@@ -97,12 +136,26 @@ public partial class LoginWindow : Window
     /// </summary>
     private async Task CheckSetupStateAsync()
     {
-        if (string.IsNullOrWhiteSpace(HostBox.Text)) return;
+        if (string.IsNullOrWhiteSpace(_host)) return;
 
         try
         {
-            _session.Api.Connect(HostBox.Text);
+            _session.Api.Connect(_host);
             var state = await _session.Api.GetSetupStateAsync();
+
+            // Trust on first use: the first host this till signs in against is its own. After
+            // that, any other host is refused - found by search or typed by hand.
+            var pinned = App.Settings.PinnedHostId;
+            if (state.HostId is not null && pinned is null)
+            {
+                App.Settings.PinnedHostId = state.HostId;
+                App.Settings.Save();
+            }
+            else if (pinned is not null && state.HostId != pinned)
+            {
+                WrongHost();
+                return;
+            }
 
             // Hand-made accounts exist for development; a shipped host registers with Lonnii.
             ManualAccountButton.Visibility = state.ManualSetupAllowed ? Visibility.Visible : Visibility.Collapsed;
@@ -114,10 +167,22 @@ public partial class LoginWindow : Window
         }
     }
 
+    /// <summary>This host is not the one the till was set up with: no sign-in, no first account.</summary>
+    private void WrongHost()
+    {
+        ShowSetupPanel(false);
+        _blocked = true;
+        UpdateSignIn();
+        SetDiscovery("Ce serveur n'est pas celui de ce magasin.", "Danger", "Danger", blink: false);
+        ShowError("Ce poste est lié à un autre serveur Lonnii. Connexion refusée." + "\n" +
+                  "Si le serveur du magasin a été réinstallé, contactez Lonnii.");
+    }
+
     private void ShowSetupPanel(bool needsSetup)
     {
         SetupPanel.Visibility = needsSetup ? Visibility.Visible : Visibility.Collapsed;
-        SignInButton.IsEnabled = !needsSetup;
+        _needsSetup = needsSetup;
+        UpdateSignIn();
     }
 
     /// <summary>
@@ -172,39 +237,6 @@ public partial class LoginWindow : Window
     }
 
     /// <summary>Confirms a Lonnii host is answering before the user types a password.</summary>
-    private async void TestHost_Click(object sender, RoutedEventArgs e)
-    {
-        if (string.IsNullOrWhiteSpace(HostBox.Text))
-        {
-            ShowError("Indiquez l'adresse du serveur.");
-            return;
-        }
-
-        SetBusy(true, "Test…");
-        try
-        {
-            _session.Api.Connect(HostBox.Text);
-            var reachable = await _session.Api.PingAsync();
-
-            if (reachable)
-            {
-                HideError();
-                HostHint.Text = $"Serveur joignable : {_session.Api.BaseAddress}";
-                await CheckSetupStateAsync();
-            }
-            else
-            {
-                ShowError($"Aucun serveur Lonnii ne répond à « {_session.Api.BaseAddress} ».\n" +
-                          "Vérifiez que l'application serveur est démarrée sur l'ordinateur hôte " +
-                          "et que les deux machines sont sur le même réseau.");
-            }
-        }
-        finally
-        {
-            SetBusy(false);
-        }
-    }
-
     private async void SignIn_Click(object sender, RoutedEventArgs e) => await SignInAsync();
 
     private async Task SignInAsync()
@@ -226,9 +258,15 @@ public partial class LoginWindow : Window
 
     private bool _signingIn;
 
+    /// <summary>The server the user signed in against, once <see cref="Window.DialogResult"/> is true.</summary>
+    public string Host { get; private set; } = string.Empty;
+
+    /// <summary>Whether "Rester connecté" was ticked at sign-in.</summary>
+    public bool RememberMe { get; private set; }
+
     private async Task SignInCoreAsync()
     {
-        var host = HostBox.Text.Trim();
+        var host = _host.Trim();
         var identifier = IdentifierBox.Text.Trim();
         var password = PasswordBox.Password;
 
@@ -246,25 +284,12 @@ public partial class LoginWindow : Window
             App.Settings.LastIdentifier = identifier;
             App.Settings.Save();
 
-            // A user with no group cannot do anything, so the picker also offers to create one.
-            var picker = new GroupPickerWindow { Owner = this };
-            if (picker.ShowDialog() != true)
-            {
-                _session.SignOut();
-                SetBusy(false);
-                PasswordBox.Clear();
-                return;
-            }
-
-            if (RememberMeCheck.IsChecked == true && _session.AccessToken is { } token)
-            {
-                SessionStore.Save(new StoredSession(host, token, _session.AccessTokenExpiresAt));
-            }
-            else
-            {
-                SessionStore.Clear();
-            }
-
+            // Signed in. The window closes and the caller moves on to choosing an espace; if that is
+            // cancelled it opens a fresh sign-in window. (An earlier version showed the picker from
+            // here and tried to keep this window out of the way: hiding ends a dialog, and
+            // minimising showed as a visible shrink to the taskbar.)
+            Host = host;
+            RememberMe = RememberMeCheck.IsChecked == true;
             DialogResult = true;
         }
         catch (ApiException ex)
@@ -285,8 +310,8 @@ public partial class LoginWindow : Window
     {
         BusyText.Text = text ?? string.Empty;
         BusyText.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
-        SignInButton.IsEnabled = !busy;
-        TestButton.IsEnabled = !busy;
+        _busy = busy;
+        UpdateSignIn();
         Cursor = busy ? Cursors.Wait : null;
     }
 

@@ -38,6 +38,12 @@ public sealed class ScreenState
     /// manager and the Fournisseur manager - each remembered separately, since there is no
     /// reason picking 20 for one of them should also apply to the others.</summary>
     public int? VentePageSize { get; set; }
+
+    /// <summary>Liste des Charges, remembered the same way as <see cref="VentePageSize"/>.</summary>
+    public int? ChargePageSize { get; set; }
+
+    /// <summary>Gestion de Stock, remembered the same way as <see cref="VentePageSize"/>.</summary>
+    public int? StockPageSize { get; set; }
     public int? ClientPageSize { get; set; }
     public int? SupplierPageSize { get; set; }
 }

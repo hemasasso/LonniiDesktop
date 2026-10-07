@@ -14,18 +14,41 @@
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <!-- Brand panel -->
-        <Border Grid.Column="0" Background="{DynamicResource Accent}">
-            <StackPanel VerticalAlignment="Center" Margin="32">
-                <TextBlock Text="Lonnii" FontSize="36" FontWeight="Bold"
-                           Foreground="White" />
-                <TextBlock Text="Business" FontSize="20" Foreground="#D6DDFB" Margin="0,-4,0,0" />
-                <Rectangle Height="1" Fill="#5A76F3" Margin="0,22,0,22" />
-                <TextBlock Foreground="#E3E8FD" TextWrapping="Wrap" FontSize="13" LineHeight="20"
-                           Text="Poste de travail Windows connecté au serveur de l'entreprise." />
-                <TextBlock Foreground="#B9C6F8" TextWrapping="Wrap" FontSize="12" Margin="0,16,0,0"
-                           Text="Les données restent sur l'ordinateur hôte. Ce poste s'y connecte par le réseau local." />
-            </StackPanel>
+        <!-- Brand panel: the same blue in both themes. A soft gradient and a few translucent circles
+             give it depth without adding anything to read. -->
+        <Border Grid.Column="0" ClipToBounds="True">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                    <GradientStop Color="#5675F8" Offset="0" />
+                    <GradientStop Color="#4361EE" Offset="0.5" />
+                    <GradientStop Color="#2F43C4" Offset="1" />
+                </LinearGradientBrush>
+            </Border.Background>
+            <Grid>
+                <Ellipse Width="300" Height="300" Fill="White" Opacity="0.07"
+                         HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-110,-110,0,0" />
+                <Ellipse Width="380" Height="380" Fill="White" Opacity="0.06"
+                         HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,-150,-150" />
+                <Ellipse Width="120" Height="120" Fill="White" Opacity="0.06"
+                         HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,70,-40,0" />
+                <Ellipse Width="70" Height="70" Fill="White" Opacity="0.05"
+                         HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="36,0,0,90" />
+
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="32">
+                    <!-- White-tile logo: it is the one that stands out on blue. -->
+                    <Image Source="pack://application:,,,/Assets/icon-light.png" Width="96" Height="96"
+                           HorizontalAlignment="Center" Margin="0,0,0,20"
+                           RenderOptions.BitmapScalingMode="HighQuality">
+                        <Image.Effect>
+                            <DropShadowEffect Color="#1B2A8C" Opacity="0.35" BlurRadius="24" ShadowDepth="6" Direction="270" />
+                        </Image.Effect>
+                    </Image>
+                    <TextBlock Text="Lonnii" FontSize="38" FontWeight="Bold" Foreground="White"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Text="Business" FontSize="20" Foreground="#D6DDFB" Margin="0,-4,0,0"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+            </Grid>
         </Border>
 
         <!-- Form -->
@@ -48,30 +71,17 @@
 
                 <!-- The host is found on its own, on the local network. The address field only
                      appears when nothing answers, or when the user asks to change it. -->
-                <Grid x:Name="DiscoveryRow">
+                <StackPanel x:Name="DiscoveryRow" Orientation="Horizontal">
+                    <Ellipse x:Name="StatusDot" Width="10" Height="10" Margin="0,0,10,0"
+                             VerticalAlignment="Center" Fill="{DynamicResource Success}" />
                     <TextBlock x:Name="DiscoveryText" VerticalAlignment="Center" TextWrapping="Wrap"
-                               Margin="0,0,90,0" Foreground="{DynamicResource TextSecondary}" />
-                    <Button x:Name="ChangeHostButton" Content="Modifier" HorizontalAlignment="Right"
-                            Visibility="Collapsed" Style="{StaticResource SecondaryButton}"
-                            Click="ChangeHost_Click" />
-                </Grid>
-
-                <StackPanel x:Name="HostPanel" Visibility="Collapsed" Margin="0,8,0,0">
-                    <TextBlock Text="Serveur (hôte)" Style="{StaticResource FieldLabel}" />
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <TextBox x:Name="HostBox" Grid.Column="0" />
-                    <Button x:Name="TestButton" Grid.Column="1" Margin="8,0,0,0"
-                            Style="{StaticResource SecondaryButton}"
-                            Content="Tester" Click="TestHost_Click" />
-                </Grid>
-                <TextBlock x:Name="HostHint" Style="{StaticResource PageSubtitle}"
-                           TextWrapping="Wrap"
-                           Text="Adresse de l'ordinateur hôte, par exemple 192.168.1.20:5280." />
+                               Foreground="{DynamicResource TextSecondary}" />
                 </StackPanel>
+
+                <Button x:Name="RepairButton" Content="Réparer la connexion…" Visibility="Collapsed"
+                        HorizontalAlignment="Left" Margin="0,8,0,0"
+                        Style="{StaticResource SecondaryButton}" Click="Repair_Click" />
+                <TextBlock x:Name="HostHint" Style="{StaticResource PageSubtitle}" TextWrapping="Wrap" />
 
                 <TextBlock Text="Email ou nom d'utilisateur" Style="{StaticResource FieldLabel}" Margin="0,18,0,4" />
                 <TextBox x:Name="IdentifierBox" />

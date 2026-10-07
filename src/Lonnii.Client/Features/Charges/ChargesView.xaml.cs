@@ -24,6 +24,14 @@ public partial class ChargesView : UserControl
 
     private List<ChargeCategoryDto> _categories = [];
     private List<ChargeDto> _charges = [];
+
+    private int _chargePage = 1;
+    private int _chargePageSize = 10;
+
+    /// <summary>Setting the page-size combo - the XAML default and the restore of the saved
+    /// choice - fires its changed handler synchronously; without this the default would be
+    /// written back as if the user had picked it, wiping what was saved.</summary>
+    private bool _suppressChargePageSizeSave = true;
     private bool _categoriesLoaded;
 
     private string _dateFilterTag = "month";
@@ -115,6 +123,15 @@ public partial class ChargesView : UserControl
 
         Loaded += async (_, _) =>
         {
+            if (UiState.For(_session).ChargePageSize is { } savedPageSize
+                && ChargePageSizeCombo.Items.Cast<ComboBoxItem>()
+                    .FirstOrDefault(i => i.Content as string == savedPageSize.ToString()) is { } savedItem)
+            {
+                _chargePageSize = savedPageSize;
+                ChargePageSizeCombo.SelectedItem = savedItem;
+            }
+            _suppressChargePageSizeSave = false;
+
             var initialTab = UiState.For(_session).Tabs.GetValueOrDefault(ModuleKey) is { } saved
                 && (saved != "analytics" || _canViewAnalytics)
                 ? saved : "charges";
@@ -332,7 +349,12 @@ public partial class ChargesView : UserControl
 
     private void RenderCharges()
     {
-        ChargesGrid.ItemsSource = _charges.Select(c => new ChargeRow(
+        var totalPages = Math.Max(1, (int)Math.Ceiling(_charges.Count / (double)_chargePageSize));
+        _chargePage = Math.Clamp(_chargePage, 1, totalPages);
+
+        ChargesGrid.ItemsSource = _charges
+            .Skip((_chargePage - 1) * _chargePageSize).Take(_chargePageSize)
+            .Select(c => new ChargeRow(
             c,
             BrushFromHex(_categories.FirstOrDefault(cat => cat.Nom == c.Categorie)?.Color ?? DefaultCategoryColor),
             _canEdit ? Visibility.Visible : Visibility.Collapsed,
@@ -340,6 +362,36 @@ public partial class ChargesView : UserControl
             .ToList();
 
         ChargesEmptyPanel.Visibility = _charges.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        // The footer only appears once there is more than one page to move between.
+        ChargePaginationPanel.Visibility = _charges.Count > _chargePageSize ? Visibility.Visible : Visibility.Collapsed;
+        ChargePagerBar.Configure(_chargePage, totalPages);
+    }
+
+    private void ChargePagerBar_PageChanged(object? sender, EventArgs e)
+    {
+        _chargePage = ChargePagerBar.CurrentPage;
+        RenderCharges();
+    }
+
+    private void ChargePageSize_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded) return;
+
+        if ((ChargePageSizeCombo.SelectedItem as ComboBoxItem)?.Content as string is not { } text
+            || !int.TryParse(text, out var size))
+            return;
+
+        _chargePageSize = size;
+        _chargePage = 1;
+
+        if (!_suppressChargePageSizeSave)
+        {
+            UiState.For(_session).ChargePageSize = size;
+            UiState.Save();
+        }
+
+        RenderCharges();
     }
 
     private async void RefreshCharges_Click(object sender, RoutedEventArgs e) => await LoadChargesAsync();
@@ -347,12 +399,14 @@ public partial class ChargesView : UserControl
     private async void Filters_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (!IsLoaded) return;
+        _chargePage = 1;
         await LoadChargesAsync();
     }
 
     private async void DateFilter_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (!IsLoaded || _suppressDateFilterEvent) return;
+        _chargePage = 1;
 
         var tag = (string)((ComboBoxItem)DateFilterCombo.SelectedItem).Tag;
         var today = DateOnly.FromDateTime(DateTime.Now);

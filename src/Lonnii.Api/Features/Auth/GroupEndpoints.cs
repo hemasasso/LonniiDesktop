@@ -21,6 +21,7 @@ public static class GroupEndpoints
         groups.MapPost("/", CreateAsync);
         groups.MapPost("/{groupId}/session", OpenSessionAsync);
         groups.MapDelete("/{groupId}", DeleteAsync).RequireAuthorization();
+        groups.MapGet("/{groupId}/photo", GetPhotoAsync);
 
         var scoped = app.MapGroup("/api/groupe").WithTags("Groupes");
         scoped.MapGet("/members", ListMembersAsync).RequireGroupScope();
@@ -606,6 +607,33 @@ public static class GroupEndpoints
 
         var memberCount = await db.GroupMembers.CountAsync(m => m.IdGroupe == scope.GroupId, ct);
         return Results.Ok(ToDto(groupe, scope.Privileges.Role, scope.IsAdminGeneral, memberCount));
+    }
+
+    /// <summary>
+    /// Streams an espace's cover photo to a signed-in member of that espace. This is what the
+    /// group picker uses: it shows the photos before any espace is opened, so there is no group
+    /// session yet and the ordinary <c>/api/images</c> route (which needs one) answers 401. Without
+    /// this the photo showed right after an upload - which had opened a session - and vanished
+    /// the next time the picker was shown. Same answer for "no such espace", "not yours" and
+    /// "no photo", so it cannot be used to probe other workspaces.
+    /// </summary>
+    private static async Task<IResult> GetPhotoAsync(
+        string groupId, ClaimsPrincipal principal, LonniiDbContext db, ImageStorageService images, CancellationToken ct)
+    {
+        var userId = principal.FindFirstValue(TokenService.UserIdClaim)!;
+
+        var photoUrl = await db.Groupes
+            .Where(g => g.Id == groupId && (g.IdUserAdmin == userId || g.Members.Any(m => m.IdUser == userId)))
+            .Select(g => g.PhotoUrl)
+            .FirstOrDefaultAsync(ct);
+
+        var fileName = photoUrl?.Split('/').LastOrDefault();
+        if (string.IsNullOrEmpty(fileName)) return Results.NotFound();
+
+        var stream = images.OpenRead(ImageStorageService.Folders.EspacePhotos, fileName);
+        return stream is null
+            ? Results.NotFound()
+            : Results.File(stream, ImageStorageService.ContentTypeFor(fileName));
     }
 
     /// <summary>Removes the espace cover photo.</summary>

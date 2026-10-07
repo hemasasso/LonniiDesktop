@@ -371,6 +371,80 @@ public class ImageEndpointsTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
+    // --- Espace cover photo ---
+
+    private async Task<HttpResponseMessage> GetEspacePhotoAsync(string groupId, string accessToken)
+    {
+        // Deliberately no x-group-session: the group picker has none when it shows the photos.
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/groupes/{groupId}/photo");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        return await _client.SendAsync(request);
+    }
+
+    [Fact]
+    public async Task EspacePhoto_CanBeFetchedWithoutAnOpenEspaceSession()
+    {
+        var owner = await SignUpOwnerAsync();
+        (await UploadImageAsync("/api/groupe/photo", owner)).EnsureSuccessStatusCode();
+
+        var response = await GetEspacePhotoAsync(owner.GroupId, owner.Token);
+
+        response.EnsureSuccessStatusCode();
+        Assert.Equal("image/jpeg", response.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Fact]
+    public async Task EspacePhoto_IsServedToAMemberOfThatEspace()
+    {
+        var owner = await SignUpOwnerAsync();
+        await AddMemberAsync(owner);
+        (await UploadImageAsync("/api/groupe/photo", owner)).EnsureSuccessStatusCode();
+        var member = await SignInAsync(MemberEmail, MemberPassword);
+
+        var response = await GetEspacePhotoAsync(owner.GroupId, member.Token);
+
+        response.EnsureSuccessStatusCode();
+    }
+
+    [Fact]
+    public async Task EspacePhoto_IsNotServedToSomeoneWhoIsNotAMemberOfThatEspace()
+    {
+        var owner = await SignUpOwnerAsync();
+        await AddMemberAsync(owner); // belongs to the first espace only
+
+        var second = await OpenAnotherWorkspaceAsync(owner);
+        (await UploadImageAsync("/api/groupe/photo", second)).EnsureSuccessStatusCode();
+
+        var member = await SignInAsync(MemberEmail, MemberPassword);
+
+        var response = await GetEspacePhotoAsync(second.GroupId, member.Token);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task EspacePhoto_IsNotFoundWhenNoneWasUploadedOrAfterItIsDeleted()
+    {
+        var owner = await SignUpOwnerAsync();
+        Assert.Equal(HttpStatusCode.NotFound, (await GetEspacePhotoAsync(owner.GroupId, owner.Token)).StatusCode);
+
+        (await UploadImageAsync("/api/groupe/photo", owner)).EnsureSuccessStatusCode();
+        (await SendAsync(HttpMethod.Delete, "/api/groupe/photo", owner)).EnsureSuccessStatusCode();
+
+        Assert.Equal(HttpStatusCode.NotFound, (await GetEspacePhotoAsync(owner.GroupId, owner.Token)).StatusCode);
+    }
+
+    [Fact]
+    public async Task EspacePhoto_NeedsASignedInUser()
+    {
+        var owner = await SignUpOwnerAsync();
+        (await UploadImageAsync("/api/groupe/photo", owner)).EnsureSuccessStatusCode();
+
+        var response = await _client.GetAsync($"/api/groupes/{owner.GroupId}/photo");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
     [Fact]
     public async Task RequestingAnImageUnderTheWrongFolder_IsRejectedRatherThanServed()
     {

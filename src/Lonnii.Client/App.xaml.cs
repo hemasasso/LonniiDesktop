@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using System.Windows;
+using Lonnii.Client.Features.Auth;
 using Lonnii.Client.Services;
 
 namespace Lonnii.Client;
@@ -40,6 +41,11 @@ public partial class App : Application
         UseDayMonthYearDates();
         base.OnStartup(e);
 
+        // Every window and dialog gets the themed icon unless it set its own, so none falls
+        // back to the .exe's day-mode icon.
+        EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent,
+            new RoutedEventHandler((s, _) => { if (s is Window { Icon: null } w) w.Icon = AppIcon.Current; }));
+
         // A crash dialog is friendlier than a silent disappearance on a shop counter,
         // and the log gives something to read afterwards when nobody saw the dialog.
         DispatcherUnhandledException += (_, args) =>
@@ -68,11 +74,27 @@ public partial class App : Application
 
         if (!await TryRestoreSessionAsync())
         {
-            var login = new LoginWindow();
-            if (login.ShowDialog() != true)
+            // Sign in, then choose an espace. Cancelling the choice goes back to sign-in rather
+            // than leaving a signed-in user with nowhere to work.
+            while (true)
             {
-                Shutdown();
-                return;
+                var login = new LoginWindow();
+                if (login.ShowDialog() != true)
+                {
+                    Shutdown();
+                    return;
+                }
+
+                if (new GroupPickerWindow().ShowDialog() == true)
+                {
+                    if (login.RememberMe && Session.AccessToken is { } token)
+                        SessionStore.Save(new StoredSession(login.Host, token, Session.AccessTokenExpiresAt));
+                    else
+                        SessionStore.Clear();
+                    break;
+                }
+
+                Session.SignOut();
             }
         }
 
@@ -105,6 +127,15 @@ public partial class App : Application
     {
         var stored = SessionStore.Load();
         if (stored is null) return false;
+
+        // The saved host is only taken on trust if it is this machine or one we authorised;
+        // otherwise it has to answer the search on the shop's network again.
+        if (!ServerTrust.IsAllowedWithoutSearch(stored.Host, Settings))
+        {
+            var found = await HostDiscovery.FindAsync(TimeSpan.FromSeconds(3));
+            if (!found.Any(h => string.Equals(h.Address, stored.Host, StringComparison.OrdinalIgnoreCase)))
+                return false;
+        }
 
         try
         {
@@ -164,6 +195,16 @@ public class ClientSettings
 
     /// <summary>The host to connect to. Defaults to this machine, which is right on the host laptop.</summary>
     public string HostAddress { get; set; } = "localhost:5280";
+
+    /// <summary>An address Lonnii authorised for this till by repair code, and the code that
+    /// proves it. Checked on every start: editing either one makes it stop working.</summary>
+    public string? RepairHost { get; set; }
+    public string? RepairCode { get; set; }
+
+    /// <summary>The identity of the host this till belongs to, remembered the first time it
+    /// connects. A host presenting a different one is refused, so a till cannot be pointed
+    /// at a foreign or fake server. Cleared only by deleting this line from the file.</summary>
+    public string? PinnedHostId { get; set; }
 
     /// <summary>The identifier last used to sign in, pre-filled on the next start.</summary>
     public string? LastIdentifier { get; set; }

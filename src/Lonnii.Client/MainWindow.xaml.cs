@@ -172,7 +172,6 @@ public partial class MainWindow : Window
         Title = groupe is null ? "Lonnii" : groupe.Nom;
 
         StatusUser.Text = _session.DisplayName;
-        StatusHost.Text = _session.Api.BaseAddress ?? string.Empty;
 
         AvatarButton.Content = Initials(_session.DisplayName);
         AvatarGroupHeader.Header = groupe?.Nom ?? "Aucun espace";
@@ -426,7 +425,7 @@ public partial class MainWindow : Window
         "bilan" => new BilanView(_session),
         "program" => new ProgrammeView(_session),
         "audit" => new AuditView(_session),
-        "parametres" => new ParametresView(_session),
+        "parametres" => CreateParametresView(),
         _ => PlaceholderView.For(label, key),
     };
 
@@ -510,6 +509,36 @@ public partial class MainWindow : Window
             "Mot de passe", MessageBoxButton.OK, MessageBoxImage.Information);
 
         StatusText.Text = "Mot de passe modifié";
+    }
+
+    private ParametresView CreateParametresView()
+    {
+        var view = new ParametresView(_session);
+        view.EspaceDeleted += (_, _) => OnEspaceDeleted();
+        return view;
+    }
+
+    /// <summary>
+    /// The espace this window was showing no longer exists. Offer the ones that remain; if none is
+    /// chosen there is nothing left to work in, so the app closes rather than sit on a deleted espace.
+    /// </summary>
+    private void OnEspaceDeleted()
+    {
+        var picker = new GroupPickerWindow { Owner = this };
+        if (picker.ShowDialog() != true)
+        {
+            EndPresence();
+            CustomerDisplayService.Instance.Stop();
+            _session.SignOut();
+            Application.Current.Shutdown();
+            return;
+        }
+
+        _openModules.Clear();
+        _currentKey = null;
+        _backStack.Clear();
+        BackButton.IsEnabled = false;
+        BuildShell();
     }
 
     private void ChangeGroup_Click(object sender, RoutedEventArgs e)

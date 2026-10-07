@@ -206,20 +206,25 @@
                 Background="{DynamicResource Surface}"
                 BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0"
                 Padding="14,8">
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button x:Name="PrevPageButton" Content="◀ Précédent" Margin="0,0,8,0"
-                        Style="{StaticResource SecondaryButton}" Click="PrevPage_Click" />
-                <TextBlock x:Name="PageText" VerticalAlignment="Center"
-                           Foreground="{DynamicResource TextSecondary}" MinWidth="90" TextAlignment="Center" />
-                <Button x:Name="NextPageButton" Content="Suivant ▶" Margin="8,0,0,0"
-                        Style="{StaticResource SecondaryButton}" Click="NextPage_Click" />
-            </StackPanel>
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Par page" Style="{StaticResource PageSubtitle}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <ComboBox x:Name="PageSizeCombo" Width="70" SelectionChanged="PageSize_Changed">
+                        <ComboBoxItem Content="12" />
+                        <ComboBoxItem Content="24" IsSelected="True" />
+                        <ComboBoxItem Content="36" />
+                        <ComboBoxItem Content="48" />
+                    </ComboBox>
+                </StackPanel>
+                <controls:PaginationBar x:Name="PagerBar" PageChanged="PagerBar_PageChanged" />
+            </DockPanel>
         </Border>
 
         <!-- Grid -->
         <Grid>
             <Grid x:Name="StockContentGrid" PreviewMouseLeftButtonDown="StockContentGrid_PreviewMouseLeftButtonDown">
-            <DataGrid x:Name="ProductGrid" MouseDoubleClick="Grid_DoubleClick"
+            <!-- RowHeight: the app-wide 32 px row clipped the 32 px photo plus its margin. -->
+            <DataGrid x:Name="ProductGrid" RowHeight="44" MouseDoubleClick="Grid_DoubleClick"
                       SelectionChanged="Grid_SelectionChanged"
                       PreviewMouseRightButtonDown="ProductGrid_PreviewMouseRightButtonDown">
                 <!-- Bound to a list of ListRow (Product, Thumbnail), the same pairing the icon
@@ -227,10 +232,10 @@
                      straight to Thumbnail, with no converter needing the instance-level
                      thumbnail cache handed to it as a runtime-registered resource. -->
                 <DataGrid.Columns>
-                    <DataGridTemplateColumn Header="Photo" Width="46" CanUserSort="False" CanUserResize="False">
+                    <DataGridTemplateColumn Header="Photo" Width="52" CanUserSort="False" CanUserResize="False">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <Border Width="32" Height="32" Margin="0,2" CornerRadius="4"
+                                <Border Width="36" Height="36" Margin="0,2" CornerRadius="4"
                                         Background="White" BorderBrush="{DynamicResource Border}" BorderThickness="1"
                                         ClipToBounds="True">
                                     <Image Source="{Binding Thumbnail}" Stretch="Uniform" />

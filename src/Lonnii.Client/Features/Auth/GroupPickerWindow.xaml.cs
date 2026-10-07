@@ -7,7 +7,6 @@ using System.Windows.Media.Imaging;
 using Lonnii.Client.Features;
 using Lonnii.Client.Services;
 using Lonnii.Shared.Contracts;
-using Microsoft.Win32;
 
 namespace Lonnii.Client.Features.Auth;
 
@@ -22,7 +21,7 @@ public partial class GroupPickerWindow : Window
     public GroupPickerWindow()
     {
         InitializeComponent();
-        GroupList.SelectionChanged += GroupList_SelectionChanged;
+        Icon = AppIcon.Current;
         Loaded += async (_, _) => await LoadAsync();
     }
 
@@ -43,9 +42,12 @@ public partial class GroupPickerWindow : Window
             if (!hasAny)
             {
                 GroupList.ItemsSource = null;
-                UpdateAdminButtons(null);
+                CreateButton.Visibility = Visibility.Collapsed;
                 return;
             }
+
+            // Only someone who already runs an espace may open another one.
+            CreateButton.Visibility = groupes.Any(g => g.IsAdminGeneral) ? Visibility.Visible : Visibility.Collapsed;
 
             // Wrap each DTO in a lightweight VM so photos can be pushed in async.
             var items = groupes.Select(g => new GroupeItem(g)).ToList();
@@ -76,7 +78,7 @@ public partial class GroupPickerWindow : Window
 
             try
             {
-                var bytes = await _session.Api.GetImageBytesAsync(item.Groupe.PhotoUrl);
+                var bytes = await _session.Api.GetEspacePhotoBytesAsync(item.Groupe.Id);
                 item.Photo = ToBitmapImage(bytes);
             }
             catch
@@ -92,7 +94,7 @@ public partial class GroupPickerWindow : Window
         image.BeginInit();
         image.StreamSource = new MemoryStream(bytes);
         image.CacheOption = BitmapCacheOption.OnLoad;
-        image.DecodePixelWidth = 80; // small thumbnail - only shown at 40px
+        image.DecodePixelWidth = 360; // shown ~180 wide on the card cover; 2x for sharpness
         image.EndInit();
         image.Freeze();
         return image;
@@ -100,21 +102,6 @@ public partial class GroupPickerWindow : Window
 
     // -----------------------------------------------------------------------
     // Selection
-
-    private void GroupList_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
-    {
-        var selected = GroupList.SelectedItem as GroupeItem;
-        UpdateAdminButtons(selected?.Groupe);
-    }
-
-    /// <summary>Shows the photo and delete buttons only when the selected espace was created
-    /// by the signed-in user — the API enforces the same check server-side.</summary>
-    private void UpdateAdminButtons(GroupeDto? groupe)
-    {
-        var isOwner = groupe?.IsAdminGeneral == true;
-        PhotoButton.Visibility = isOwner ? Visibility.Visible : Visibility.Collapsed;
-        DeleteButton.Visibility = isOwner ? Visibility.Visible : Visibility.Collapsed;
-    }
 
     // -----------------------------------------------------------------------
     // Open
@@ -215,113 +202,7 @@ public partial class GroupPickerWindow : Window
     }
 
     // -----------------------------------------------------------------------
-    // Photo
-
-    /// <summary>
-    /// Opens a file picker and uploads the chosen image as the espace cover photo.
-    /// Only enabled when the selected espace was created by the current user.
-    /// </summary>
-    private async void Photo_Click(object sender, RoutedEventArgs e)
-    {
-        if (GroupList.SelectedItem is not GroupeItem item) return;
-
-        var dialog = new OpenFileDialog
-        {
-            Title = "Choisir une photo pour cet espace",
-            Filter = "Images|*.jpg;*.jpeg;*.png;*.bmp;*.gif|Tous les fichiers|*.*",
-        };
-
-        if (dialog.ShowDialog(this) != true) return;
-
-        var fileName = Path.GetFileName(dialog.FileName);
-        byte[] bytes;
-        try
-        {
-            bytes = await File.ReadAllBytesAsync(dialog.FileName);
-        }
-        catch (IOException ex)
-        {
-            ShowError($"Impossible de lire le fichier : {ex.Message}");
-            return;
-        }
-
-        // The API requires a group session for /api/groupe/photo, so we need to be
-        // inside the espace to update its photo. If the session is already open for
-        // this espace we call directly; otherwise we open a temporary session.
-        var needsSession = _session.Groupe?.Id != item.Groupe.Id;
-        if (needsSession) await _session.EnterGroupAsync(item.Groupe.Id);
-
-        try
-        {
-            var updated = await _session.Api.UploadEspacePhotoAsync(bytes, fileName);
-            HideError();
-
-            // Push the new photo into the card without a full reload.
-            item.Groupe = updated;
-            if (updated.PhotoUrl is not null)
-            {
-                try { item.Photo = ToBitmapImage(await _session.Api.GetImageBytesAsync(updated.PhotoUrl)); }
-                catch { /* ignore - the picker still works without a fresh thumbnail */ }
-            }
-        }
-        catch (ApiException ex)
-        {
-            ShowError(ex.Message);
-        }
-        finally
-        {
-            if (needsSession) await CloseTemporarySessionAsync();
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Delete
-
-    /// <summary>
-    /// Asks for confirmation then permanently deletes the selected espace and all its data.
-    /// Only enabled when the selected espace was created by the current user.
-    /// </summary>
-    private async void Delete_Click(object sender, RoutedEventArgs e)
-    {
-        if (GroupList.SelectedItem is not GroupeItem item) return;
-
-        var nom = item.Groupe.Nom;
-        var confirm = MessageBox.Show(
-            this,
-            $"Voulez-vous vraiment supprimer l'espace « {nom} » et toutes ses données ?\n\n" +
-            "Cette action est irréversible.",
-            "Supprimer l'espace",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning,
-            MessageBoxResult.No);
-
-        if (confirm != MessageBoxResult.Yes) return;
-
-        // A second confirmation with the name typed is the gold standard for destructive
-        // actions, but for a local POS app a double-click confirm is already rare and
-        // sufficient. The API enforces admin-général on its end regardless.
-        try
-        {
-            await _session.Api.DeleteGroupeAsync(item.Groupe.Id);
-            HideError();
-            await LoadAsync();
-        }
-        catch (ApiException ex)
-        {
-            ShowError(ex.Message);
-        }
-    }
-
-    // -----------------------------------------------------------------------
     // Helpers
-
-    /// <summary>Closes the group session quietly after a photo upload that required opening
-    /// one temporarily. Swallows errors - the session will expire on its own.</summary>
-    private async Task CloseTemporarySessionAsync()
-    {
-        try { await _session.Api.CloseGroupSessionAsync(); }
-        catch { /* best-effort */ }
-    }
 
     /// <summary>
     /// Whether the server refused because it does not recognise this machine, as opposed to

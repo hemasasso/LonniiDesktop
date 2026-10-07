@@ -1,3 +1,5 @@
+using System.Linq;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Microsoft.Win32;
 
@@ -11,14 +13,23 @@ namespace Lonnii.Client;
 /// </summary>
 public static class AppIcon
 {
-    private static BitmapImage? _current;
+    private static ImageSource? _current;
 
     /// <summary>The icon matching the current theme. Resolved once and cached: the app
     /// does not react to a theme change while running, only picks correctly at each start.</summary>
-    public static BitmapImage Current => _current ??= Load(IsLightTheme() ? "icon-light.ico" : "icon-dark.ico");
+    public static ImageSource Current => _current ??= Load(IsLightTheme() ? "icon-light.ico" : "icon-dark.ico");
 
-    private static BitmapImage Load(string fileName) =>
-        new(new Uri($"pack://application:,,,/Assets/{fileName}", UriKind.Absolute));
+    /// <summary>Hands WPF the .ico's largest frame. A bare BitmapImage takes the first frame,
+    /// which can be the 16px one, and the taskbar then shows a small blurry icon.</summary>
+    private static ImageSource Load(string fileName)
+    {
+        var decoder = BitmapDecoder.Create(
+            new Uri($"pack://application:,,,/Assets/{fileName}", UriKind.Absolute),
+            BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+        var frame = decoder.Frames.OrderByDescending(f => f.PixelWidth).First();
+        frame.Freeze();
+        return frame;
+    }
 
     /// <summary>
     /// Reads the same registry value Windows itself uses to decide whether apps get a

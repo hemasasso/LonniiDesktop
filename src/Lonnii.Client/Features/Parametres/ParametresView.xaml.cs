@@ -21,6 +21,9 @@ public partial class ParametresView : UserControl
 {
     private readonly AppSession _session;
 
+    /// <summary>Raised after this espace was deleted, so the window can leave it.</summary>
+    public event EventHandler? EspaceDeleted;
+
     public ParametresView(AppSession session)
     {
         _session = session;
@@ -51,6 +54,14 @@ public partial class ParametresView : UserControl
 
         // Gated the same way as Currency/Ventes below, and for the same reason.
         MembersPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
+
+        // Deleting is the creator's alone, as on the API.
+        DeleteEspacePanel.Visibility = _session.IsAdminGeneral ? Visibility.Visible : Visibility.Collapsed;
+
+        // The API only lets an admin change the photo, so only an admin is offered it.
+        PhotoPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
+        PhotoInitial.Text = string.IsNullOrEmpty(groupe?.Nom) ? string.Empty : groupe!.Nom[..1].ToUpperInvariant();
+        if (_session.IsAdmin && groupe is not null) _ = LoadPhotoAsync(groupe.Id);
 
         CurrencyPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
         CurrencyBox.Text = groupe?.CurrencyLabel ?? Money.Label;
@@ -260,6 +271,120 @@ public partial class ParametresView : UserControl
         {
             CurrencyStatusText.Text = ex.Message;
             CurrencyStatusText.Foreground = (Brush)FindResource("Danger");
+        }
+    }
+
+    // --- Espace photo ----------------------------------------------------------------
+
+    /// <summary>Shows the espace's current photo, or its initial when it has none.</summary>
+    private async Task LoadPhotoAsync(string groupId)
+    {
+        try
+        {
+            ShowPhoto(await _session.Api.GetEspacePhotoBytesAsync(groupId));
+        }
+        catch (ApiException)
+        {
+            ShowPhoto(null); // none uploaded yet
+        }
+    }
+
+    private void ShowPhoto(byte[]? bytes)
+    {
+        PhotoImage.Source = bytes is null ? null : ToBitmap(bytes);
+        PhotoInitial.Visibility = bytes is null ? Visibility.Visible : Visibility.Collapsed;
+        RemovePhotoButton.Visibility = bytes is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private static System.Windows.Media.Imaging.BitmapImage ToBitmap(byte[] bytes)
+    {
+        var image = new System.Windows.Media.Imaging.BitmapImage();
+        image.BeginInit();
+        image.StreamSource = new System.IO.MemoryStream(bytes);
+        image.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+        image.DecodePixelWidth = 128; // shown at 64
+        image.EndInit();
+        image.Freeze();
+        return image;
+    }
+
+    private void SetPhotoStatus(string text, bool error)
+    {
+        PhotoStatusText.Text = text;
+        PhotoStatusText.Foreground = (Brush)FindResource(error ? "Danger" : "TextSecondary");
+    }
+
+    private async void ChoosePhoto_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Choisir une photo pour cet espace",
+            Filter = "Images|*.jpg;*.jpeg;*.png;*.bmp;*.gif|Tous les fichiers|*.*",
+        };
+        if (dialog.ShowDialog(Window.GetWindow(this)) != true) return;
+
+        try
+        {
+            var bytes = await System.IO.File.ReadAllBytesAsync(dialog.FileName);
+            await _session.Api.UploadEspacePhotoAsync(bytes, System.IO.Path.GetFileName(dialog.FileName));
+
+            // Read it back the way the picker will, so what shows here is what is really saved.
+            ShowPhoto(await _session.Api.GetEspacePhotoBytesAsync(_session.Groupe!.Id));
+            SetPhotoStatus("Photo enregistrée.", error: false);
+        }
+        catch (System.IO.IOException ex)
+        {
+            SetPhotoStatus($"Impossible de lire le fichier : {ex.Message}", error: true);
+        }
+        catch (ApiException ex)
+        {
+            SetPhotoStatus(ex.Message, error: true);
+        }
+    }
+
+    private async void RemovePhoto_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await _session.Api.DeleteEspacePhotoAsync();
+            ShowPhoto(null);
+            SetPhotoStatus("Photo supprimée.", error: false);
+        }
+        catch (ApiException ex)
+        {
+            SetPhotoStatus(ex.Message, error: true);
+        }
+    }
+
+    // --- Delete the espace -------------------------------------------------------------
+
+    private async void DeleteEspace_Click(object sender, RoutedEventArgs e)
+    {
+        var groupe = _session.Groupe;
+        if (groupe is null) return;
+
+        // Typing the name is the confirmation: a stray click cannot erase a shop.
+        var typed = Lonnii.Client.Common.PromptDialog.Show(
+            Window.GetWindow(this)!, "Supprimer l'espace",
+            $"Toutes les données de « {groupe.Nom} » seront supprimées, définitivement.\n\n" +
+            "Tapez le nom de l'espace pour confirmer :");
+        if (typed is null) return;
+
+        if (!string.Equals(typed.Trim(), groupe.Nom, StringComparison.Ordinal))
+        {
+            DeleteEspaceStatusText.Text = "Le nom ne correspond pas. Rien n'a été supprimé.";
+            return;
+        }
+
+        try
+        {
+            await _session.Api.DeleteGroupeAsync(groupe.Id);
+            DeleteEspaceStatusText.Text = string.Empty;
+            EspaceDeleted?.Invoke(this, EventArgs.Empty);
+        }
+        catch (ApiException ex)
+        {
+            DeleteEspaceStatusText.Text = ex.Message;
         }
     }
 

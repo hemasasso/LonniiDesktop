@@ -103,6 +103,9 @@ public partial class CaisseHistoryDialog : Window
 
         VendeurBox.Visibility = isAdmin ? Visibility.Visible : Visibility.Collapsed;
 
+        // Opens on today: the sessions of the current day are what is usually being looked for.
+        SelectPeriod("today");
+
         Loaded += async (_, _) =>
         {
             if (isAdmin) await LoadVendeursAsync();
@@ -124,9 +127,60 @@ public partial class CaisseHistoryDialog : Window
         }
     }
 
+    /// <summary>True while the code itself is setting the period and dates, so that does not
+    /// count as the user changing them.</summary>
+    private bool _applyingPeriod;
+
+    private void SelectPeriod(string tag)
+    {
+        _applyingPeriod = true;
+        try
+        {
+            foreach (ComboBoxItem item in PeriodBox.Items)
+            {
+                if ((string)item.Tag != tag) continue;
+                PeriodBox.SelectedItem = item;
+                break;
+            }
+
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            (DateOnly? from, DateOnly? to)? range = tag switch
+            {
+                "today" => (today, today),
+                "week" => (today.AddDays(-6), today),
+                "month" => (new DateOnly(today.Year, today.Month, 1), today),
+                "year" => (new DateOnly(today.Year, 1, 1), today),
+                "all" => (null, null),
+                _ => null, // custom: leave the dates as they are
+            };
+
+            if (range is { } r)
+            {
+                DateDebutPicker.SelectedDate = r.from?.ToDateTime(TimeOnly.MinValue);
+                DateFinPicker.SelectedDate = r.to?.ToDateTime(TimeOnly.MinValue);
+            }
+        }
+        finally
+        {
+            _applyingPeriod = false;
+        }
+    }
+
+    private async void Period_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_applyingPeriod || !IsLoaded) return;
+
+        SelectPeriod((string)((ComboBoxItem)PeriodBox.SelectedItem).Tag);
+        await LoadAsync();
+    }
+
     private async void Filter_Changed(object sender, SelectionChangedEventArgs e)
     {
-        if (!IsLoaded) return;
+        if (!IsLoaded || _applyingPeriod) return;
+
+        // Picking a date by hand is a custom period, whatever preset was showing.
+        if (sender is DatePicker) SelectPeriod("custom");
+
         await LoadAsync();
     }
 

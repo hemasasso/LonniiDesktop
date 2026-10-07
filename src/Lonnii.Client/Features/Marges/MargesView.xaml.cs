@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using Lonnii.Client.Common;
 using Lonnii.Client.Services;
 using Lonnii.Shared.Contracts;
 using Lonnii.Shared.Security;
@@ -969,14 +970,16 @@ public partial class MargesView : UserControl
 
         try
         {
-            var printDialog = new PrintDialog();
-            if (printDialog.ShowDialog() != true) return;
-
             var paper = BuildPrintReport(data);
             paper.Measure(new Size(paper.Width, double.PositiveInfinity));
             paper.Arrange(new Rect(new Point(0, 0), paper.DesiredSize));
+            paper.UpdateLayout();
 
-            printDialog.PrintVisual(paper, $"Analyse des Marges - {_session.Groupe?.Nom}");
+            // Preview first; the printer is chosen from the preview window.
+            PrintPreviewWindow.Show(
+                Window.GetWindow(this),
+                new VisualPaginator(paper, PrintPreviewWindow.A4, margin: 36),
+                $"Analyse des Marges - {_session.Groupe?.Nom}");
         }
         catch (Exception ex)
         {

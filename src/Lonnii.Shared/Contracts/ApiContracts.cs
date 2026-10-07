@@ -40,7 +40,7 @@ public sealed record ResetMemberPasswordRequest(string NewPassword);
 /// False on a shipped host: the first account can only come from registering with Lonnii (or the
 /// credentials file), so the sign-in window does not offer to create one by hand.
 /// </param>
-public sealed record SetupStateResponse(bool HasAnyAccount, bool ManualSetupAllowed = true);
+public sealed record SetupStateResponse(bool HasAnyAccount, bool ManualSetupAllowed = true, string? HostId = null);
 
 /// <summary>A user, as returned to the client. Never carries a password hash.</summary>
 public sealed record UserDto(

@@ -92,8 +92,8 @@ public static class AuthEndpoints
     /// create the first administrator rather than presenting an unusable sign-in form.
     /// </summary>
     private static async Task<IResult> SetupStateAsync(
-        LonniiDbContext db, IConfiguration config, CancellationToken ct) =>
-        Results.Ok(new SetupStateResponse(await db.Users.AnyAsync(ct), ManualSetupAllowed(config)));
+        LonniiDbContext db, IConfiguration config, TokenService tokens, CancellationToken ct) =>
+        Results.Ok(new SetupStateResponse(await db.Users.AnyAsync(ct), ManualSetupAllowed(config), tokens.HostId));
 
     /// <summary>
     /// Whether the first account may be created by hand on this host. Off unless

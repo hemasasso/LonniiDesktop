@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Media;
+using Lonnii.Client.Common;
 using Lonnii.Shared.Contracts;
 
 namespace Lonnii.Client.Features.Bilan;
@@ -20,22 +21,20 @@ public static class BilanDocument
     private static readonly Brush Warn = Brushes.Firebrick;
     private static readonly Brush RuleBrush = Brushes.Black;
 
-    /// <summary>Shows the print dialog and, if accepted, paginates and prints the document
-    /// against the chosen printer's actual page size - printed straight to a physical printer,
-    /// or to a PDF file via the "Microsoft Print to PDF" printer the dialog already lists,
-    /// which is how this also covers handing the statement to someone else as a file.</summary>
+    /// <summary>Opens the print preview - the pages laid out as they will print, on A4 - and
+    /// prints from there once the printer is chosen. Printing to a PDF file works through the
+    /// "Microsoft Print to PDF" printer the print dialog lists, which is how this also covers
+    /// handing the statement to someone else as a file.</summary>
     public static void Print(FlowDocument document, string jobName)
     {
-        var dialog = new PrintDialog();
-        if (dialog.ShowDialog() != true) return;
-
-        document.PageWidth = dialog.PrintableAreaWidth;
-        document.PageHeight = dialog.PrintableAreaHeight;
+        document.PageWidth = PrintPreviewWindow.A4.Width;
+        document.PageHeight = PrintPreviewWindow.A4.Height;
         document.PagePadding = new Thickness(36);
         document.ColumnWidth = double.PositiveInfinity;
 
         var paginator = ((IDocumentPaginatorSource)document).DocumentPaginator;
-        dialog.PrintDocument(paginator, jobName);
+        var owner = Application.Current.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive);
+        PrintPreviewWindow.Show(owner, paginator, jobName);
     }
 
     public static FlowDocument BuildBilan(BilanResponse b, string company)

@@ -120,8 +120,13 @@ public partial class StockView : UserControl
 
     /// <summary>Products load one page at a time so a large catalogue never means downloading
     /// thumbnails for, or rendering, hundreds of cards at once.</summary>
-    private const int PageSize = 24;
+    private int _pageSize = 24;
     private int _page;
+
+    /// <summary>Setting the page-size combo - the XAML default and the restore of the saved
+    /// choice - fires its changed handler synchronously; without this the default would be
+    /// written back as if the user had picked it, wiping what was saved.</summary>
+    private bool _suppressPageSizeSave = true;
 
     /// <summary>Thumbnails already downloaded, keyed by image URL, so switching views or
     /// refreshing the list does not re-download a photo it already has.</summary>
@@ -144,6 +149,7 @@ public partial class StockView : UserControl
     /// Waits for a short pause in typing before searching, so every keystroke does not
     /// fire its own request against the API.
     /// </summary>
+    private readonly ScanKeyCapture _scan;
     private readonly DispatcherTimer _searchDebounce = new() { Interval = TimeSpan.FromMilliseconds(300) };
 
     /// <summary>A product paired with its downloaded thumbnail, for the icon view's cards.</summary>
@@ -167,6 +173,11 @@ public partial class StockView : UserControl
         _canViewStockAnalytics = _session.Can(Priv.Gestion.ViewAnalytics);
         InitializeComponent();
 
+        // A scanner types into this box; on a French keyboard layout its digits arrive as symbols.
+        // The search runs when the scan ends (Enter, or a pause for scanners that send none).
+        _scan = new ScanKeyCapture(SearchBox, autoCorrect: false);
+        _scan.ScanCompleted += async () => await FinishScanAsync();
+
         MovementFilterPanel.Visibility = _canViewStockHistory ? Visibility.Visible : Visibility.Collapsed;
         MovementStatsPanel.Visibility = _canViewStockHistory ? Visibility.Visible : Visibility.Collapsed;
         MovementDetailPanel.Visibility = _canViewStockHistory ? Visibility.Visible : Visibility.Collapsed;
@@ -183,6 +194,15 @@ public partial class StockView : UserControl
         };
         Loaded += async (_, _) =>
         {
+            if (UiState.For(_session).StockPageSize is { } savedPageSize
+                && PageSizeCombo.Items.Cast<ComboBoxItem>()
+                    .FirstOrDefault(i => i.Content as string == savedPageSize.ToString()) is { } savedItem)
+            {
+                _pageSize = savedPageSize;
+                PageSizeCombo.SelectedItem = savedItem;
+            }
+            _suppressPageSizeSave = false;
+
             // Reopen on Analyse if that is where the user was before an "Actualiser" or a
             // restart, and they still hold the privilege; LoadAsync then loads it too.
             if (_canViewStockAnalytics && UiState.For(_session).Tabs.GetValueOrDefault(ModuleKey) == "analyse")
@@ -279,10 +299,10 @@ public partial class StockView : UserControl
     /// the current page and binds it to whichever view is active. Does not touch the API.</summary>
     private async Task ApplyPageAsync()
     {
-        var totalPages = Math.Max(1, (int)Math.Ceiling(_products.Count / (double)PageSize));
+        var totalPages = Math.Max(1, (int)Math.Ceiling(_products.Count / (double)_pageSize));
         _page = Math.Clamp(_page, 0, totalPages - 1);
 
-        _pageItems = _products.Skip(_page * PageSize).Take(PageSize).ToList();
+        _pageItems = _products.Skip(_page * _pageSize).Take(_pageSize).ToList();
 
         await PreloadThumbnailsAsync(_pageItems);
         ProductGrid.ItemsSource = _pageItems
@@ -290,20 +310,32 @@ public partial class StockView : UserControl
             .ToList();
         if (_iconView) await LoadIconViewAsync();
 
-        PageText.Text = $"Page {_page + 1} / {totalPages}";
-        PrevPageButton.IsEnabled = _page > 0;
-        NextPageButton.IsEnabled = _page < totalPages - 1;
+        PagerBar.Configure(_page + 1, totalPages);
     }
 
-    private async void PrevPage_Click(object sender, RoutedEventArgs e)
+    private async void PagerBar_PageChanged(object? sender, EventArgs e)
     {
-        _page--;
+        _page = PagerBar.CurrentPage - 1;
         await ApplyPageAsync();
     }
 
-    private async void NextPage_Click(object sender, RoutedEventArgs e)
+    private async void PageSize_Changed(object sender, SelectionChangedEventArgs e)
     {
-        _page++;
+        if (!IsLoaded) return;
+
+        if ((PageSizeCombo.SelectedItem as ComboBoxItem)?.Content as string is not { } text
+            || !int.TryParse(text, out var size))
+            return;
+
+        _pageSize = size;
+        _page = 0;
+
+        if (!_suppressPageSizeSave)
+        {
+            UiState.For(_session).StockPageSize = size;
+            UiState.Save();
+        }
+
         await ApplyPageAsync();
     }
 
@@ -936,7 +968,7 @@ public partial class StockView : UserControl
     /// <summary>
     /// Downloads the thumbnail for every product in <paramref name="products"/> into
     /// <see cref="_thumbnailCache"/>, reusing whatever is already there. Paging keeps callers
-    /// bounded to at most <see cref="PageSize"/> downloads at a time, even on a large catalogue.
+    /// bounded to at most one page (<see cref="_pageSize"/>) of downloads at a time, even on a large catalogue.
     /// </summary>
     private async Task PreloadThumbnailsAsync(IEnumerable<ProductDto> products)
     {
@@ -999,8 +1031,32 @@ public partial class StockView : UserControl
     private async void Search_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter) return;
+        await FinishScanAsync();
+    }
+
+    /// <summary>
+    /// Runs the search for what was just typed or scanned. A scan is first put right for the
+    /// keyboard layout; when it finds exactly one product that product is selected and the scan
+    /// tone sounds, as at the till - otherwise it is only a filtered list.
+    /// </summary>
+    private async Task FinishScanAsync()
+    {
         _searchDebounce.Stop();
+
+        var typed = SearchBox.Text;
+        var isScan = _scan.IsScan(typed);
+        var resolved = _scan.Resolve(typed);
+        if (resolved != typed) SearchBox.Text = resolved;
+
         await LoadAsync();
+
+        if (isScan && _products.Count == 1)
+        {
+            ScanTone.Play();
+            ProductGrid.SelectedIndex = 0;
+        }
+
+        _scan.Reset();
     }
 
     private async void Grid_DoubleClick(object sender, MouseButtonEventArgs e)

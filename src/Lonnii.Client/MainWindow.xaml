@@ -97,8 +97,6 @@
             <StatusBarItem HorizontalAlignment="Right">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock x:Name="StatusUser" Foreground="{DynamicResource TextSecondary}" />
-                    <TextBlock Text="  •  " Foreground="{DynamicResource TextMuted}" />
-                    <TextBlock x:Name="StatusHost" Foreground="{DynamicResource TextMuted}" />
                 </StackPanel>
             </StatusBarItem>
         </StatusBar>

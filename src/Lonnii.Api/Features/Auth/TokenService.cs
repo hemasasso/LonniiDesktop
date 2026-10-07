@@ -42,6 +42,14 @@ public class TokenService(JwtOptions options)
     private readonly SymmetricSecurityKey _key =
         new(Encoding.UTF8.GetBytes(options.Secret));
 
+    /// <summary>
+    /// A stable identity for this host, safe to show to anyone: a one-way hash of the signing
+    /// key, so it survives restarts and reinstalls that keep the data folder, yet reveals nothing
+    /// of the key. Tills remember it and refuse a different host.
+    /// </summary>
+    public string HostId { get; } = Convert.ToHexString(
+        SHA256.HashData(Encoding.UTF8.GetBytes("lonnii-host-id|" + options.Secret)))[..32].ToLowerInvariant();
+
     /// <summary>The validation rules the API applies to incoming tokens.</summary>
     public TokenValidationParameters ValidationParameters => new()
     {
@@ -99,12 +107,46 @@ public class TokenService(JwtOptions options)
         if (File.Exists(keyFilePath))
         {
             var existing = File.ReadAllText(keyFilePath).Trim();
-            if (existing.Length >= 32) return existing;
+            if (existing.Length >= 32)
+            {
+                // A key made by an earlier build may be readable by every user on the server. It is the root of every
+                // token this server signs and every cloud-backup token it derives, so close it on the way past.
+                RestrictToOwner(keyFilePath);
+                return existing;
+            }
         }
 
         var secret = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48));
         Directory.CreateDirectory(Path.GetDirectoryName(keyFilePath)!);
-        File.WriteAllText(keyFilePath, secret);
+
+        // Created readable by its owner only, from the first byte - not written world-readable and tightened after.
+        // The mode is set on Linux only: on Windows, UnixCreateMode throws (it is NOT ignored), and the file there
+        // simply inherits the per-user ACL of its folder.
+        var options = new FileStreamOptions { Mode = FileMode.Create, Access = FileAccess.Write };
+        if (!OperatingSystem.IsWindows())
+            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+
+        using (var stream = new FileStream(keyFilePath, options))
+        using (var writer = new StreamWriter(stream))
+        {
+            writer.Write(secret);
+        }
+
         return secret;
+    }
+
+    /// <summary>Owner-only permissions on Linux. A no-op on Windows, which has no such mode bits.</summary>
+    private static void RestrictToOwner(string path)
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        try
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Not ours to change (another owner): the key still works, and the operator can fix the mode.
+        }
     }
 }

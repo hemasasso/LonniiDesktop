@@ -20,6 +20,11 @@ public static class GroupEndpoints
 
         groups.MapGet("/", ListAsync);
         groups.MapPost("/", CreateAsync);
+
+        // Espaces registered from this machine that Lonnii has not approved yet.
+        groups.MapGet("/pending", ListPendingAsync);
+        groups.MapPost("/pending/{groupId}/activate", ActivatePendingAsync);
+        groups.MapDelete("/pending/{groupId}", DismissPendingAsync);
         groups.MapPost("/{groupId}/session", OpenSessionAsync);
         groups.MapDelete("/{groupId}", DeleteAsync).RequireAuthorization();
         groups.MapGet("/{groupId}/photo", GetPhotoAsync);
@@ -74,6 +79,7 @@ public static class GroupEndpoints
         LonniiDbContext db,
         ILicenceServer licences,
         IConfiguration config,
+        PendingEspaceStore pending,
         HttpContext http,
         CancellationToken ct)
     {
@@ -101,16 +107,44 @@ public static class GroupEndpoints
         Device? device = null;
         string? backupToken = null;
 
-        if (config.GetValue("Lonnii:OnlineRegistration:Required", true) && !string.IsNullOrWhiteSpace(serverUrl))
+        var registersOnline = config.GetValue("Lonnii:OnlineRegistration:Required", true)
+            && !string.IsNullOrWhiteSpace(serverUrl);
+
+        // Becoming an Admin Général always goes through Lonnii, where the owner's email was confirmed
+        // with a code. Creating one purely here is only for development and the tests.
+        if (!registersOnline && !config.GetValue("Lonnii:AllowManualSetup", false))
+        {
+            return Results.Json(
+                new ApiError("Un espace ne peut être créé qu'en ligne, par un propriétaire dont l'adresse e-mail a été vérifiée par Lonnii."),
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        if (registersOnline)
         {
             var (refusal, registered) = await RegisterOnlineAsync(
-                request, userId, serverUrl, db, licences, http, groupe, ct);
+                request, userId, serverUrl!, db, licences, pending, http, groupe, ct);
             if (refusal is not null) return refusal;
 
             device = registered.Device;
             backupToken = registered.BackupToken;
         }
 
+        await AddEspaceAsync(db, groupe, device, backupToken, userId, ct);
+
+        return Results.Created($"/api/groupes/{groupe.Id}",
+            ToDto(groupe, GroupRoles.Admin, isAdminGeneral: true, memberCount: 1));
+    }
+
+    /// <summary>
+    /// Registers a new espace with the licence server and fills <paramref name="groupe"/> with what
+    /// it answers - its id above all, so the same espace is the same everywhere. Then activates
+    /// this machine for it, which binds the machine and brings back the mode and device allowance.
+    /// </summary>
+    /// <summary>Builds an espace on this machine: the shop, this machine's binding, and its creator as
+    /// member and Admin Général.</summary>
+    private static async Task AddEspaceAsync(
+        LonniiDbContext db, Groupe groupe, Device? device, string? backupToken, string userId, CancellationToken ct)
+    {
         db.Groupes.Add(groupe);
         if (device is not null) db.Devices.Add(device);
         if (device is not null) LicenceGuard.StoreBackupToken(db, groupe.Id, device.DeviceId, backupToken);
@@ -124,22 +158,105 @@ public static class GroupEndpoints
         });
 
         await db.SaveChangesAsync(ct);
+    }
+
+    private static async Task<string> EmailOfAsync(LonniiDbContext db, string userId, CancellationToken ct) =>
+        await db.Users.Where(u => u.IdUser == userId).Select(u => u.Email).FirstAsync(ct);
+
+    private static async Task<IResult> ListPendingAsync(
+        ClaimsPrincipal principal, LonniiDbContext db, PendingEspaceStore pending, CancellationToken ct)
+    {
+        var email = await EmailOfAsync(db, principal.FindFirstValue(TokenService.UserIdClaim)!, ct);
+        return Results.Ok(pending.ForEmail(email).Select(p => p.ToDto()).ToList());
+    }
+
+    /// <summary>
+    /// Picks up an espace Lonnii has approved: activates this machine for it and builds it here under
+    /// the id Lonnii issued. While it is still waiting, Lonnii refuses the activation with its own
+    /// message, which is passed on as is.
+    /// </summary>
+    private static async Task<IResult> ActivatePendingAsync(
+        string groupId,
+        ActivatePendingEspaceRequest request,
+        ClaimsPrincipal principal,
+        LonniiDbContext db,
+        ILicenceServer licences,
+        PendingEspaceStore pending,
+        HttpContext http,
+        CancellationToken ct)
+    {
+        var userId = principal.FindFirstValue(TokenService.UserIdClaim)!;
+        var email = await EmailOfAsync(db, userId, ct);
+
+        var entry = pending.Find(groupId, email);
+        if (entry is null) return Results.NotFound(new ApiError("Aucune demande d'espace en attente avec cet identifiant."));
+
+        if (string.IsNullOrEmpty(request.Password))
+            return Results.BadRequest(new ApiError("Saisissez le mot de passe de votre compte Lonnii en ligne."));
+
+        var deviceId = http.Request.Headers["x-device-id"].ToString();
+        if (string.IsNullOrWhiteSpace(deviceId))
+            return Results.BadRequest(new ApiError("Identifiant de poste manquant."));
+
+        // Already built (a second click, or a reply that was lost): just forget the request.
+        if (await db.Groupes.AnyAsync(g => g.Id == groupId, ct))
+        {
+            pending.Remove(groupId, email);
+            return Results.Conflict(new ApiError("Cet espace existe déjà sur ce poste."));
+        }
+
+        ActivationResponse activation;
+        try
+        {
+            activation = await licences.ActivateAsync(
+                entry.ServerUrl,
+                new ActivationRequest(groupId, email, request.Password, deviceId,
+                    Environment.MachineName, DevicePlatforms.Windows),
+                ct);
+        }
+        catch (ActivationRefusedException e)
+        {
+            return Results.Json(new ApiError(e.Message), statusCode: (int?)e.Status ?? StatusCodes.Status503ServiceUnavailable);
+        }
+
+        var groupe = new Groupe
+        {
+            Id = activation.GroupId,
+            Nom = activation.GroupName,
+            IdUserAdmin = userId,
+            GestionAccess = true,
+            Mode = activation.Mode,
+            MaxDevices = activation.MaxDevices,
+            CurrencyLabel = activation.CurrencyLabel,
+            LicenceServerUrl = entry.ServerUrl,
+            LastLicenceCheckAt = activation.ActivatedAt,
+        };
+        var device = new Device { GroupId = groupe.Id, DeviceId = deviceId, DeviceName = Environment.MachineName };
+
+        await AddEspaceAsync(db, groupe, device, activation.BackupToken, userId, ct);
+        pending.Remove(groupId, email);
 
         return Results.Created($"/api/groupes/{groupe.Id}",
             ToDto(groupe, GroupRoles.Admin, isAdminGeneral: true, memberCount: 1));
     }
 
-    /// <summary>
-    /// Registers a new espace with the licence server and fills <paramref name="groupe"/> with what
-    /// it answers - its id above all, so the same espace is the same everywhere. Then activates
-    /// this machine for it, which binds the machine and brings back the mode and device allowance.
-    /// </summary>
+    /// <summary>Forgets a request on this machine. Lonnii keeps its record; decline it there if needed.</summary>
+    private static async Task<IResult> DismissPendingAsync(
+        string groupId, ClaimsPrincipal principal, LonniiDbContext db, PendingEspaceStore pending, CancellationToken ct)
+    {
+        var email = await EmailOfAsync(db, principal.FindFirstValue(TokenService.UserIdClaim)!, ct);
+        return pending.Remove(groupId, email)
+            ? Results.NoContent()
+            : Results.NotFound(new ApiError("Aucune demande d'espace en attente avec cet identifiant."));
+    }
+
     private static async Task<(IResult? Refusal, (Device? Device, string? BackupToken))> RegisterOnlineAsync(
         CreateGroupeRequest request,
         string userId,
         string serverUrl,
         LonniiDbContext db,
         ILicenceServer licences,
+        PendingEspaceStore pending,
         HttpContext http,
         Groupe groupe,
         CancellationToken ct)
@@ -163,6 +280,14 @@ public static class GroupEndpoints
         {
             var registered = await licences.RegisterEspaceAsync(
                 serverUrl, new RegistrationEspaceRequest(email, request.Password, groupe.Nom, deviceId), ct);
+
+            // Lonnii approves every new espace first. Until it has, nothing is built here: the request
+            // is remembered, and the picker offers to pick it up once it is approved.
+            if (registered.ApprovalStatus != ApprovalStatuses.Approved)
+            {
+                var entry = pending.Add(new PendingEspace(registered.GroupId, groupe.Nom, email, serverUrl, DateTime.UtcNow));
+                return (Results.Accepted("/api/groupes/pending", entry.ToDto()), default);
+            }
 
             var activation = await licences.ActivateAsync(
                 serverUrl,

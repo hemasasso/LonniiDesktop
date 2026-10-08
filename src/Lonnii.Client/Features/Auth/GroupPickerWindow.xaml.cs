@@ -35,6 +35,8 @@ public partial class GroupPickerWindow : Window
             var groupes = await _session.Api.GetGroupesAsync();
             var hasAny = groupes.Count > 0;
 
+            await LoadPendingAsync();
+
             GroupList.Visibility = hasAny ? Visibility.Visible : Visibility.Collapsed;
             EmptyPanel.Visibility = hasAny ? Visibility.Collapsed : Visibility.Visible;
             OpenButton.IsEnabled = hasAny;
@@ -193,7 +195,62 @@ public partial class GroupPickerWindow : Window
         Cursor = Cursors.Wait;
         try
         {
-            await _session.Api.CreateGroupeAsync(name.Trim(), password);
+            var outcome = await _session.Api.CreateGroupeAsync(name.Trim(), password);
+            HideError();
+
+            if (outcome.Pending is { } waiting)
+            {
+                MessageBox.Show(this,
+                    $"« {waiting.Name} » a été enregistré auprès de Lonnii.\n\n" +
+                    "Il doit être approuvé avant de pouvoir être utilisé. Une fois approuvé, revenez ici " +
+                    "et cliquez sur « Vérifier » à côté de son nom.",
+                    "Espace en attente d'approbation", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+
+            await LoadAsync();
+        }
+        catch (ApiException ex)
+        {
+            ShowError(ex.Message);
+        }
+        finally
+        {
+            Cursor = null;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Waiting for approval
+
+    private async Task LoadPendingAsync()
+    {
+        try
+        {
+            var pending = await _session.Api.GetPendingEspacesAsync();
+            PendingList.ItemsSource = pending;
+            PendingPanel.Visibility = pending.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        catch (ApiException)
+        {
+            // An older host without this list: nothing to show.
+            PendingPanel.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    /// <summary>Picks up an approved espace. While it still waits, Lonnii says so and nothing changes.</summary>
+    private async void CheckPending_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not string groupId) return;
+
+        var password = PasswordPromptDialog.Show(this, "Vérifier l'approbation",
+            "Saisissez le mot de passe de votre compte Lonnii en ligne (celui de Lonnii Business). " +
+            "Il peut différer du mot de passe de ce poste.");
+        if (password is null) return;
+
+        Cursor = Cursors.Wait;
+        try
+        {
+            await _session.Api.ActivatePendingEspaceAsync(groupId, password);
             HideError();
             await LoadAsync();
         }
@@ -204,6 +261,25 @@ public partial class GroupPickerWindow : Window
         finally
         {
             Cursor = null;
+        }
+    }
+
+    private async void DismissPending_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not string groupId) return;
+
+        if (MessageBox.Show(this,
+                "Retirer cette demande de ce poste ?\n\nLonnii garde sa trace ; vous pourrez lui demander de la refuser.",
+                "Retirer la demande", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+
+        try
+        {
+            await _session.Api.DismissPendingEspaceAsync(groupId);
+            await LoadPendingAsync();
+        }
+        catch (ApiException ex)
+        {
+            ShowError(ex.Message);
         }
     }
 

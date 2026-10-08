@@ -152,8 +152,26 @@ public class LonniiApiClient
     /// Creates an espace. The password is the caller's own: the espace is registered with Lonnii
     /// first, and Lonnii knows the caller only by email and password.
     /// </summary>
-    public Task<GroupeDto> CreateGroupeAsync(string nom, string? password = null, CancellationToken ct = default) =>
-        PostAsync<GroupeDto>("api/groupes", new CreateGroupeRequest(nom, Password: password), ct);
+    public async Task<CreateGroupeOutcome> CreateGroupeAsync(string nom, string? password = null, CancellationToken ct = default)
+    {
+        using var response = await SendCoreAsync(HttpMethod.Post, "api/groupes", new CreateGroupeRequest(nom, Password: password), ct);
+
+        // 202: registered with Lonnii, waiting for its approval before it can be built here.
+        return response.StatusCode == HttpStatusCode.Accepted
+            ? new CreateGroupeOutcome(null, await response.Content.ReadFromJsonAsync<PendingEspaceDto>(JsonOptions, ct))
+            : new CreateGroupeOutcome(await response.Content.ReadFromJsonAsync<GroupeDto>(JsonOptions, ct), null);
+    }
+
+    /// <summary>Espaces registered from this machine and still waiting for Lonnii's approval.</summary>
+    public Task<List<PendingEspaceDto>> GetPendingEspacesAsync(CancellationToken ct = default) =>
+        GetAsync<List<PendingEspaceDto>>("api/groupes/pending", ct);
+
+    /// <summary>Builds an approved espace here; refused with Lonnii's message while it still waits.</summary>
+    public Task<GroupeDto> ActivatePendingEspaceAsync(string groupId, string password, CancellationToken ct = default) =>
+        PostAsync<GroupeDto>($"api/groupes/pending/{groupId}/activate", new ActivatePendingEspaceRequest(password), ct);
+
+    public Task DismissPendingEspaceAsync(string groupId, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Delete, $"api/groupes/pending/{groupId}", null, ct);
 
     public Task<GroupSessionResponse> OpenGroupSessionAsync(string groupId, CancellationToken ct = default) =>
         PostAsync<GroupSessionResponse>($"api/groupes/{groupId}/session", new { }, ct);
@@ -1147,3 +1165,7 @@ public class LonniiApiClient
             error?.Required);
     }
 }
+
+/// <summary>What creating an espace gave: the espace, or - while Lonnii has not approved it yet - the
+/// pending request.</summary>
+public sealed record CreateGroupeOutcome(GroupeDto? Created, PendingEspaceDto? Pending);

@@ -1933,6 +1933,13 @@ public sealed record RegistrationVerifyResponse(string GroupId, string ApprovalS
 /// </summary>
 public sealed record RegistrationEspaceRequest(string Email, string Password, string ShopName, string DeviceId);
 
+/// <summary>An espace registered with Lonnii and waiting for its approval before this machine can
+/// build and open it.</summary>
+public sealed record PendingEspaceDto(string GroupId, string Name, DateTime RequestedAt);
+
+/// <summary>Picks up an approved espace: the online account's password, as for creating it.</summary>
+public sealed record ActivatePendingEspaceRequest(string Password);
+
 // --- Registration (as the desktop host exposes it to its own client) ---
 
 /// <summary>The email and shop name come back with the code: the host keeps no state between the two steps.</summary>

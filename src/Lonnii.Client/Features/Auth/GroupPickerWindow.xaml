@@ -13,6 +13,7 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Margin="0,0,0,18">
@@ -166,7 +167,37 @@
             </StackPanel>
         </Border>
 
-        <Border x:Name="ErrorPanel" Grid.Row="2" Visibility="Collapsed" Margin="0,12,0,0"
+        <!-- Espaces registered with Lonnii and waiting for its approval before they can be built here. -->
+        <Border x:Name="PendingPanel" Grid.Row="2" Visibility="Collapsed" Margin="0,12,0,0"
+                Background="{DynamicResource SurfaceAlt}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="1"
+                CornerRadius="3" Padding="12,10">
+            <StackPanel>
+                <TextBlock Text="En attente d'approbation par Lonnii" FontWeight="SemiBold" />
+                <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap" Margin="0,2,0,8"
+                           Text="Ces espaces ont été enregistrés. Une fois approuvés, cliquez sur « Vérifier » pour les ouvrir sur ce poste." />
+                <ItemsControl x:Name="PendingList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,3">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Content="Vérifier" Tag="{Binding GroupId}" Margin="8,0,0,0"
+                                        Style="{StaticResource PrimaryButton}" Click="CheckPending_Click" />
+                                <Button Grid.Column="2" Content="Retirer" Tag="{Binding GroupId}" Margin="8,0,0,0"
+                                        Style="{StaticResource SecondaryButton}" Click="DismissPending_Click" />
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+
+        <Border x:Name="ErrorPanel" Grid.Row="3" Visibility="Collapsed" Margin="0,12,0,0"
                 Background="{DynamicResource DangerLight}"
                 BorderBrush="{DynamicResource Danger}" BorderThickness="1"
                 CornerRadius="3" Padding="10,8">
@@ -174,7 +205,7 @@
                        TextWrapping="Wrap" FontSize="12" />
         </Border>
 
-        <Grid Grid.Row="3" Margin="0,16,0,0">
+        <Grid Grid.Row="4" Margin="0,16,0,0">
             <!-- Left side: creating an espace, for the Admin Général only. Photo and deletion are in Paramètres. -->
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                 <Button x:Name="CreateButton" Content="Créer un espace…" Visibility="Collapsed"

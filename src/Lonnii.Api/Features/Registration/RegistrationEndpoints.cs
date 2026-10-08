@@ -273,13 +273,15 @@ public static class RegistrationEndpoints
                 statusCode: StatusCodes.Status403Forbidden);
         }
 
+        // Every espace waits for our approval, including another one for an owner we already know:
+        // nobody uses the app before we have agreed to it (decided 2026-10-08).
         var groupe = new Groupe
         {
             Nom = shop,
             IdUserAdmin = user.IdUser,
             GestionAccess = true,
             Mode = DeploymentModes.Local,
-            ApprovalStatus = ApprovalStatuses.Approved,
+            ApprovalStatus = ApprovalStatuses.Pending,
         };
 
         // The shop first, then what points at it - see the note in VerifyAsync about ordering.
@@ -295,7 +297,7 @@ public static class RegistrationEndpoints
 
         await transaction.CommitAsync(ct);
 
-        log.LogInformation("Nouvel espace pour une boutique approuvée : {Shop} ({GroupId}) par {Email}", shop, groupe.Id, email);
+        log.LogInformation("Nouvel espace en attente d'approbation : {Shop} ({GroupId}) par {Email}", shop, groupe.Id, email);
 
         return Results.Ok(new RegistrationVerifyResponse(groupe.Id, groupe.ApprovalStatus));
     }

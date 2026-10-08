@@ -14,8 +14,8 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Lonnii.Tests;
 
 /// <summary>
-/// Adding another espace to a shop we have already approved, on the licence server: instant for
-/// the owner of an approved shop, and for nobody else. The approval step must not be a door that
+/// Adding another espace to a shop we have already approved, on the licence server: open to the
+/// owner of an approved shop and nobody else, and - like every espace - waiting for our approval. The approval step must not be a door that
 /// a second, unapproved registration can walk around.
 /// </summary>
 public class EspaceRegistrationServerTests : IAsyncLifetime
@@ -78,7 +78,7 @@ public class EspaceRegistrationServerTests : IAsyncLifetime
             new RegistrationEspaceRequest(Email, password, name, "machine-1"));
 
     [Fact]
-    public async Task The_owner_of_an_approved_shop_gets_a_new_espace_at_once()
+    public async Task The_owner_of_an_approved_shop_gets_a_new_espace_that_waits_for_approval()
     {
         await SeedOwnerAsync(ApprovalStatuses.Approved);
 
@@ -86,7 +86,7 @@ public class EspaceRegistrationServerTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var result = (await response.Content.ReadFromJsonAsync<RegistrationVerifyResponse>())!;
-        Assert.Equal(ApprovalStatuses.Approved, result.ApprovalStatus);
+        Assert.Equal(ApprovalStatuses.Pending, result.ApprovalStatus);
 
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
@@ -167,16 +167,23 @@ public class EspaceRegistrationHostTests : IAsyncLifetime
         public ActivationRefusedException? Refuse { get; set; }
         public RegistrationEspaceRequest? Registered { get; private set; }
 
+        /// <summary>What Lonnii answers to a new espace. Lonnii itself now always says pending; the
+        /// approved answer stays covered so the host still handles it.</summary>
+        public string ApprovalStatus { get; set; } = ApprovalStatuses.Approved;
+
+        /// <summary>Lonnii refusing the activation - what it does while the espace is still waiting.</summary>
+        public ActivationRefusedException? RefuseActivation { get; set; }
+
         public Task<RegistrationVerifyResponse> RegisterEspaceAsync(
             string baseUrl, RegistrationEspaceRequest request, CancellationToken ct)
         {
             if (Refuse is not null) throw Refuse;
             Registered = request;
-            return Task.FromResult(new RegistrationVerifyResponse(IssuedGroupId, ApprovalStatuses.Approved));
+            return Task.FromResult(new RegistrationVerifyResponse(IssuedGroupId, ApprovalStatus));
         }
 
         public Task<ActivationResponse> ActivateAsync(string baseUrl, ActivationRequest request, CancellationToken ct) =>
-            Task.FromResult(new ActivationResponse(
+            RefuseActivation is not null ? Task.FromException<ActivationResponse>(RefuseActivation) : Task.FromResult(new ActivationResponse(
                 request.GroupId, request.GroupId == IssuedGroupId ? "Succursale" : "?", DeploymentModes.Local,
                 MaxDevices: 4, DevicesUsed: 1, CurrencyLabel: "FCFA",
                 SubscriptionRequired: false, SubscriptionStatus: null, SubscriptionExpiresAt: null,
@@ -332,5 +339,119 @@ public class EspaceRegistrationHostTests : IAsyncLifetime
 
         using var scope = _factory.Services.CreateScope();
         Assert.Empty(await scope.ServiceProvider.GetRequiredService<LonniiDbContext>().Users.ToListAsync());
+    }
+
+    // --- Waiting for approval -------------------------------------------------------------
+
+    private HttpRequestMessage Authorized(HttpMethod method, string path, string token, HttpContent? content = null)
+    {
+        var request = new HttpRequestMessage(method, path) { Content = content };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.Add("x-device-id", DeviceId);
+        return request;
+    }
+
+    private async Task<List<PendingEspaceDto>> PendingAsync(string token) =>
+        (await (await _client.SendAsync(Authorized(HttpMethod.Get, "/api/groupes/pending", token)))
+            .Content.ReadFromJsonAsync<List<PendingEspaceDto>>())!;
+
+    private Task<HttpResponseMessage> CheckAsync(string token, string password = OwnerPassword) =>
+        _client.SendAsync(Authorized(HttpMethod.Post, $"/api/groupes/pending/{IssuedGroupId}/activate", token,
+            JsonContent.Create(new ActivatePendingEspaceRequest(password))));
+
+    [Fact]
+    public async Task An_espace_waiting_for_approval_is_remembered_and_not_built()
+    {
+        _licences.ApprovalStatus = ApprovalStatuses.Pending;
+        var token = await SignInAsync();
+
+        var response = await CreateEspaceAsync(token);
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.Equal(IssuedGroupId, (await response.Content.ReadFromJsonAsync<PendingEspaceDto>())!.GroupId);
+        Assert.Single(await PendingAsync(token));
+
+        using var scope = _factory.Services.CreateScope();
+        Assert.Empty(await scope.ServiceProvider.GetRequiredService<LonniiDbContext>().Groupes.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Checking_before_approval_passes_on_lonniis_answer_and_changes_nothing()
+    {
+        _licences.ApprovalStatus = ApprovalStatuses.Pending;
+        var token = await SignInAsync();
+        await CreateEspaceAsync(token);
+        _licences.RefuseActivation = new ActivationRefusedException(
+            "Cet espace est en attente d'approbation par Lonnii.", HttpStatusCode.Forbidden);
+
+        var response = await CheckAsync(token);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Contains("attente", (await response.Content.ReadFromJsonAsync<ApiError>())!.Error);
+        Assert.Single(await PendingAsync(token));
+
+        using var scope = _factory.Services.CreateScope();
+        Assert.Empty(await scope.ServiceProvider.GetRequiredService<LonniiDbContext>().Groupes.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Once_approved_the_espace_is_built_here_under_lonniis_id_and_bound_to_this_machine()
+    {
+        _licences.ApprovalStatus = ApprovalStatuses.Pending;
+        var token = await SignInAsync();
+        await CreateEspaceAsync(token);
+
+        var response = await CheckAsync(token);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(IssuedGroupId, (await response.Content.ReadFromJsonAsync<GroupeDto>())!.Id);
+        Assert.Empty(await PendingAsync(token));
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+        var groupe = await db.Groupes.SingleAsync();
+        Assert.Equal("https://licence.test", groupe.LicenceServerUrl);
+        Assert.Single(await db.Devices.Where(d => d.GroupId == IssuedGroupId && d.DeviceId == DeviceId).ToListAsync());
+        Assert.Single(await db.UserRoles.Where(r => r.GroupId == IssuedGroupId && r.Role == GroupRoles.Admin).ToListAsync());
+    }
+
+    [Fact]
+    public async Task A_waiting_request_can_be_dismissed_here()
+    {
+        _licences.ApprovalStatus = ApprovalStatuses.Pending;
+        var token = await SignInAsync();
+        await CreateEspaceAsync(token);
+
+        var response = await _client.SendAsync(Authorized(HttpMethod.Delete, $"/api/groupes/pending/{IssuedGroupId}", token));
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Empty(await PendingAsync(token));
+    }
+
+    // --- Nobody becomes an Admin Général without Lonnii ------------------------------------
+
+    [Fact]
+    public async Task A_shipped_host_without_lonnii_creates_no_espace()
+    {
+        await DisposeAsync();
+        await StartAsync(required: false, manualSetup: false);
+
+        // The account exists (as if made through a verified registration); creating an espace
+        // purely on this machine must still be refused.
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+            db.Users.Add(new User { Email = OwnerEmail, Password = BCrypt.Net.BCrypt.HashPassword(OwnerPassword), IsVerified = true });
+            await db.SaveChangesAsync();
+        }
+
+        var login = (await (await _client.PostAsJsonAsync("/api/auth/login",
+            new LoginRequest(OwnerEmail, OwnerPassword))).Content.ReadFromJsonAsync<LoginResponse>())!;
+
+        var response = await CreateEspaceAsync(login.AccessToken);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        using var check = _factory.Services.CreateScope();
+        Assert.Empty(await check.ServiceProvider.GetRequiredService<LonniiDbContext>().Groupes.ToListAsync());
     }
 }

@@ -111,6 +111,7 @@ builder.Services.AddSingleton(new ImageStorageService(dataDirectory));
 // Exporting or importing a whole espace builds its .db file here first - beside the
 // database, not in the system temp folder, since it can be hundreds of megabytes.
 builder.Services.AddSingleton(new EspaceTransferPaths(dataDirectory));
+builder.Services.AddSingleton(new Lonnii.Api.Features.Auth.PendingEspaceStore(dataDirectory));
 builder.Services.AddScoped<EspaceTransferService>();
 
 // Cloud backup. On the OCI server these are the receiving end (BackupEndpoints); on a shop's

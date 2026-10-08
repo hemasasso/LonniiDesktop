@@ -19,6 +19,24 @@ public static class AppIcon
     /// does not react to a theme change while running, only picks correctly at each start.</summary>
     public static ImageSource Current => _current ??= Load(IsLightTheme() ? "icon-light.ico" : "icon-dark.ico");
 
+    /// <summary>Gives the window's taskbar button (the "big" icon) the day-mode logo whatever
+    /// the theme, since the taskbar can be dark while apps are light. The title bar keeps
+    /// the themed icon (the "small" one).</summary>
+    public static void ApplyTaskbarIcon(System.Windows.Window window)
+    {
+        var handle = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero) return;
+        _taskbar ??= new System.Drawing.Icon(
+            System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/icon-light.ico")).Stream,
+            256, 256);
+        SendMessage(handle, 0x0080 /* WM_SETICON */, (IntPtr)1 /* ICON_BIG */, _taskbar.Handle);
+    }
+
+    private static System.Drawing.Icon? _taskbar;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
     /// <summary>Hands WPF the .ico's largest frame. A bare BitmapImage takes the first frame,
     /// which can be the 16px one, and the taskbar then shows a small blurry icon.</summary>
     private static ImageSource Load(string fileName)

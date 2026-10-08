@@ -44,7 +44,11 @@ public partial class App : Application
         // Every window and dialog gets the themed icon unless it set its own, so none falls
         // back to the .exe's day-mode icon.
         EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent,
-            new RoutedEventHandler((s, _) => { if (s is Window { Icon: null } w) w.Icon = AppIcon.Current; }));
+            new RoutedEventHandler((s, _) => {
+                if (s is not Window w) return;
+                if (w.Icon is null) w.Icon = AppIcon.Current;
+                AppIcon.ApplyTaskbarIcon(w);
+            }));
 
         // A crash dialog is friendlier than a silent disappearance on a shop counter,
         // and the log gives something to read afterwards when nobody saw the dialog.

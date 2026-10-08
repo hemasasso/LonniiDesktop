@@ -36,12 +36,15 @@ is down the copy simply stops moving, and the screens say how old it is.
   schema with the same migrations a host runs, so an older host reads correctly. A newer snapshot is
   a new file; older ones are deleted when they can be.
 
-## Remote requests (privileges and roles)
+## Remote requests (privileges, roles and products)
 
 A remote administrator cannot change the copy, but can **ask the shop to make a change**:
 
 1. `POST /api/remote/commands` with `{type: "privilege", userId, privilegeName, catalog, granted}` or
-   `{type: "role", userId, role}`. The server first checks it against the copy by making the change
+   `{type: "role", userId, role}`, or a product change: `product.create` (`product`), `product.update`
+   (`productId` + `product` - details and prices), `product.adjust` (`productId` + `stockAdjustment`, a
+   signed quantity with its reason) and `product.deactivate` (`productId`, off sale, history kept).
+   Product requests run through the Stock screens' own handlers, with the privilege each screen asks for. The server first checks it against the copy by making the change
    inside a transaction and rolling it back, so it is refused at once with the shop's own reason
    (unknown member, admin-only privilege, only the creator may change admin roles). The copy is never
    changed. A valid request is queued (202) in `remote-commands/{groupId}.json`.

@@ -133,7 +133,8 @@ public static class StockEndpoints
     /// Creates a product. An opening quantity is written to the stock history as an
     /// <c>ajout</c> movement so the ledger explains every unit on hand.
     /// </summary>
-    private static async Task<IResult> CreateProductAsync(
+    // internal: the remote request queue checks and applies product changes with these same handlers.
+    internal static async Task<IResult> CreateProductAsync(
         SaveProductRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.Name))
@@ -211,7 +212,7 @@ public static class StockEndpoints
     /// Updates a product's details. Quantity is deliberately not editable here - it moves
     /// only through the adjust endpoint, so every change leaves a stock-history entry.
     /// </summary>
-    private static async Task<IResult> UpdateProductAsync(
+    internal static async Task<IResult> UpdateProductAsync(
         string id, SaveProductRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
         var product = await db.Products
@@ -268,7 +269,7 @@ public static class StockEndpoints
     /// Soft-deletes a product, matching run_soft_delete_migration.js. Sales history
     /// references products by id, so a hard delete would orphan past receipts.
     /// </summary>
-    private static async Task<IResult> DeleteProductAsync(
+    internal static async Task<IResult> DeleteProductAsync(
         string id, GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
         var product = await db.Products
@@ -287,7 +288,7 @@ public static class StockEndpoints
     }
 
     /// <summary>Moves stock by a signed amount and records the movement.</summary>
-    private static async Task<IResult> AdjustStockAsync(
+    internal static async Task<IResult> AdjustStockAsync(
         string id, AdjustStockRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
         if (request.QuantityChanged == 0)

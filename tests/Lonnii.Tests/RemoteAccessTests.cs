@@ -12,6 +12,7 @@ using Lonnii.Shared.Contracts;
 using Lonnii.Shared.Security;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Lonnii.Tests;
@@ -490,6 +491,112 @@ public class RemoteAccessTests : IAsyncLifetime
 
         var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
         Assert.Empty(db.GestionUserPrivileges.Where(g => g.UserId == _staffId));
+    }
+
+    // --- Product requests ----------------------------------------------------------------
+
+    [Fact]
+    public async Task A_price_change_is_queued_and_the_copy_keeps_the_old_price()
+    {
+        var (jwt, session) = await AdminSessionAsync();
+
+        var queued = await QueueAsync(jwt, session.SessionToken, new RemoteCommandRequest(
+            RemoteCommandTypes.ProductUpdate, _adminId, ProductId: ProductId,
+            Product: new SaveProductRequest("Paracétamol 500 mg", 1750m)));
+
+        Assert.Equal(HttpStatusCode.Accepted, queued.StatusCode);
+        var command = (await queued.Content.ReadFromJsonAsync<RemoteCommandDto>())!;
+        Assert.Equal("Paracétamol 500 mg", command.TargetName);
+        Assert.Equal(1750m, command.Product!.Price);
+
+        var products = (await (await _client.SendAsync(Remote(HttpMethod.Get, "/api/stock/products", jwt, session.SessionToken)))
+            .Content.ReadFromJsonAsync<List<ProductDto>>())!;
+        Assert.Equal(1500m, products.Single(p => p.Id == ProductId).Price);
+    }
+
+    [Fact]
+    public async Task A_product_request_the_shop_would_refuse_is_refused_at_once()
+    {
+        var (jwt, session) = await AdminSessionAsync();
+
+        // The stock screen's own rules: no zero adjustment, no unknown product, no negative price.
+        Assert.Equal(HttpStatusCode.BadRequest, (await QueueAsync(jwt, session.SessionToken, new RemoteCommandRequest(
+            RemoteCommandTypes.ProductAdjust, _adminId, ProductId: ProductId,
+            StockAdjustment: new AdjustStockRequest(0, "adjustment")))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await QueueAsync(jwt, session.SessionToken, new RemoteCommandRequest(
+            RemoteCommandTypes.ProductDeactivate, _adminId, ProductId: "no-such-product"))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await QueueAsync(jwt, session.SessionToken, new RemoteCommandRequest(
+            RemoteCommandTypes.ProductUpdate, _adminId, ProductId: ProductId,
+            Product: new SaveProductRequest("Paracétamol 500 mg", -5m)))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await QueueAsync(jwt, session.SessionToken, new RemoteCommandRequest(
+            RemoteCommandTypes.ProductUpdate, _adminId, ProductId: ProductId))).StatusCode);   // no new details
+
+        var listed = (await (await _client.SendAsync(Remote(HttpMethod.Get, "/api/remote/commands", jwt, session.SessionToken)))
+            .Content.ReadFromJsonAsync<RemoteCommandsResponse>())!;
+        Assert.Empty(listed.Commands);
+    }
+
+    private async Task AddHostProductAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+        db.Products.Add(new Product { Id = ProductId, GroupId = GroupId, Name = "Paracétamol 500 mg", Price = 1500m, Quantity = 20 });
+        await db.SaveChangesAsync();
+    }
+
+    private static RemoteCommandDto ProductCommand(string requestedBy, string type,
+        SaveProductRequest? product = null, AdjustStockRequest? adjustment = null, string? productId = ProductId) =>
+        new(Guid.NewGuid().ToString(), type, requestedBy, null, null, null, null, null, requestedBy, null,
+            DateTime.UtcNow, RemoteCommandStatuses.Pending, ProductId: productId, Product: product, StockAdjustment: adjustment);
+
+    [Fact]
+    public async Task The_host_applies_product_requests_with_the_stock_screens_own_rules()
+    {
+        await MakeThisTheShopsHostAsync();
+        await AddHostProductAsync();
+        using var scope = _factory.Services.CreateScope();
+        var applier = scope.ServiceProvider.GetRequiredService<RemoteCommandApplier>();
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+
+        // Price.
+        Assert.Equal(RemoteCommandStatuses.Applied, (await applier.ApplyAsync(GroupId, ProductCommand(_adminId,
+            RemoteCommandTypes.ProductUpdate, product: new SaveProductRequest("Paracétamol 500 mg", 1750m)), CancellationToken.None)).Status);
+
+        // Stock, with its history line.
+        Assert.Equal(RemoteCommandStatuses.Applied, (await applier.ApplyAsync(GroupId, ProductCommand(_adminId,
+            RemoteCommandTypes.ProductAdjust, adjustment: new AdjustStockRequest(-3, "damaged", "Cassé")), CancellationToken.None)).Status);
+
+        // A new product.
+        Assert.Equal(RemoteCommandStatuses.Applied, (await applier.ApplyAsync(GroupId, ProductCommand(_adminId,
+            RemoteCommandTypes.ProductCreate, product: new SaveProductRequest("Ibuprofène 400 mg", 900m, Quantity: 10), productId: null),
+            CancellationToken.None)).Status);
+
+        var product = db.Products.AsNoTracking().Single(p => p.Id == ProductId);
+        Assert.Equal(1750m, product.Price);
+        Assert.Equal(17, product.Quantity);
+        Assert.Contains(db.StockHistories.AsNoTracking(), h => h.ProductId == ProductId && h.QuantityChanged == -3);
+        Assert.Contains(db.Products.AsNoTracking(), p => p.Name == "Ibuprofène 400 mg" && p.Quantity == 10);
+
+        // Off sale, history kept.
+        Assert.Equal(RemoteCommandStatuses.Applied, (await applier.ApplyAsync(GroupId, ProductCommand(_adminId,
+            RemoteCommandTypes.ProductDeactivate), CancellationToken.None)).Status);
+        Assert.NotNull(db.Products.AsNoTracking().Single(p => p.Id == ProductId).DeletedAt);
+    }
+
+    [Fact]
+    public async Task The_host_refuses_a_product_request_from_someone_who_is_no_longer_an_administrator()
+    {
+        await MakeThisTheShopsHostAsync();
+        await AddHostProductAsync();
+        using var scope = _factory.Services.CreateScope();
+        var applier = scope.ServiceProvider.GetRequiredService<RemoteCommandApplier>();
+
+        var result = await applier.ApplyAsync(GroupId, ProductCommand(_staffId,
+            RemoteCommandTypes.ProductUpdate, product: new SaveProductRequest("Paracétamol 500 mg", 1m)), CancellationToken.None);
+
+        Assert.Equal(RemoteCommandStatuses.Failed, result.Status);
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+        Assert.Equal(1500m, db.Products.AsNoTracking().Single(p => p.Id == ProductId).Price);
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Lonnii.Api.Features.Auth;
 using Lonnii.Api.Features.Backup;
 using Lonnii.Api.Features.Live;
 using Lonnii.Api.Features.Members;
@@ -122,6 +123,13 @@ public sealed class RemoteCommandApplier(
                     db, groupId, command.RequestedBy, sender.IsAdminGeneral,
                     new SetRoleRequest(command.UserId, command.Role),
                     PrivilegeChanges.RemoteReasonPrefix.Trim(), ct);
+                break;
+
+            case var type when RemoteCommandTypes.IsProduct(type):
+                // Applied as the person who asked, with their privileges in the shop's own data.
+                var asSender = new GroupScope { UserId = command.RequestedBy, GroupId = groupId, Privileges = sender };
+                outcome = await ProductCommands.RunAsync(
+                    type, command.ProductId, command.Product, command.StockAdjustment, asSender, db, ct);
                 break;
 
             default:

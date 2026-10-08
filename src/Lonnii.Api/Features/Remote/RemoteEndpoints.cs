@@ -204,6 +204,11 @@ public static class RemoteEndpoints
                         PrivilegeChanges.RemoteReasonPrefix.Trim(), ct);
                     break;
 
+                case var type when RemoteCommandTypes.IsProduct(type):
+                    check = await ProductCommands.RunAsync(
+                        type, request.ProductId, request.Product, request.StockAdjustment, scope, db, ct);
+                    break;
+
                 default:
                     return Results.BadRequest(new ApiError($"Type de demande inconnu : {request.Type}"));
             }
@@ -212,6 +217,14 @@ public static class RemoteEndpoints
         }
 
         if (!check.Ok) return check.ToResult();
+
+        // A product request shows the product's name where a member's would be.
+        string? productName = null;
+        if (RemoteCommandTypes.IsProduct(request.Type))
+        {
+            productName = request.Product?.Name
+                ?? await db.Products.AsNoTracking().Where(p => p.Id == request.ProductId).Select(p => p.Name).FirstOrDefaultAsync(ct);
+        }
 
         var names = await db.Users.AsNoTracking()
             .Where(u => u.IdUser == request.UserId || u.IdUser == scope.UserId)
@@ -228,7 +241,7 @@ public static class RemoteEndpoints
             Id: Guid.NewGuid().ToString(),
             Type: request.Type,
             UserId: request.UserId,
-            TargetName: NameOf(request.UserId),
+            TargetName: productName ?? NameOf(request.UserId),
             PrivilegeName: request.PrivilegeName,
             Catalog: request.Catalog,
             Granted: request.Granted,
@@ -236,7 +249,10 @@ public static class RemoteEndpoints
             RequestedBy: scope.UserId,
             RequestedByName: NameOf(scope.UserId),
             RequestedAt: DateTime.UtcNow,
-            Status: RemoteCommandStatuses.Pending));
+            Status: RemoteCommandStatuses.Pending,
+            ProductId: request.ProductId,
+            Product: request.Product,
+            StockAdjustment: request.StockAdjustment));
 
         return Results.Accepted($"/api/remote/commands/{command.Id}", command);
     }

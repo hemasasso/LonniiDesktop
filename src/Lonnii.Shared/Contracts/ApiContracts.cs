@@ -108,6 +108,21 @@ public static class RemoteCommandTypes
 
     /// <summary>Change a member's group role.</summary>
     public const string Role = "role";
+
+    /// <summary>Add a product (<c>Product</c> carries it).</summary>
+    public const string ProductCreate = "product.create";
+
+    /// <summary>Change a product's details or prices (<c>ProductId</c> + <c>Product</c>).</summary>
+    public const string ProductUpdate = "product.update";
+
+    /// <summary>Move a product's stock by a signed amount (<c>ProductId</c> + <c>StockAdjustment</c>).</summary>
+    public const string ProductAdjust = "product.adjust";
+
+    /// <summary>Take a product off sale, keeping its history (<c>ProductId</c>).</summary>
+    public const string ProductDeactivate = "product.deactivate";
+
+    public static bool IsProduct(string type) =>
+        type is ProductCreate or ProductUpdate or ProductAdjust or ProductDeactivate;
 }
 
 /// <summary>Where a remote command is: waiting for the shop, done, refused, or given up on.</summary>
@@ -129,7 +144,10 @@ public sealed record RemoteCommandRequest(
     string? PrivilegeName = null,
     string? Catalog = null,
     bool? Granted = null,
-    string? Role = null);
+    string? Role = null,
+    string? ProductId = null,
+    SaveProductRequest? Product = null,
+    AdjustStockRequest? StockAdjustment = null);
 
 /// <summary>A queued command and what became of it. <paramref name="Message"/> is the shop's
 /// answer when it was refused.</summary>
@@ -147,7 +165,10 @@ public sealed record RemoteCommandDto(
     DateTime RequestedAt,
     string Status,
     string? Message = null,
-    DateTime? AppliedAt = null);
+    DateTime? AppliedAt = null,
+    string? ProductId = null,
+    SaveProductRequest? Product = null,
+    AdjustStockRequest? StockAdjustment = null);
 
 /// <summary>What the shop's host reports back for a command it collected.</summary>
 public sealed record RemoteCommandResult(string Status, string? Message = null);

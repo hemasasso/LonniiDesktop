@@ -53,6 +53,9 @@ public partial class MainWindow : Window
         _presenceTimer.Tick += async (_, _) => await SendPresenceAsync();
         _presenceTimer.Start();
 
+        _liveTimer.Tick += async (_, _) => await LiveSyncAsync();
+        _liveTimer.Start();
+
         // Licence: renew quietly in the background, and stop hard when the host says the
         // offline deadline has passed.
         LonniiApiClient.LicenceLocked += message => Dispatcher.InvokeAsync(() => ShowLicenceLock(message));
@@ -117,11 +120,50 @@ public partial class MainWindow : Window
         catch (Exception ex) when (ex is ApiException or System.Net.Http.HttpRequestException or TaskCanceledException) { }
     }
 
+    // --- Live updates (privileges changed from a phone, a laptop or another till) ---
+
+    private readonly System.Windows.Threading.DispatcherTimer _liveTimer = new() { Interval = TimeSpan.FromSeconds(5) };
+    private long? _liveVersion;
+    private bool _liveBusy;
+
+    /// <summary>
+    /// Polls the shop's change counter. When it moves, re-reads privileges and the menu and
+    /// rebuilds the shell only if what this user may do actually changed - a rebuild closes the
+    /// open screens, which must never happen to a cashier mid-sale over an unrelated change.
+    /// Silent on failure: offline, the till simply keeps working with what it has.
+    /// </summary>
+    private async Task LiveSyncAsync()
+    {
+        if (_liveBusy || _session.Groupe is null) { _liveVersion = null; return; }
+        _liveBusy = true;
+        try
+        {
+            var version = await _session.Api.GetLiveVersionAsync();
+            var previous = _liveVersion;
+            _liveVersion = version;
+            if (previous is null || previous == version) return;
+
+            var privileges = await _session.Api.GetMyPrivilegesAsync();
+            var menu = await _session.Api.GetMenuAsync();
+            var same = Serialize(privileges) == Serialize(_session.Privileges)
+                       && Serialize(menu) == Serialize(_session.Menu);
+            if (same) return;
+
+            await RefreshAsync();
+            StatusText.Text = "Vos droits ont été mis à jour";
+        }
+        catch (Exception ex) when (ex is ApiException or System.Net.Http.HttpRequestException or TaskCanceledException) { }
+        finally { _liveBusy = false; }
+
+        static string Serialize<T>(T value) => System.Text.Json.JsonSerializer.Serialize(value);
+    }
+
     /// <summary>Closes the stretch now rather than leaving the server to notice the silence
     /// ten minutes later. Bounded wait: closing the window must not hang on a dead network.</summary>
     private void EndPresence()
     {
         _presenceTimer.Stop();
+        _liveTimer.Stop();
         if (_session.Groupe is null) return;
         try { Task.Run(() => _session.Api.EndPresenceAsync()).Wait(TimeSpan.FromSeconds(2)); }
         catch (AggregateException) { }

@@ -1,3 +1,4 @@
+using Lonnii.Api.Features.Live;
 using Lonnii.Data;
 using Lonnii.Data.Entities;
 using Lonnii.Data.Services;
@@ -131,12 +132,12 @@ public static class PrivilegeEndpoints
     }
 
     private static Task<IResult> SetGestionPrivilegeAsync(
-        SetPrivilegeRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct) =>
-        SetPrivilegeAsync(request, scope, db, isGestion: true, ct);
+        SetPrivilegeRequest request, GroupScope scope, LonniiDbContext db, ShopChangeNotifier changes, CancellationToken ct) =>
+        SetPrivilegeAsync(request, scope, db, changes, isGestion: true, ct);
 
     private static Task<IResult> SetOptionPrivilegeAsync(
-        SetPrivilegeRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct) =>
-        SetPrivilegeAsync(request, scope, db, isGestion: false, ct);
+        SetPrivilegeRequest request, GroupScope scope, LonniiDbContext db, ShopChangeNotifier changes, CancellationToken ct) =>
+        SetPrivilegeAsync(request, scope, db, changes, isGestion: false, ct);
 
     /// <summary>
     /// Grants or revokes one privilege and records the change in the matching audit table.
@@ -144,7 +145,7 @@ public static class PrivilegeEndpoints
     /// so storing a grant would be a row that never takes effect.
     /// </summary>
     private static async Task<IResult> SetPrivilegeAsync(
-        SetPrivilegeRequest request, GroupScope scope, LonniiDbContext db, bool isGestion, CancellationToken ct)
+        SetPrivilegeRequest request, GroupScope scope, LonniiDbContext db, ShopChangeNotifier changes, bool isGestion, CancellationToken ct)
     {
         var isMember = await db.GroupMembers
             .AnyAsync(m => m.IdGroupe == scope.GroupId && m.IdUser == request.UserId, ct);
@@ -260,12 +261,13 @@ public static class PrivilegeEndpoints
         }
 
         await db.SaveChangesAsync(ct);
+        changes.Bump(scope.GroupId);
         return Results.NoContent();
     }
 
     /// <summary>Changes a member's group role, recording the change in the audit log.</summary>
     private static async Task<IResult> SetRoleAsync(
-        SetRoleRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
+        SetRoleRequest request, GroupScope scope, LonniiDbContext db, ShopChangeNotifier changes, CancellationToken ct)
     {
         if (!GroupRoles.All.Contains(request.Role))
             return Results.BadRequest(new ApiError($"Rôle inconnu: {request.Role}"));
@@ -316,6 +318,7 @@ public static class PrivilegeEndpoints
         });
 
         await db.SaveChangesAsync(ct);
+        changes.Bump(scope.GroupId);
         return Results.NoContent();
     }
 

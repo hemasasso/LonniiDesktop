@@ -273,6 +273,13 @@ public class LonniiApiClient
     public Task<MyPrivilegesResponse> GetMyPrivilegesAsync(CancellationToken ct = default) =>
         GetAsync<MyPrivilegesResponse>("api/privileges/me", ct);
 
+    /// <summary>The shop's change counter: moves whenever privileges, roles or members change,
+    /// from any till, phone or remote admin. Polled to react within seconds.</summary>
+    public async Task<long> GetLiveVersionAsync(CancellationToken ct = default) =>
+        (await GetAsync<LiveVersionResponse>("api/live/version", ct)).Version;
+
+    private sealed record LiveVersionResponse(long Version);
+
     public Task<MenuResponse> GetMenuAsync(CancellationToken ct = default) =>
         GetAsync<MenuResponse>("api/privileges/menu", ct);
 

@@ -62,6 +62,7 @@ builder.Services.AddHttpClient<ILicenceServer, HttpLicenceServer>(
 
 builder.Services.AddScoped<PrivilegeResolver>();
 builder.Services.AddScoped<DatabaseSeeder>();
+builder.Services.AddSingleton<Lonnii.Api.Features.Live.ShopChangeNotifier>();
 builder.Services.AddScoped<GroupSessionService>();
 builder.Services.AddScoped<LicenceGuard>();
 
@@ -188,6 +189,7 @@ app.MapLicenceEndpoints();
 app.MapDeviceEndpoints();
 app.MapGroupEndpoints();
 app.MapPrivilegeEndpoints();
+Lonnii.Api.Features.Live.LiveEndpoints.MapLiveEndpoints(app);
 app.MapStockEndpoints();
 app.MapVentesEndpoints();
 app.MapGroupePaymentEndpoints();

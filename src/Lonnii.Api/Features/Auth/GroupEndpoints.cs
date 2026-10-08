@@ -1,4 +1,5 @@
 using Lonnii.Api.Features.Licensing;
+using Lonnii.Api.Features.Live;
 using System.Security.Claims;
 using Lonnii.Api.Features.Images;
 using Lonnii.Data;
@@ -315,6 +316,7 @@ public static class GroupEndpoints
         GroupScope scope,
         LonniiDbContext db,
         DatabaseSeeder seeder,
+        ShopChangeNotifier changes,
         CancellationToken ct)
     {
         var identifier = request.Identifier.Trim();
@@ -359,6 +361,7 @@ public static class GroupEndpoints
 
         await db.SaveChangesAsync(ct);
         await seeder.GrantDefaultOptionPrivilegesAsync(user.IdUser, scope.GroupId, scope.UserId, ct);
+        changes.Bump(scope.GroupId);
 
         return Results.Ok(AuthEndpoints.ToDto(user));
     }
@@ -420,7 +423,7 @@ public static class GroupEndpoints
 
     /// <summary>Removes a member. The group creator cannot be removed.</summary>
     private static async Task<IResult> RemoveMemberAsync(
-        string userId, GroupScope scope, LonniiDbContext db, CancellationToken ct)
+        string userId, GroupScope scope, LonniiDbContext db, ShopChangeNotifier changes, CancellationToken ct)
     {
         var creatorId = await db.Groupes
             .Where(g => g.Id == scope.GroupId)
@@ -441,6 +444,7 @@ public static class GroupEndpoints
         await db.OptionUserPrivileges.Where(p => p.GroupId == scope.GroupId && p.UserId == userId).ExecuteDeleteAsync(ct);
         await db.GestionUserPrivileges.Where(p => p.GroupId == scope.GroupId && p.UserId == userId).ExecuteDeleteAsync(ct);
         await db.GroupeSessions.Where(s => s.GroupId == scope.GroupId && s.UserId == userId).ExecuteDeleteAsync(ct);
+        changes.Bump(scope.GroupId);
 
         return Results.NoContent();
     }

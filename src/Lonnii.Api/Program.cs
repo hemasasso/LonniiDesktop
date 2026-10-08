@@ -9,6 +9,13 @@ using Microsoft.EntityFrameworkCore;
 // Local-mode customers receive this program, so a licence generator inside it would let a
 // shop grant itself any number of machines.
 
+// The live PostgreSQL holds Lonnii Business's plain "timestamp" columns, written by Node with no
+// time zone attached. Npgsql 6+ refuses to write a DateTime whose Kind is Unspecified (every
+// date built from a calendar date, e.g. a filter range) or Utc into a column of the other kind,
+// which turned every dated query and every new sale into a 500. The legacy behaviour accepts
+// both, as Npgsql 5 did. Must be set before the first Npgsql use. SQLite is unaffected.
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
 var builder = WebApplication.CreateBuilder(args);
 
 // --- Where the data lives -------------------------------------------------

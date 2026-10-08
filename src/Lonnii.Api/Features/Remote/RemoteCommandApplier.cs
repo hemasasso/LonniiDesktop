@@ -166,19 +166,28 @@ public sealed class RemoteCommandService(
         catch (OperationCanceledException) { return false; }
     }
 
+    // Which shops back up to the server changes rarely, so it is looked up once a minute rather than
+    // on every pass, which would put a database query in the log every few seconds.
+    private List<string> _groupIds = [];
+    private DateTime _groupIdsLoadedAt = DateTime.MinValue;
+
+    private async Task<List<string>> GroupIdsAsync(CancellationToken ct)
+    {
+        if (DateTime.UtcNow - _groupIdsLoadedAt < TimeSpan.FromMinutes(1)) return _groupIds;
+
+        using var scope = scopes.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+        _groupIds = await db.CloudBackupStates
+            .Where(s => s.DeviceToken != null)
+            .Select(s => s.GroupId)
+            .ToListAsync(ct);
+        _groupIdsLoadedAt = DateTime.UtcNow;
+        return _groupIds;
+    }
+
     private async Task PollAllAsync(CancellationToken ct)
     {
-        List<string> groupIds;
-        using (var scope = scopes.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
-            groupIds = await db.CloudBackupStates
-                .Where(s => s.DeviceToken != null)
-                .Select(s => s.GroupId)
-                .ToListAsync(ct);
-        }
-
-        foreach (var groupId in groupIds)
+        foreach (var groupId in await GroupIdsAsync(ct))
         {
             using var inner = scopes.CreateScope();
             await inner.ServiceProvider.GetRequiredService<RemoteCommandApplier>().PollAsync(groupId, ct);

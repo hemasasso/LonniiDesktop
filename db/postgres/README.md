@@ -50,6 +50,7 @@ psql -h <host> -p 5432 -U <user> -d <database> -f 001_groupes_desktop_columns.sq
 | `016_caisse_carte_bilan_table_type.sql` | `caisses.montant_initial_carte`, `montant_final_carte`; `bilan_ecritures.table_type` | yes, 2026-10-08 (information_schema diff of the whole model) |
 | `017_ventes_caisse_discount_supplier_balance.sql` | `ventes.caisse_id`; `ventes_items.discount` (filled from Business's discount_percentage / discount_amount); `suppliers.montant_du` | yes, 2026-10-08 (information_schema diff) |
 | `018_stock_settings_group_id.sql` | `stock_settings.group_id` (nullable; existing rows stay global defaults) | yes, 2026-10-08 (information_schema diff) |
+| `019_programme_comptabilite_tables.sql` | whole tables `comptabilite_parametres`, `programme_entries`, `programme_announcements` (+ grants to lonnii_api) | yes, 2026-10-08 (information_schema diff) |
 
 ## `ventes_parametres` is Lonnii Business's, not ours
 

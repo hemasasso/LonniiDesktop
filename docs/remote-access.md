@@ -23,15 +23,36 @@ is down the copy simply stops moving, and the screens say how old it is.
 ## Rules
 
 - **Read-only.** Only GET and HEAD reach the copy; anything else is a 405. The copy is rebuilt from
-  the next snapshot, so a write would be lost and would look as if it had worked. Changes a remote
-  administrator may make (privileges, members) are meant to go through a command queue the host
-  collects (`/api/remote/commands`, not built yet).
+  the next snapshot, so a write would be lost and would look as if it had worked. The one thing a
+  remote administrator may do is ask for a change - see *Remote requests* below.
 - **Stateless token**: `rs.{groupId}.{userId}.{expiresUnix}.{hmac}`, 4 hours. The request is routed
   before any database is opened, which a stored random token could not allow.
 - **Account and licence checks use the server's own database** (`ControlDb`), never the copy.
 - **Copies**: `replicas/{groupId}/{snapshotTime}.db`, unpacked on demand and brought to the current
   schema with the same migrations a host runs, so an older host reads correctly. A newer snapshot is
   a new file; older ones are deleted when they can be.
+
+## Remote requests (privileges and roles)
+
+A remote administrator cannot change the copy, but can **ask the shop to make a change**:
+
+1. `POST /api/remote/commands` with `{type: "privilege", userId, privilegeName, catalog, granted}` or
+   `{type: "role", userId, role}`. The server first checks it against the copy by making the change
+   inside a transaction and rolling it back, so it is refused at once with the shop's own reason
+   (unknown member, admin-only privilege, only the creator may change admin roles). The copy is never
+   changed. A valid request is queued (202) in `remote-commands/{groupId}.json`.
+2. The shop's host **asks** OCI every ~10 seconds (`GET /api/backup/commands`, with the machine token it
+   already uses for backups - OCI never pushes to a shop). It applies each request with the same code
+   as its own screens (`PrivilegeChanges`), writes the audit trail marked "À distance : ", bumps the
+   shop's live counter so tills refresh within seconds, reports the outcome
+   (`POST /api/backup/commands/{id}/result`) and runs a backup so the copy shows the change soon.
+3. `GET /api/remote/commands` lists recent requests (pending / applied / failed / expired) for the screen.
+
+Safety: the host applies a request **only if its sender still holds an administrator role in the shop's own
+data** at that moment, so an administrator removed after asking cannot have a queued request carried out.
+A request that waits more than 7 days for an offline shop expires. A shop with no internet collects its
+requests when it reconnects, so a remote revoke is not instant for an offline shop - the screen shows it as
+waiting.
 
 ## Known limits
 

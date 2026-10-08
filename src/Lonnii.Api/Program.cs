@@ -96,6 +96,7 @@ builder.Services.AddSingleton<Lonnii.Api.Features.Live.ShopChangeNotifier>();
 builder.Services.AddScoped<GroupSessionService>();
 // Who the caller is and whether the shop's licence is current are facts of the server's own
 // database, even when the request's data comes from a shop's copy.
+builder.Services.AddScoped<Lonnii.Api.Features.Remote.RemoteCommandApplier>();
 builder.Services.AddScoped<LicenceGuard>(services =>
     new LicenceGuard(services.GetRequiredService<Lonnii.Api.Features.Remote.ControlDb>().Db));
 
@@ -123,6 +124,7 @@ builder.Services.AddScoped<EspaceTransferService>();
 builder.Services.AddSingleton(new BackupTokens(jwtOptions.Secret));
 builder.Services.AddSingleton(new BackupStore(dataDirectory));
 builder.Services.AddSingleton(new Lonnii.Api.Features.Remote.RemoteSessionTokens(jwtOptions.Secret));
+builder.Services.AddSingleton(new Lonnii.Api.Features.Remote.RemoteCommandStore(dataDirectory));
 builder.Services.AddSingleton(sp => new Lonnii.Api.Features.Remote.ReplicaStore(
     sp.GetRequiredService<BackupStore>(), dataDirectory));
 builder.Services.AddSingleton(new CloudBackupPaths(databasePath));
@@ -139,7 +141,11 @@ builder.Services.AddScoped<CloudRestoreService>();
 // PostgreSQL and is the one that *receives* backups: it has no cloud_backup_state table, and a job
 // asking for it would only log a failure every interval.
 if (!databaseOptions.IsPostgres)
+{
     builder.Services.AddHostedService<CloudBackupService>();
+    // The same host also looks for changes administrators asked for from afar (see RemoteCommandApplier).
+    builder.Services.AddHostedService<Lonnii.Api.Features.Remote.RemoteCommandService>();
+}
 // Lets a till on the same network find this host without being told its address.
 builder.Services.AddHostedService<LanDiscoveryService>();
 

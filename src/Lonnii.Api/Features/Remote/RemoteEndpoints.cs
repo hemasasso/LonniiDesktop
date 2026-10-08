@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Lonnii.Api.Features.Auth;
+using Lonnii.Api.Features.Members;
 using Lonnii.Data;
 using Lonnii.Data.Services;
 using Lonnii.Shared.Contracts;
@@ -20,6 +21,11 @@ public static class RemoteEndpoints
 
         remote.MapPost("/{groupId}/session", OpenSessionAsync).RequireAuthorization();
         remote.MapGet("/info", Info).RequireGroupScope();
+
+        // Changes asked for from afar are queued for the shop's host, not applied here: the
+        // shop's own database is the one that counts, and the copy is rebuilt from it.
+        remote.MapPost("/commands", QueueCommandAsync).RequireGroupScope();
+        remote.MapGet("/commands", ListCommands).RequireGroupScope();
     }
 
     /// <summary>
@@ -109,4 +115,102 @@ public static class RemoteEndpoints
         Results.Ok(new RemoteInfoResponse(
             IsCopy: http.Items.ContainsKey(RemoteKeys.ReplicaPath),
             SnapshotAt: http.Items[RemoteKeys.SnapshotAt] as DateTime?));
+
+    /// <summary>
+    /// Queues a privilege or role change for the shop's host.
+    ///
+    /// <para>
+    /// The request is checked first against the copy, by really making the change inside a
+    /// transaction and rolling it back - so it is refused now, with the same reason the shop would
+    /// give (unknown member, admin-only privilege, only the creator may change admin roles),
+    /// rather than sitting in the queue until the host rejects it. The copy itself is never
+    /// changed.
+    /// </para>
+    /// </summary>
+    private static async Task<IResult> QueueCommandAsync(
+        RemoteCommandRequest request, GroupScope scope, LonniiDbContext db, HttpContext http,
+        RemoteCommandStore commands, CancellationToken ct)
+    {
+        if (!http.Items.ContainsKey(RemoteKeys.ReplicaPath))
+        {
+            return Results.Json(
+                new ApiError("Cette demande n'est possible que depuis une session à distance."),
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (!scope.IsAdmin && !scope.IsAdminGeneral)
+        {
+            return Results.Json(
+                new ApiError("L'accès à distance est réservé aux administrateurs de l'espace."),
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        PrivilegeChangeResult check;
+        await using (var tx = await db.Database.BeginTransactionAsync(ct))
+        {
+            switch (request.Type)
+            {
+                case RemoteCommandTypes.Privilege:
+                    if (string.IsNullOrWhiteSpace(request.PrivilegeName) || request.Granted is null
+                        || request.Catalog is not ("gestion" or "option"))
+                    {
+                        return Results.BadRequest(new ApiError("Privilège, catalogue et action sont requis."));
+                    }
+
+                    check = await PrivilegeChanges.SetPrivilegeAsync(
+                        db, scope.GroupId, scope.UserId,
+                        new SetPrivilegeRequest(request.UserId, request.PrivilegeName, request.Granted.Value),
+                        isGestion: request.Catalog == "gestion", PrivilegeChanges.RemoteReasonPrefix.Trim(), ct);
+                    break;
+
+                case RemoteCommandTypes.Role:
+                    if (string.IsNullOrWhiteSpace(request.Role))
+                        return Results.BadRequest(new ApiError("Le rôle est requis."));
+
+                    check = await PrivilegeChanges.SetRoleAsync(
+                        db, scope.GroupId, scope.UserId, scope.IsAdminGeneral,
+                        new SetRoleRequest(request.UserId, request.Role),
+                        PrivilegeChanges.RemoteReasonPrefix.Trim(), ct);
+                    break;
+
+                default:
+                    return Results.BadRequest(new ApiError($"Type de demande inconnu : {request.Type}"));
+            }
+
+            await tx.RollbackAsync(ct);
+        }
+
+        if (!check.Ok) return check.ToResult();
+
+        var names = await db.Users.AsNoTracking()
+            .Where(u => u.IdUser == request.UserId || u.IdUser == scope.UserId)
+            .Select(u => new { u.IdUser, u.FirstName, u.LastName, u.Username, u.Email })
+            .ToListAsync(ct);
+
+        string? NameOf(string id) => names.FirstOrDefault(n => n.IdUser == id) is { } n
+            ? (string.Join(' ', new[] { n.FirstName, n.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))) is { Length: > 0 } full
+                ? full
+                : n.Username ?? n.Email)
+            : null;
+
+        var command = commands.Enqueue(scope.GroupId, new RemoteCommandDto(
+            Id: Guid.NewGuid().ToString(),
+            Type: request.Type,
+            UserId: request.UserId,
+            TargetName: NameOf(request.UserId),
+            PrivilegeName: request.PrivilegeName,
+            Catalog: request.Catalog,
+            Granted: request.Granted,
+            Role: request.Role,
+            RequestedBy: scope.UserId,
+            RequestedByName: NameOf(scope.UserId),
+            RequestedAt: DateTime.UtcNow,
+            Status: RemoteCommandStatuses.Pending));
+
+        return Results.Accepted($"/api/remote/commands/{command.Id}", command);
+    }
+
+    /// <summary>What was asked for recently and what became of it, newest first.</summary>
+    private static IResult ListCommands(GroupScope scope, RemoteCommandStore commands) =>
+        Results.Ok(new RemoteCommandsResponse(commands.Recent(scope.GroupId)));
 }

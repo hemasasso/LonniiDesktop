@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Lonnii.Api.Features.Backup;
+using Lonnii.Api.Features.Members;
 using Lonnii.Api.Features.Remote;
 using Lonnii.Data;
 using Lonnii.Data.Entities;
@@ -299,6 +300,195 @@ public class RemoteAccessTests : IAsyncLifetime
         var response = await _client.SendAsync(Remote(HttpMethod.Get, "/api/stock/products", jwt, session.SessionToken + "0"));
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    // --- The command queue ---------------------------------------------------------
+
+    private async Task<HttpResponseMessage> QueueAsync(string jwt, string session, RemoteCommandRequest command)
+    {
+        var request = Remote(HttpMethod.Post, "/api/remote/commands", jwt, session);
+        request.Content = JsonContent.Create(command);
+        return await _client.SendAsync(request);
+    }
+
+    private static RemoteCommandRequest GrantViewStock(string userId, bool granted = true) =>
+        new(RemoteCommandTypes.Privilege, userId, Priv.Gestion.ViewStock, "gestion", granted);
+
+    /// <summary>The headers the shop's host sends: its machine token, not an account.</summary>
+    private async Task<HttpRequestMessage> HostRequestAsync(HttpMethod method, string path, HttpContent? content = null)
+    {
+        var activation = await _client.PostAsJsonAsync("/api/activation",
+            new ActivationRequest(GroupId, AdminEmail, Password, "machine-1", "poste"));
+        Assert.Equal(HttpStatusCode.OK, activation.StatusCode);
+        var token = (await activation.Content.ReadFromJsonAsync<ActivationResponse>())!.BackupToken!;
+
+        var request = new HttpRequestMessage(method, "/api/backup/" + path) { Content = content };
+        request.Headers.Add("x-group-id", GroupId);
+        request.Headers.Add("x-device-id", "machine-1");
+        request.Headers.Add("x-backup-token", token);
+        return request;
+    }
+
+    [Fact]
+    public async Task A_remote_request_waits_in_a_queue_for_the_shop_and_leaves_the_copy_alone()
+    {
+        var (jwt, session) = await AdminSessionAsync();
+
+        var queued = await QueueAsync(jwt, session.SessionToken, GrantViewStock(_staffId));
+
+        Assert.Equal(HttpStatusCode.Accepted, queued.StatusCode);
+        var command = (await queued.Content.ReadFromJsonAsync<RemoteCommandDto>())!;
+        Assert.Equal(RemoteCommandStatuses.Pending, command.Status);
+        Assert.Equal(_adminId, command.RequestedBy);
+
+        // The screen sees it as waiting.
+        var listed = (await (await _client.SendAsync(Remote(HttpMethod.Get, "/api/remote/commands", jwt, session.SessionToken)))
+            .Content.ReadFromJsonAsync<RemoteCommandsResponse>())!;
+        Assert.Contains(listed.Commands, c => c.Id == command.Id && c.Status == RemoteCommandStatuses.Pending);
+
+        // Checking the request against the copy must not have changed the copy.
+        var member = await _client.SendAsync(
+            Remote(HttpMethod.Get, $"/api/privileges/member/{_staffId}", jwt, session.SessionToken));
+        var privileges = (await member.Content.ReadFromJsonAsync<MemberPrivilegesResponse>())!;
+        Assert.DoesNotContain(privileges.Gestion, p => p.Name == Priv.Gestion.ViewStock && p.IsGranted);
+    }
+
+    [Fact]
+    public async Task The_host_collects_its_requests_and_reports_what_it_did()
+    {
+        var (jwt, session) = await AdminSessionAsync();
+        var command = (await (await QueueAsync(jwt, session.SessionToken, GrantViewStock(_staffId)))
+            .Content.ReadFromJsonAsync<RemoteCommandDto>())!;
+
+        var collected = await _client.SendAsync(await HostRequestAsync(HttpMethod.Get, "commands"));
+        Assert.Equal(HttpStatusCode.OK, collected.StatusCode);
+        Assert.Contains((await collected.Content.ReadFromJsonAsync<RemoteCommandsResponse>())!.Commands, c => c.Id == command.Id);
+
+        var reported = await _client.SendAsync(await HostRequestAsync(HttpMethod.Post, $"commands/{command.Id}/result",
+            JsonContent.Create(new RemoteCommandResult(RemoteCommandStatuses.Applied))));
+        Assert.Equal(HttpStatusCode.NoContent, reported.StatusCode);
+
+        // Settled: no longer handed out, and the screen shows it as done.
+        var again = (await (await _client.SendAsync(await HostRequestAsync(HttpMethod.Get, "commands")))
+            .Content.ReadFromJsonAsync<RemoteCommandsResponse>())!;
+        Assert.Empty(again.Commands);
+
+        var listed = (await (await _client.SendAsync(Remote(HttpMethod.Get, "/api/remote/commands", jwt, session.SessionToken)))
+            .Content.ReadFromJsonAsync<RemoteCommandsResponse>())!;
+        Assert.Contains(listed.Commands, c => c.Id == command.Id && c.Status == RemoteCommandStatuses.Applied && c.AppliedAt is not null);
+
+        // A second report for the same request is refused.
+        var twice = await _client.SendAsync(await HostRequestAsync(HttpMethod.Post, $"commands/{command.Id}/result",
+            JsonContent.Create(new RemoteCommandResult(RemoteCommandStatuses.Failed, "x"))));
+        Assert.Equal(HttpStatusCode.NotFound, twice.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_request_the_shop_would_refuse_is_refused_at_once()
+    {
+        var (jwt, session) = await AdminSessionAsync();
+
+        // The creator already holds everything; an unknown privilege; an unknown member; a bad type.
+        Assert.Equal(HttpStatusCode.BadRequest, (await QueueAsync(jwt, session.SessionToken, GrantViewStock(_adminId))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await QueueAsync(jwt, session.SessionToken,
+            new(RemoteCommandTypes.Privilege, _staffId, "can_do_magic", "gestion", true))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await QueueAsync(jwt, session.SessionToken, GrantViewStock("nobody"))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await QueueAsync(jwt, session.SessionToken, new("fly", _staffId))).StatusCode);
+
+        var listed = (await (await _client.SendAsync(Remote(HttpMethod.Get, "/api/remote/commands", jwt, session.SessionToken)))
+            .Content.ReadFromJsonAsync<RemoteCommandsResponse>())!;
+        Assert.Empty(listed.Commands);
+    }
+
+    [Fact]
+    public async Task A_role_change_can_be_queued_too()
+    {
+        var (jwt, session) = await AdminSessionAsync();
+
+        var response = await QueueAsync(jwt, session.SessionToken, new(RemoteCommandTypes.Role, _staffId, Role: GroupRoles.Moderator));
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+    }
+
+    [Fact]
+    public void A_request_left_too_long_for_an_offline_shop_is_dropped()
+    {
+        var store = _factory.Services.GetRequiredService<RemoteCommandStore>();
+        var old = new RemoteCommandDto("old-1", RemoteCommandTypes.Role, _staffId, null, null, null, null, GroupRoles.Moderator,
+            _adminId, null, DateTime.UtcNow - RemoteCommandStore.Lifetime - TimeSpan.FromHours(1), RemoteCommandStatuses.Pending);
+        store.Enqueue(GroupId, old);
+
+        Assert.Empty(store.Pending(GroupId));
+        Assert.Equal(RemoteCommandStatuses.Expired, store.Recent(GroupId).Single().Status);
+    }
+
+    // --- The host applying a request ---------------------------------------------------
+
+    /// <summary>The server's database doubles as the shop's own here: members and roles in place.</summary>
+    private async Task MakeThisTheShopsHostAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+        db.GroupMembers.AddRange(
+            new GroupMember { IdGroupe = GroupId, IdUser = _adminId },
+            new GroupMember { IdGroupe = GroupId, IdUser = _staffId });
+        db.UserRoles.AddRange(
+            new UserRole { UserId = _adminId, GroupId = GroupId, Role = GroupRoles.Admin },
+            new UserRole { UserId = _staffId, GroupId = GroupId, Role = GroupRoles.Member });
+        await db.SaveChangesAsync();
+    }
+
+    private static RemoteCommandDto Command(string requestedBy, string userId, bool granted = true) =>
+        new(Guid.NewGuid().ToString(), RemoteCommandTypes.Privilege, userId, null, Priv.Gestion.ViewStock, "gestion",
+            granted, null, requestedBy, null, DateTime.UtcNow, RemoteCommandStatuses.Pending);
+
+    [Fact]
+    public async Task The_host_applies_a_request_from_an_administrator_and_notes_it_was_remote()
+    {
+        await MakeThisTheShopsHostAsync();
+        using var scope = _factory.Services.CreateScope();
+        var applier = scope.ServiceProvider.GetRequiredService<RemoteCommandApplier>();
+
+        var result = await applier.ApplyAsync(GroupId, Command(_adminId, _staffId), CancellationToken.None);
+
+        Assert.Equal(RemoteCommandStatuses.Applied, result.Status);
+
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+        var privilegeId = db.GestionPrivileges.Single(p => p.Name == Priv.Gestion.ViewStock).Id;
+        Assert.True(db.GestionUserPrivileges.Single(g => g.UserId == _staffId && g.PrivilegeId == privilegeId).IsActive);
+        Assert.StartsWith(PrivilegeChanges.RemoteReasonPrefix.Trim(), db.GestionPrivilegeAudits.Single().Reason);
+    }
+
+    [Fact]
+    public async Task The_host_revokes_when_asked()
+    {
+        await MakeThisTheShopsHostAsync();
+        using var scope = _factory.Services.CreateScope();
+        var applier = scope.ServiceProvider.GetRequiredService<RemoteCommandApplier>();
+        await applier.ApplyAsync(GroupId, Command(_adminId, _staffId, granted: true), CancellationToken.None);
+
+        var result = await applier.ApplyAsync(GroupId, Command(_adminId, _staffId, granted: false), CancellationToken.None);
+
+        Assert.Equal(RemoteCommandStatuses.Applied, result.Status);
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+        Assert.False(db.GestionUserPrivileges.Single(g => g.UserId == _staffId).IsActive);
+    }
+
+    [Fact]
+    public async Task The_host_ignores_a_request_from_someone_who_is_no_longer_an_administrator()
+    {
+        await MakeThisTheShopsHostAsync();
+        using var scope = _factory.Services.CreateScope();
+        var applier = scope.ServiceProvider.GetRequiredService<RemoteCommandApplier>();
+
+        // The sender is an ordinary member on the shop's own data, whatever the server believed.
+        var result = await applier.ApplyAsync(GroupId, Command(_staffId, _staffId), CancellationToken.None);
+
+        Assert.Equal(RemoteCommandStatuses.Failed, result.Status);
+        Assert.Contains("administrateur", result.Message);
+
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+        Assert.Empty(db.GestionUserPrivileges.Where(g => g.UserId == _staffId));
     }
 
     [Fact]

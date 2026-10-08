@@ -95,6 +95,60 @@ public sealed record GroupSessionResponse(string SessionToken, DateTime ExpiresA
 public sealed record RemoteSessionResponse(
     string SessionToken, DateTime ExpiresAt, DateTime SnapshotAt, GroupeDto Groupe);
 
+/// <summary>What a remote command asks for.</summary>
+public static class RemoteCommandTypes
+{
+    /// <summary>Grant or revoke one privilege of a member.</summary>
+    public const string Privilege = "privilege";
+
+    /// <summary>Change a member's group role.</summary>
+    public const string Role = "role";
+}
+
+/// <summary>Where a remote command is: waiting for the shop, done, refused, or given up on.</summary>
+public static class RemoteCommandStatuses
+{
+    public const string Pending = "pending";
+    public const string Applied = "applied";
+    public const string Failed = "failed";
+    public const string Expired = "expired";
+}
+
+/// <summary>
+/// A change an administrator asks for from afar. <paramref name="Catalog"/> is <c>gestion</c> or
+/// <c>option</c> for a privilege; <paramref name="Role"/> is the new role for a role change.
+/// </summary>
+public sealed record RemoteCommandRequest(
+    string Type,
+    string UserId,
+    string? PrivilegeName = null,
+    string? Catalog = null,
+    bool? Granted = null,
+    string? Role = null);
+
+/// <summary>A queued command and what became of it. <paramref name="Message"/> is the shop's
+/// answer when it was refused.</summary>
+public sealed record RemoteCommandDto(
+    string Id,
+    string Type,
+    string UserId,
+    string? TargetName,
+    string? PrivilegeName,
+    string? Catalog,
+    bool? Granted,
+    string? Role,
+    string RequestedBy,
+    string? RequestedByName,
+    DateTime RequestedAt,
+    string Status,
+    string? Message = null,
+    DateTime? AppliedAt = null);
+
+/// <summary>What the shop's host reports back for a command it collected.</summary>
+public sealed record RemoteCommandResult(string Status, string? Message = null);
+
+public sealed record RemoteCommandsResponse(IReadOnlyList<RemoteCommandDto> Commands);
+
 /// <summary>Response of <c>GET /api/remote/info</c>. <paramref name="IsCopy"/> is false for an
 /// ordinary session, which reads the live data.</summary>
 public sealed record RemoteInfoResponse(bool IsCopy, DateTime? SnapshotAt);

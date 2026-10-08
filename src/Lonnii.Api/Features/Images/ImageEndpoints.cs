@@ -1,3 +1,6 @@
+using Lonnii.Api.Features.Auth;
+using Lonnii.Api.Features.Backup;
+using Lonnii.Api.Features.Remote;
 using Lonnii.Data;
 using Lonnii.Shared.Contracts;
 using Microsoft.EntityFrameworkCore;
@@ -25,7 +28,8 @@ public static class ImageEndpoints
     /// workspace fetching another workspace's photos by reusing the same URL shape.
     /// </summary>
     private static async Task<IResult> ServeAsync(
-        string folder, string fileName, GroupScope scope, LonniiDbContext db, ImageStorageService images, CancellationToken ct)
+        string folder, string fileName, GroupScope scope, LonniiDbContext db, ImageStorageService images,
+        BackupStore backups, HttpContext http, CancellationToken ct)
     {
         var entityId = ImageStorageService.EntityIdFromFileName(fileName);
         if (entityId is null) return Results.NotFound();
@@ -51,6 +55,12 @@ public static class ImageEndpoints
         if (!ownedByThisGroup) return Results.NotFound(new ApiError("Image introuvable"));
 
         var stream = images.OpenRead(folder, fileName);
+
+        // A shop read from its online copy: its photos are not on this server's own disk, they
+        // are the ones its host uploaded with its backup.
+        if (stream is null && http.Items.ContainsKey(RemoteKeys.ReplicaPath))
+            stream = backups.OpenImage(scope.GroupId, folder, fileName);
+
         if (stream is null) return Results.NotFound(new ApiError("Image introuvable"));
 
         return Results.File(stream, ImageStorageService.ContentTypeFor(fileName));

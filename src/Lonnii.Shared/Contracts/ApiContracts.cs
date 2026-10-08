@@ -89,6 +89,17 @@ public sealed record UpdateCurrencyRequest(string CurrencyLabel, bool CurrencyBe
 public sealed record GroupSessionResponse(string SessionToken, DateTime ExpiresAt, GroupeDto Groupe);
 
 /// <summary>
+/// A remote session: the token to send as <c>x-group-session</c>, when it expires, and when the
+/// shop's copy that it reads was taken - how old everything the session shows is.
+/// </summary>
+public sealed record RemoteSessionResponse(
+    string SessionToken, DateTime ExpiresAt, DateTime SnapshotAt, GroupeDto Groupe);
+
+/// <summary>Response of <c>GET /api/remote/info</c>. <paramref name="IsCopy"/> is false for an
+/// ordinary session, which reads the live data.</summary>
+public sealed record RemoteInfoResponse(bool IsCopy, DateTime? SnapshotAt);
+
+/// <summary>
 /// Adds someone to the current group.
 ///
 /// When an account already matches <paramref name="Identifier"/> it is simply added and

@@ -11,7 +11,7 @@ namespace Lonnii.Api.Features.Auth;
 /// and sends it as <c>x-group-session</c> on every group-scoped request. This keeps
 /// the group out of the URL and makes a request that forgets it fail closed.
 /// </summary>
-public class GroupSessionService(LonniiDbContext db)
+public class GroupSessionService(LonniiDbContext db, Lonnii.Api.Features.Remote.RemoteSessionTokens remote)
 {
     /// <summary>Header carrying the group session token, matching the web client.</summary>
     public const string HeaderName = "x-group-session";
@@ -53,6 +53,22 @@ public class GroupSessionService(LonniiDbContext db)
     {
         if (string.IsNullOrWhiteSpace(token)) return null;
 
+        // A remote session is a signed token, not a row: nothing to look up or touch, and the
+        // data it reads is a copy that is only ever read.
+        if (Lonnii.Api.Features.Remote.RemoteSessionTokens.IsRemote(token))
+        {
+            var remoteSession = remote.Verify(token, DateTime.UtcNow);
+            return remoteSession is null || remoteSession.UserId != userId
+                ? null
+                : new GroupeSession
+                {
+                    SessionToken = token,
+                    GroupId = remoteSession.GroupId,
+                    UserId = userId,
+                    ExpiresAt = remoteSession.ExpiresAt,
+                };
+        }
+
         var session = await db.GroupeSessions
             .FirstOrDefaultAsync(s => s.SessionToken == token, ct);
 
@@ -68,6 +84,8 @@ public class GroupSessionService(LonniiDbContext db)
     /// <summary>Closes one session, used when the client switches group or signs out.</summary>
     public async Task CloseAsync(string token, CancellationToken ct = default)
     {
+        if (Lonnii.Api.Features.Remote.RemoteSessionTokens.IsRemote(token)) return;
+
         await db.GroupeSessions.Where(s => s.SessionToken == token).ExecuteDeleteAsync(ct);
     }
 

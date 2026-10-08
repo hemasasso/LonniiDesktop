@@ -56,6 +56,7 @@ location ^~ /api/groupes/       { proxy_pass http://127.0.0.1:5280; include /www
 location ^~ /api/groupe/        { proxy_pass http://127.0.0.1:5280; include /www/server/nginx/conf/lonnii-api-proxy.conf; client_max_body_size 10m; }
 location ^~ /api/privileges/    { proxy_pass http://127.0.0.1:5280; include /www/server/nginx/conf/lonnii-api-proxy.conf; }
 location ^~ /api/live/          { proxy_pass http://127.0.0.1:5280; include /www/server/nginx/conf/lonnii-api-proxy.conf; }
+location ^~ /api/remote/        { proxy_pass http://127.0.0.1:5280; include /www/server/nginx/conf/lonnii-api-proxy.conf; }
 # Gestion modules for the mobile app. Node serves its own at the root (/ventes, /gestion), so
 # nothing under these /api/ paths collides. /api/parametres is routed only for /recu (below):
 # Node owns /api/parametres/ventes.

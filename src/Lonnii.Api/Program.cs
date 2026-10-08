@@ -35,14 +35,37 @@ databaseOptions.Validate();
 
 builder.Services.AddSingleton(databaseOptions);
 
-builder.Services.AddDbContext<LonniiDbContext>(options =>
+// The server's own database. On a shop's host that is its SQLite file; on the licence server it
+// is the live PostgreSQL.
+void ConfigureControlDb(DbContextOptionsBuilder options)
 {
     if (databaseOptions.IsPostgres)
         options.UseNpgsql(databaseOptions.ConnectionString);
     else
         // Foreign keys are off by default in SQLite; the schema relies on them.
         options.UseSqlite($"Data Source={databasePath};Foreign Keys=True");
+}
+
+builder.Services.AddHttpContextAccessor();
+
+// A remote session (an administrator viewing an online shop from afar) reads the shop's copy of
+// its data instead: RemoteRoutingMiddleware leaves the copy's path on the request, and every
+// context created for that request is pointed at it. Everything else uses the server's database.
+builder.Services.AddDbContext<LonniiDbContext>((services, options) =>
+{
+    var replicaPath = services.GetService<IHttpContextAccessor>()?.HttpContext?
+        .Items[Lonnii.Api.Features.Remote.RemoteKeys.ReplicaPath] as string;
+
+    if (replicaPath is not null)
+        options.UseSqlite($"Data Source={replicaPath};Foreign Keys=True");
+    else
+        ConfigureControlDb(options);
 });
+
+var controlOptionsBuilder = new DbContextOptionsBuilder<LonniiDbContext>();
+ConfigureControlDb(controlOptionsBuilder);
+builder.Services.AddSingleton(new Lonnii.Api.Features.Remote.ControlDbOptions(controlOptionsBuilder.Options));
+builder.Services.AddScoped<Lonnii.Api.Features.Remote.ControlDb>();
 
 // --- Authentication -------------------------------------------------------
 var jwtOptions = new JwtOptions();
@@ -71,11 +94,19 @@ builder.Services.AddScoped<PrivilegeResolver>();
 builder.Services.AddScoped<DatabaseSeeder>();
 builder.Services.AddSingleton<Lonnii.Api.Features.Live.ShopChangeNotifier>();
 builder.Services.AddScoped<GroupSessionService>();
-builder.Services.AddScoped<LicenceGuard>();
+// Who the caller is and whether the shop's licence is current are facts of the server's own
+// database, even when the request's data comes from a shop's copy.
+builder.Services.AddScoped<LicenceGuard>(services =>
+    new LicenceGuard(services.GetRequiredService<Lonnii.Api.Features.Remote.ControlDb>().Db));
 
 // Populated per request by GroupScopeFilter, then injected into group-scoped endpoints.
 builder.Services.AddScoped<GroupScope>();
-builder.Services.AddScoped<GroupScopeFilter>();
+builder.Services.AddScoped<GroupScopeFilter>(services => new GroupScopeFilter(
+    services.GetRequiredService<Lonnii.Api.Features.Remote.ControlDb>().Db,
+    services.GetRequiredService<GroupSessionService>(),
+    services.GetRequiredService<PrivilegeResolver>(),
+    services.GetRequiredService<LicenceGuard>(),
+    services.GetRequiredService<GroupScope>()));
 builder.Services.AddScoped<RequireAdminFilter>();
 
 // Product and category photos live on the host laptop's disk, beside the database.
@@ -91,6 +122,9 @@ builder.Services.AddScoped<EspaceTransferService>();
 // anything depends only on whether the workspace has a licence server to answer to.
 builder.Services.AddSingleton(new BackupTokens(jwtOptions.Secret));
 builder.Services.AddSingleton(new BackupStore(dataDirectory));
+builder.Services.AddSingleton(new Lonnii.Api.Features.Remote.RemoteSessionTokens(jwtOptions.Secret));
+builder.Services.AddSingleton(sp => new Lonnii.Api.Features.Remote.ReplicaStore(
+    sp.GetRequiredService<BackupStore>(), dataDirectory));
 builder.Services.AddSingleton(new CloudBackupPaths(databasePath));
 builder.Services.AddHttpClient(CloudBackupClient.HttpClientName, client =>
 {
@@ -188,6 +222,7 @@ if (builder.Configuration.GetValue("Lonnii:BehindProxy", false)) app.UseForwarde
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseMiddleware<Lonnii.Api.Features.Remote.RemoteRoutingMiddleware>();
 
 app.MapAuthEndpoints();
 app.MapActivationEndpoints();
@@ -196,6 +231,7 @@ app.MapLicenceEndpoints();
 app.MapDeviceEndpoints();
 app.MapGroupEndpoints();
 app.MapPrivilegeEndpoints();
+Lonnii.Api.Features.Remote.RemoteEndpoints.MapRemoteEndpoints(app);
 Lonnii.Api.Features.Live.LiveEndpoints.MapLiveEndpoints(app);
 app.MapStockEndpoints();
 app.MapVentesEndpoints();

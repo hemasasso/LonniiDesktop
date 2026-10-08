@@ -162,7 +162,7 @@
                            HorizontalAlignment="Center" />
                 <TextBlock Style="{StaticResource PageSubtitle}" TextAlignment="Center"
                            Margin="0,6,0,0" MaxWidth="360" TextWrapping="Wrap"
-                           Text="Vous n'appartenez à aucun espace. Demandez à un administrateur de vous ajouter au sien." />
+                           Text="Vous n'appartenez à aucun espace. Si vous êtes le propriétaire, créez votre espace avec le bouton « Créer un espace… » ci-dessous. Sinon, demandez à un administrateur de vous ajouter au sien." />
             </StackPanel>
         </Border>
 

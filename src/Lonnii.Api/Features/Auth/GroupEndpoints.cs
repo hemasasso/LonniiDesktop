@@ -482,6 +482,10 @@ public static class GroupEndpoints
     /// </summary>
     private static async Task<IResult> DeleteAsync(
         string groupId,
+        // A DELETE has no body by default; an empty one is allowed so a call with no password
+        // reaches the check below and gets a clear 400 rather than a binding error.
+        [Microsoft.AspNetCore.Mvc.FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)]
+        DeleteGroupeRequest? request,
         ClaimsPrincipal principal,
         LonniiDbContext db,
         ImageStorageService images,
@@ -496,6 +500,15 @@ public static class GroupEndpoints
             return Results.Json(
                 new ApiError("Seul le créateur de l'espace peut le supprimer."),
                 statusCode: StatusCodes.Status403Forbidden);
+
+        // Erasing a whole shop asks for the creator's own password, checked here and not only by the
+        // screen: a signed-in session left open, or a stolen sign-in token, must not be enough.
+        var creator = await db.Users.FirstOrDefaultAsync(u => u.IdUser == userId, ct);
+        if (string.IsNullOrEmpty(request?.Password))
+            return Results.BadRequest(new ApiError("Le mot de passe de l'administrateur est requis pour supprimer l'espace."));
+
+        if (creator?.Password is null || !BCrypt.Net.BCrypt.Verify(request.Password, creator.Password))
+            return Results.Json(new ApiError("Mot de passe incorrect"), statusCode: StatusCodes.Status403Forbidden);
 
         // --- Children first (FK order) ---
 

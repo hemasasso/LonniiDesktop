@@ -160,10 +160,11 @@ public class LonniiApiClient
 
     /// <summary>
     /// Permanently deletes an espace and all its data. Only the Admin Général (the creator)
-    /// of the espace may call this; the API refuses anyone else with 403.
+    /// of the espace may call this, and must confirm with their own password; the API refuses
+    /// anyone else with 403.
     /// </summary>
-    public Task DeleteGroupeAsync(string groupId, CancellationToken ct = default) =>
-        SendAsync(HttpMethod.Delete, $"api/groupes/{groupId}", null, ct);
+    public Task DeleteGroupeAsync(string groupId, string password, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Delete, $"api/groupes/{groupId}", new DeleteGroupeRequest(password), ct);
 
     /// <summary>Closes the current group session (the x-group-session token).</summary>
     public Task CloseGroupSessionAsync(CancellationToken ct = default) =>

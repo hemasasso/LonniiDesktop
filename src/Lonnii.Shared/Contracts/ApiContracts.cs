@@ -25,6 +25,11 @@ public sealed record RegisterRequest(
 /// </summary>
 public sealed record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 
+/// <summary>Confirms the deletion of a whole espace with the creator's own password. Typing the
+/// espace's name guards against a stray click; the password guards against a signed-in screen left
+/// open and against a stolen sign-in token.</summary>
+public sealed record DeleteGroupeRequest(string Password);
+
 /// <summary>
 /// Resets another member's password. Only an administrator may do this, and the current
 /// password is not required - the point is that nobody knows it any more.

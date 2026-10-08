@@ -42,7 +42,12 @@ public partial class GroupPickerWindow : Window
             if (!hasAny)
             {
                 GroupList.ItemsSource = null;
-                CreateButton.Visibility = Visibility.Collapsed;
+
+                // With no espace left - the last one deleted, or a first sign-in - there is nobody to
+                // ask to be added, so a way to create one must be offered or the person is stuck.
+                // Who may actually create one is decided where espaces are registered: the licence
+                // server accepts only the Admin Général of an approved shop and says so otherwise.
+                CreateButton.Visibility = Visibility.Visible;
                 return;
             }
 
@@ -181,7 +186,8 @@ public partial class GroupPickerWindow : Window
         // A new espace is registered with Lonnii before it exists, and Lonnii only knows the
         // owner by password - the host keeps nothing it could present instead.
         var password = PasswordPromptDialog.Show(this, "Créer un espace",
-            "Saisissez votre mot de passe pour enregistrer ce nouvel espace auprès de Lonnii.");
+            "Saisissez le mot de passe de votre compte Lonnii en ligne (celui de Lonnii Business) pour " +
+            "enregistrer ce nouvel espace. Il peut différer du mot de passe de ce poste.");
         if (password is null) return;
 
         Cursor = Cursors.Wait;

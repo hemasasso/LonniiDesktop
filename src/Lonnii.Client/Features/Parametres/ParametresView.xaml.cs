@@ -363,7 +363,8 @@ public partial class ParametresView : UserControl
         var groupe = _session.Groupe;
         if (groupe is null) return;
 
-        // Typing the name is the confirmation: a stray click cannot erase a shop.
+        // Two confirmations: typing the name stops a stray click, and the administrator's own password
+        // stops anyone using a screen that was left signed in. The server checks the password itself.
         var typed = Lonnii.Client.Common.PromptDialog.Show(
             Window.GetWindow(this)!, "Supprimer l'espace",
             $"Toutes les données de « {groupe.Nom} » seront supprimées, définitivement.\n\n" +
@@ -376,9 +377,18 @@ public partial class ParametresView : UserControl
             return;
         }
 
+        var password = Lonnii.Client.Common.PasswordPromptDialog.Show(
+            Window.GetWindow(this)!, "Supprimer l'espace",
+            $"Dernière étape : entrez le mot de passe de l'administrateur pour supprimer « {groupe.Nom} ».");
+        if (password is null)
+        {
+            DeleteEspaceStatusText.Text = "Suppression annulée. Rien n'a été supprimé.";
+            return;
+        }
+
         try
         {
-            await _session.Api.DeleteGroupeAsync(groupe.Id);
+            await _session.Api.DeleteGroupeAsync(groupe.Id, password);
             DeleteEspaceStatusText.Text = string.Empty;
             EspaceDeleted?.Invoke(this, EventArgs.Empty);
         }

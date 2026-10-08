@@ -58,13 +58,16 @@ public class GroupSessionService(LonniiDbContext db, Lonnii.Api.Features.Remote.
         if (Lonnii.Api.Features.Remote.RemoteSessionTokens.IsRemote(token))
         {
             var remoteSession = remote.Verify(token, DateTime.UtcNow);
+
+            // The token names the caller's account on the server; inside the shop the same person is
+            // known by the id the shop gave them, which is what the session carries.
             return remoteSession is null || remoteSession.UserId != userId
                 ? null
                 : new GroupeSession
                 {
                     SessionToken = token,
                     GroupId = remoteSession.GroupId,
-                    UserId = userId,
+                    UserId = remoteSession.LocalUserId,
                     ExpiresAt = remoteSession.ExpiresAt,
                 };
         }

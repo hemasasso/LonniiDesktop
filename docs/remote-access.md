@@ -15,6 +15,10 @@ is down the copy simply stops moving, and the screens say how old it is.
    - the shop has uploaded at least one snapshot (404),
    - the caller is an **administrator in the shop's own data** (403) - roles are granted and
      removed on the shop's host, so the copy is the authority, not the registration record.
+     The caller's account on the server and their account in the shop are two rows with two ids when
+     the shop's account was made on the shop's computer, so they are **matched by email** - and only
+     when the server has verified that email (403 otherwise). Inside the shop, including in the
+     requests the host applies, the person is known by the shop's own id.
    No registered machine is asked for; a phone has none.
 3. The token goes in the usual `x-group-session` header. `RemoteRoutingMiddleware` sees the `rs.`
    prefix, points the request's database at the shop's copy, and every existing endpoint answers
@@ -25,7 +29,7 @@ is down the copy simply stops moving, and the screens say how old it is.
 - **Read-only.** Only GET and HEAD reach the copy; anything else is a 405. The copy is rebuilt from
   the next snapshot, so a write would be lost and would look as if it had worked. The one thing a
   remote administrator may do is ask for a change - see *Remote requests* below.
-- **Stateless token**: `rs.{groupId}.{userId}.{expiresUnix}.{hmac}`, 4 hours. The request is routed
+- **Stateless token**: `rs.{groupId}.{accountId}.{shopUserId}.{expiresUnix}.{hmac}`, 4 hours. The request is routed
   before any database is opened, which a stored random token could not allow.
 - **Account and licence checks use the server's own database** (`ControlDb`), never the copy.
 - **Copies**: `replicas/{groupId}/{snapshotTime}.db`, unpacked on demand and brought to the current

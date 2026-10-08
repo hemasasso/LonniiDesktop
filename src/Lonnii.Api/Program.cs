@@ -102,12 +102,7 @@ builder.Services.AddScoped<LicenceGuard>(services =>
 
 // Populated per request by GroupScopeFilter, then injected into group-scoped endpoints.
 builder.Services.AddScoped<GroupScope>();
-builder.Services.AddScoped<GroupScopeFilter>(services => new GroupScopeFilter(
-    services.GetRequiredService<Lonnii.Api.Features.Remote.ControlDb>().Db,
-    services.GetRequiredService<GroupSessionService>(),
-    services.GetRequiredService<PrivilegeResolver>(),
-    services.GetRequiredService<LicenceGuard>(),
-    services.GetRequiredService<GroupScope>()));
+builder.Services.AddScoped<GroupScopeFilter>();
 builder.Services.AddScoped<RequireAdminFilter>();
 
 // Product and category photos live on the host laptop's disk, beside the database.

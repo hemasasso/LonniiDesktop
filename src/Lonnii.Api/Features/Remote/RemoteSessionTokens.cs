@@ -3,12 +3,19 @@ using System.Text;
 
 namespace Lonnii.Api.Features.Remote;
 
-/// <summary>What a remote session token says, once its signature and expiry have been checked.</summary>
-public sealed record RemoteSession(string GroupId, string UserId, DateTime ExpiresAt);
+/// <summary>
+/// What a remote session token says, once its signature and expiry have been checked.
+/// <paramref name="UserId"/> is the caller's account on the licence server (what their sign-in token
+/// names); <paramref name="LocalUserId"/> is the same person's account inside the shop's own data,
+/// matched by email when the session was opened. The two ids differ whenever the shop's account was
+/// created on the shop's computer rather than on the server, and everything inside the shop - roles,
+/// privileges, the audit trail - uses the shop's own.
+/// </summary>
+public sealed record RemoteSession(string GroupId, string UserId, string LocalUserId, DateTime ExpiresAt);
 
 /// <summary>
 /// Signed, stateless tokens for an administrator viewing an online shop from a phone or a laptop
-/// away from the shop: <c>rs.{groupId}.{userId}.{expiresUnix}.{signature}</c>, sent in the same
+/// away from the shop: <c>rs.{groupId}.{accountId}.{shopUserId}.{expiresUnix}.{signature}</c>, sent in the same
 /// <c>x-group-session</c> header an ordinary group session uses.
 ///
 /// <para>
@@ -31,11 +38,11 @@ public sealed class RemoteSessionTokens(string secret)
     public static bool IsRemote(string? token) =>
         token is not null && token.StartsWith(Prefix, StringComparison.Ordinal);
 
-    public (string Token, DateTime ExpiresAt) Create(string groupId, string userId, DateTime now)
+    public (string Token, DateTime ExpiresAt) Create(string groupId, string accountId, string shopUserId, DateTime now)
     {
         var expires = now.Add(Lifetime);
         var unix = new DateTimeOffset(expires, TimeSpan.Zero).ToUnixTimeSeconds();
-        var body = $"{groupId}.{userId}.{unix}";
+        var body = $"{groupId}.{accountId}.{shopUserId}.{unix}";
         return ($"{Prefix}{body}.{Sign(body)}", expires);
     }
 
@@ -44,16 +51,16 @@ public sealed class RemoteSessionTokens(string secret)
         if (!IsRemote(token)) return null;
 
         var parts = token!.Split('.');
-        if (parts.Length != 5) return null;
+        if (parts.Length != 6) return null;
 
-        var body = $"{parts[1]}.{parts[2]}.{parts[3]}";
+        var body = $"{parts[1]}.{parts[2]}.{parts[3]}.{parts[4]}";
         var expected = Encoding.ASCII.GetBytes(Sign(body));
-        var given = Encoding.ASCII.GetBytes(parts[4]);
+        var given = Encoding.ASCII.GetBytes(parts[5]);
         if (!CryptographicOperations.FixedTimeEquals(expected, given)) return null;
 
-        if (!long.TryParse(parts[3], out var unix)) return null;
+        if (!long.TryParse(parts[4], out var unix)) return null;
         var expires = DateTimeOffset.FromUnixTimeSeconds(unix).UtcDateTime;
-        return expires <= now ? null : new RemoteSession(parts[1], parts[2], expires);
+        return expires <= now ? null : new RemoteSession(parts[1], parts[2], parts[3], expires);
     }
 
     private string Sign(string body) =>

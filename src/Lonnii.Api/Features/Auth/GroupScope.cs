@@ -37,7 +37,7 @@ public class GroupScope
 /// error, which would let a blocked user through.
 /// </summary>
 public class GroupScopeFilter(
-    LonniiDbContext db,
+    Lonnii.Api.Features.Remote.ControlDb control,
     GroupSessionService sessions,
     PrivilegeResolver privileges,
     LicenceGuard licence,
@@ -52,7 +52,9 @@ public class GroupScopeFilter(
         if (string.IsNullOrEmpty(userId))
             return Results.Json(new ApiError("Non authentifié"), statusCode: StatusCodes.Status401Unauthorized);
 
-        var account = await db.Users
+        // The caller's account lives in the server's own database, even in a remote session where
+        // the request's data comes from a shop's copy.
+        var account = await control.Db.Users
             .Where(u => u.IdUser == userId)
             .Select(u => new { u.IsBlocked, u.PasswordChangedAt })
             .FirstOrDefaultAsync(ct);
@@ -89,10 +91,12 @@ public class GroupScopeFilter(
                 statusCode: StatusCodes.Status423Locked);
         }
 
-        scope.UserId = userId;
+        // The session's user: the caller's own id, except in a remote session, where it is the id the
+        // shop gave the same person (see RemoteSession).
+        scope.UserId = session.UserId;
         scope.GroupId = session.GroupId;
         scope.SessionToken = token;
-        scope.Privileges = await privileges.ResolveAsync(userId, session.GroupId, ct);
+        scope.Privileges = await privileges.ResolveAsync(session.UserId, session.GroupId, ct);
 
         return await next(context);
     }

@@ -90,8 +90,9 @@ public class RemoteAccessTests : IAsyncLifetime
 
     /// <summary>What the host uploads: its own database with a product only it knows about, the
     /// administrator as the shop's creator and the other account as an ordinary member.</summary>
-    private async Task UploadSnapshotAsync(string productName = "Paracétamol 500 mg")
+    private async Task UploadSnapshotAsync(string productName = "Paracétamol 500 mg", string? adminShopId = null)
     {
+        var shopAdminId = adminShopId ?? _adminId;
         var path = Path.Combine(_dataDirectory, "host-" + Guid.NewGuid().ToString("N") + ".db");
 
         await using (var host = new LonniiDbContext(ReplicaStore.OptionsFor(path)))
@@ -99,14 +100,14 @@ public class RemoteAccessTests : IAsyncLifetime
             await new DatabaseSeeder(host).MigrateAndSeedAsync();
 
             host.Users.AddRange(
-                new User { IdUser = _adminId, Email = AdminEmail, Password = BCrypt.Net.BCrypt.HashPassword(Password), IsVerified = true },
+                new User { IdUser = shopAdminId, Email = AdminEmail, Password = BCrypt.Net.BCrypt.HashPassword(Password), IsVerified = true },
                 new User { IdUser = _staffId, Email = StaffEmail, Password = BCrypt.Net.BCrypt.HashPassword(Password), IsVerified = true });
-            host.Groupes.Add(new Groupe { Id = GroupId, Nom = "Pharmacie Nord", IdUserAdmin = _adminId, Mode = DeploymentModes.Local });
+            host.Groupes.Add(new Groupe { Id = GroupId, Nom = "Pharmacie Nord", IdUserAdmin = shopAdminId, Mode = DeploymentModes.Local });
             host.GroupMembers.AddRange(
-                new GroupMember { IdGroupe = GroupId, IdUser = _adminId },
+                new GroupMember { IdGroupe = GroupId, IdUser = shopAdminId },
                 new GroupMember { IdGroupe = GroupId, IdUser = _staffId });
             host.UserRoles.AddRange(
-                new UserRole { UserId = _adminId, GroupId = GroupId, Role = GroupRoles.Admin },
+                new UserRole { UserId = shopAdminId, GroupId = GroupId, Role = GroupRoles.Admin },
                 new UserRole { UserId = _staffId, GroupId = GroupId, Role = GroupRoles.Member });
             host.Products.Add(new Product { Id = ProductId, GroupId = GroupId, Name = productName, Price = 1500m, Quantity = 20 });
 
@@ -496,13 +497,71 @@ public class RemoteAccessTests : IAsyncLifetime
     {
         var tokens = new RemoteSessionTokens("secret-a");
         var now = new DateTime(2026, 10, 8, 12, 0, 0, DateTimeKind.Utc);
-        var (token, expires) = tokens.Create(GroupId, "user-1", now);
+        var (token, expires) = tokens.Create(GroupId, "user-1", "shop-1", now);
 
-        Assert.Equal(new RemoteSession(GroupId, "user-1", expires), tokens.Verify(token, now));
+        Assert.Equal(new RemoteSession(GroupId, "user-1", "shop-1", expires), tokens.Verify(token, now));
         Assert.Null(tokens.Verify(token, expires));                                  // expired
         Assert.Null(new RemoteSessionTokens("secret-b").Verify(token, now));         // another server's key
-        Assert.Null(tokens.Verify(token.Replace("user-1", "user-2"), now));          // edited body
+        Assert.Null(tokens.Verify(token.Replace("user-1", "user-2"), now));          // edited account
+        Assert.Null(tokens.Verify(token.Replace("shop-1", "shop-2"), now));          // edited shop account
         Assert.Null(tokens.Verify("rs.garbage", now));
         Assert.Null(tokens.Verify(null, now));
+    }
+
+    // --- Two accounts, one person ----------------------------------------------------------
+
+    [Fact]
+    public async Task An_administrator_whose_shop_account_has_another_id_is_matched_by_email()
+    {
+        const string shopAdminId = "shop-side-admin-id";
+        await UploadSnapshotAsync(adminShopId: shopAdminId);
+        var jwt = await LoginAsync(AdminEmail);
+
+        var opened = await OpenRemoteAsync(jwt);
+
+        Assert.True(opened.StatusCode == HttpStatusCode.OK, "open: " + await opened.Content.ReadAsStringAsync());
+        var session = (await opened.Content.ReadFromJsonAsync<RemoteSessionResponse>())!;
+
+        var read = await _client.SendAsync(Remote(HttpMethod.Get, "/api/stock/products", jwt, session.SessionToken));
+        Assert.True(read.StatusCode == HttpStatusCode.OK, "read: " + read.StatusCode + " " + await read.Content.ReadAsStringAsync());
+
+        // Inside the shop the person is known by the shop's own id - the one the host will check
+        // when it applies the request, and the one the audit trail names.
+        var queued = await QueueAsync(jwt, session.SessionToken, GrantViewStock(_staffId));
+        Assert.Equal(HttpStatusCode.Accepted, queued.StatusCode);
+        Assert.Equal(shopAdminId, (await queued.Content.ReadFromJsonAsync<RemoteCommandDto>())!.RequestedBy);
+    }
+
+    [Fact]
+    public async Task An_account_whose_email_the_server_has_not_verified_is_not_matched()
+    {
+        await UploadSnapshotAsync();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+            db.Users.Single(u => u.IdUser == _adminId).IsVerified = false;
+            await db.SaveChangesAsync();
+        }
+
+        var response = await OpenRemoteAsync(await LoginAsync(AdminEmail));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task An_account_with_no_counterpart_in_the_shop_is_refused()
+    {
+        await UploadSnapshotAsync();
+        const string otherEmail = "autre@pharmacie-nord.bf";
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+            db.Users.Single(u => u.IdUser == _adminId).Email = otherEmail;
+            await db.SaveChangesAsync();
+        }
+
+        var response = await OpenRemoteAsync(await LoginAsync(otherEmail));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 }

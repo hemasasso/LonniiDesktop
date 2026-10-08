@@ -85,8 +85,39 @@ public static class RemoteEndpoints
 
         // Who is an administrator is decided by the shop's own data, not by the registration
         // record on this server: roles are granted and removed on the shop's host.
+        //
+        // The caller's account here and their account in the shop are two rows with two ids whenever
+        // the shop's account was made on the shop's computer. They are matched by email, and only for
+        // an account whose email this server has verified: otherwise anyone could sign up here with a
+        // shop administrator's address and be taken for them.
+        var account = await db.Users.AsNoTracking()
+            .Where(u => u.IdUser == userId)
+            .Select(u => new { u.Email, u.IsVerified })
+            .FirstOrDefaultAsync(ct);
+
+        if (account is null || !account.IsVerified || string.IsNullOrWhiteSpace(account.Email))
+        {
+            return Results.Json(
+                new ApiError("Adresse e-mail non vérifiée : l'accès à distance n'est pas possible."),
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
         await using var copy = new LonniiDbContext(ReplicaStore.OptionsFor(replica.Path));
-        var privileges = await new PrivilegeResolver(copy).ResolveAsync(userId, groupId, ct);
+
+        var email = account.Email.Trim().ToLowerInvariant();
+        var shopUserId = await copy.Users.AsNoTracking()
+            .Where(u => u.Email.ToLower() == email)
+            .Select(u => u.IdUser)
+            .FirstOrDefaultAsync(ct);
+
+        if (shopUserId is null)
+        {
+            return Results.Json(
+                new ApiError("Aucun compte avec cette adresse e-mail n'existe dans cette boutique."),
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        var privileges = await new PrivilegeResolver(copy).ResolveAsync(shopUserId, groupId, ct);
 
         if (!privileges.IsAdminGeneral && !privileges.IsAdmin)
         {
@@ -98,7 +129,7 @@ public static class RemoteEndpoints
         var shop = await copy.Groupes.AsNoTracking().FirstOrDefaultAsync(g => g.Id == groupId, ct) ?? groupe;
         var memberCount = await copy.GroupMembers.CountAsync(m => m.IdGroupe == groupId, ct);
 
-        var (token, expires) = tokens.Create(groupId, userId, DateTime.UtcNow);
+        var (token, expires) = tokens.Create(groupId, userId, shopUserId, DateTime.UtcNow);
 
         return Results.Ok(new RemoteSessionResponse(
             token,

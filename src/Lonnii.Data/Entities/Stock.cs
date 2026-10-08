@@ -157,6 +157,11 @@ public class Product
 
     public string? ImageUrl { get; set; }
 
+    /// <summary>Lonnii Business keeps its product pictures in <c>image_path</c>, a path under its
+    /// own uploads folder. Read as a fallback so existing products still show their picture;
+    /// pictures added from the desktop go in <see cref="ImageUrl"/>.</summary>
+    public string? LegacyImagePath { get; set; }
+
     /// <summary>Comma-separated tags. The source column is a PostgreSQL TEXT[].</summary>
     public string? Tags { get; set; }
 

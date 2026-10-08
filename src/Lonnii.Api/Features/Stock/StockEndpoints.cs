@@ -795,7 +795,7 @@ public static class StockEndpoints
         p.SupplierId, p.Supplier != null ? p.Supplier.Name : null,
         p.Quantity, p.MinimumThreshold, p.CostPrice, p.Price, p.PrixFixe,
         p.VenteLibre, p.StockIllimite, p.UniteAffichage,
-        p.IsActive, p.StorageLocation, p.ExpiryDate, p.ImageUrl, p.UpdatedAt,
+        p.IsActive, p.StorageLocation, p.ExpiryDate, p.ImageUrl ?? p.LegacyImagePath, p.UpdatedAt,
         NormaliseType(p.TypeProduit), p.MarginPercentage,
         p.VenteMixte, p.UniteVente, p.FacteurConversion, p.PrixVenteDetail);
 

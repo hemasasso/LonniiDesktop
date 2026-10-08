@@ -47,6 +47,9 @@ psql -h <host> -p 5432 -U <user> -d <database> -f 001_groupes_desktop_columns.sq
 | `011_groupe_payments.sql` | `groupe_payments` (Paiement Groupé) — the web app's own table; avoir_solded_* columns are inferred from `POST /solder-avoir` | no — compare against the live table before running |
 | `014_registrations.sql` | `groupes.approval_status` (existing rows become `approved`); `registration_requests` | applied by hand by the owner, 2026-10-04 (not re-checked by me) |
 | `015_groupe_photo.sql` | `groupes.photo_url` | no - new column, nothing to compare |
+| `016_caisse_carte_bilan_table_type.sql` | `caisses.montant_initial_carte`, `montant_final_carte`; `bilan_ecritures.table_type` | yes, 2026-10-08 (information_schema diff of the whole model) |
+| `017_ventes_caisse_discount_supplier_balance.sql` | `ventes.caisse_id`; `ventes_items.discount` (filled from Business's discount_percentage / discount_amount); `suppliers.montant_du` | yes, 2026-10-08 (information_schema diff) |
+| `018_stock_settings_group_id.sql` | `stock_settings.group_id` (nullable; existing rows stay global defaults) | yes, 2026-10-08 (information_schema diff) |
 
 ## `ventes_parametres` is Lonnii Business's, not ours
 

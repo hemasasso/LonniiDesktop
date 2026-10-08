@@ -215,15 +215,43 @@ public static class AuthEndpoints
         user.LastLogin = DateTime.UtcNow;
         user.LastSeen = DateTime.UtcNow;
 
-        db.UserSessions.Add(new UserSession
+        var isNpgsql = db.Database.IsNpgsql();
+
+        // On the live PostgreSQL, user_sessions is Lonnii Business's own table (one row per user
+        // per platform), not the shape the model uses, so it is upserted the way Business does it.
+        // On a shop's own SQLite file the model's table is used as usual.
+        if (!isNpgsql)
         {
-            UserId = user.IdUser,
-            DeviceName = request.DeviceName,
-            IpAddress = http.Connection.RemoteIpAddress?.ToString(),
-            LoginSource = "desktop",
-        });
+            db.UserSessions.Add(new UserSession
+            {
+                UserId = user.IdUser,
+                DeviceName = request.DeviceName,
+                IpAddress = http.Connection.RemoteIpAddress?.ToString(),
+                LoginSource = "desktop",
+            });
+        }
 
         await db.SaveChangesAsync(ct);
+
+        if (isNpgsql)
+        {
+            var source = http.Request.Headers["X-Mobile-App"] == "true" ? "mobile" : "desktop";
+            var device = request.DeviceName ?? source;
+            try
+            {
+                await db.Database.ExecuteSqlInterpolatedAsync(
+                    $"""
+                    INSERT INTO user_sessions (user_id, session_source, last_seen, device_info)
+                    VALUES ({user.IdUser}, {source}, NOW(), {device})
+                    ON CONFLICT (user_id, session_source)
+                    DO UPDATE SET last_seen = NOW(), device_info = {device}
+                    """, ct);
+            }
+            catch (Npgsql.PostgresException)
+            {
+                // Presence is a by-product of signing in; Business ignores the same failure.
+            }
+        }
         await sessions.PurgeExpiredAsync(ct);
 
         var (token, expiresAt) = tokens.Issue(user);

@@ -225,6 +225,21 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         [(typeof(Vente), nameof(Vente.StatutPaiement))] = "payment_status",
         [(typeof(Vente), nameof(Vente.ModePaiement))] = "payment_method",
         [(typeof(Vente), nameof(Vente.CreatedBy))] = "user_id",
+        // Caisse: the live column is plural (add_caisse_ecart_resolution.sql).
+        [(typeof(Caisse), nameof(Caisse.EcartResolutionNote))] = "ecart_resolution_notes",
+
+        // The live clients table is the English-named one (name / phone / address / city).
+        [(typeof(Client), nameof(Client.Nom))] = "name",
+        [(typeof(Client), nameof(Client.Telephone))] = "phone",
+        [(typeof(Client), nameof(Client.Adresse))] = "address",
+        [(typeof(Client), nameof(Client.Ville))] = "city",
+
+        // Mixed-unit selling on the live products table.
+        [(typeof(Product), nameof(Product.LegacyImagePath))] = "image_path",
+        [(typeof(Product), nameof(Product.VenteMixte))] = "allow_mixed_sales",
+        [(typeof(Product), nameof(Product.UniteVente))] = "sell_unit",
+        [(typeof(Product), nameof(Product.FacteurConversion))] = "conversion_factor",
+        [(typeof(Product), nameof(Product.PrixVenteDetail))] = "detail_unit_price",
         [(typeof(GroupMember), nameof(GroupMember.IdGroupe))] = "idgroupe",
         [(typeof(GroupMember), nameof(GroupMember.IdUser))] = "iduser",
         [(typeof(PasswordHistory), nameof(PasswordHistory.IdUser))] = "iduser",

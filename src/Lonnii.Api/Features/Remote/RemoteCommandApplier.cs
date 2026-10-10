@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Lonnii.Api.Features.Auth;
 using Lonnii.Api.Features.Backup;
+using Lonnii.Api.Features.Images;
 using Lonnii.Api.Features.Live;
 using Lonnii.Api.Features.Members;
 using Lonnii.Data;
@@ -33,6 +34,7 @@ public sealed class RemoteCommandApplier(
     PrivilegeResolver privileges,
     ShopChangeNotifier changes,
     CloudBackupRunner backups,
+    ImageStorageService images,
     ILogger<RemoteCommandApplier> logger)
 {
     /// <summary>Requests already applied whose report has not reached the server yet. A lost reply
@@ -65,7 +67,16 @@ public sealed class RemoteCommandApplier(
         {
             if (!Unreported.TryGetValue(command.Id, out var result))
             {
-                result = await ApplyAsync(groupId, command, ct);
+                // Fetched before anything is applied: if the internet drops now, the request waits for
+                // the next pass whole rather than being applied without the photo it was sent with.
+                byte[]? photo = null;
+                if (command.PhotoId is not null)
+                {
+                    try { photo = await client.DownloadCommandPhotoAsync(command.Id, ct); }
+                    catch (CloudBackupException) { continue; }
+                }
+
+                result = await ApplyAsync(groupId, command, ct, photo);
                 Unreported[command.Id] = result;
                 if (result.Status == RemoteCommandStatuses.Applied) applied++;
             }
@@ -97,7 +108,9 @@ public sealed class RemoteCommandApplier(
     }
 
     /// <summary>Applies one request, or says why it was not. Never throws for a refused request.</summary>
-    public async Task<RemoteCommandResult> ApplyAsync(string groupId, RemoteCommandDto command, CancellationToken ct)
+    /// <param name="photo">The photo a product request was sent with, already downloaded.</param>
+    public async Task<RemoteCommandResult> ApplyAsync(
+        string groupId, RemoteCommandDto command, CancellationToken ct, byte[]? photo = null)
     {
         var sender = await privileges.ResolveAsync(command.RequestedBy, groupId, ct);
 
@@ -128,8 +141,15 @@ public sealed class RemoteCommandApplier(
             case var type when RemoteCommandTypes.IsProduct(type):
                 // Applied as the person who asked, with their privileges in the shop's own data.
                 var asSender = new GroupScope { UserId = command.RequestedBy, GroupId = groupId, Privileges = sender };
-                outcome = await ProductCommands.RunAsync(
+                string? productId;
+                (outcome, productId) = await ProductCommands.RunAsync(
                     type, command.ProductId, command.Product, command.StockAdjustment, asSender, db, ct);
+
+                if (outcome.Ok && productId is not null)
+                {
+                    var photoMessage = await ApplyPhotoAsync(groupId, productId, command, photo, ct);
+                    if (photoMessage is not null) return new RemoteCommandResult(RemoteCommandStatuses.Applied, photoMessage);
+                }
                 break;
 
             default:
@@ -139,6 +159,47 @@ public sealed class RemoteCommandApplier(
         return outcome.Ok
             ? new RemoteCommandResult(RemoteCommandStatuses.Applied)
             : new RemoteCommandResult(RemoteCommandStatuses.Failed, outcome.Error);
+    }
+
+    /// <summary>
+    /// Attaches the photo a product request was sent with, or removes the product's photo, the way
+    /// the Stock screen's own photo upload does. The product change itself has already been made, so
+    /// a photo that cannot be used does not undo it: the request is reported as applied, with a note.
+    /// </summary>
+    /// <returns>A note for the person who asked, or null when there was nothing to say.</returns>
+    private async Task<string?> ApplyPhotoAsync(
+        string groupId, string productId, RemoteCommandDto command, byte[]? photo, CancellationToken ct)
+    {
+        if (command.PhotoId is null && command.RemovePhoto != true) return null;
+
+        var product = await db.Products.FirstOrDefaultAsync(p => p.Id == productId && p.GroupId == groupId, ct);
+        if (product is null) return null;
+
+        if (command.RemovePhoto == true)
+        {
+            images.DeleteIfOwned(product.ImageUrl);
+            product.ImageUrl = null;
+        }
+        else if (photo is null)
+        {
+            return "Produit enregistré, mais la photo n'était plus disponible : envoyez-la de nouveau.";
+        }
+        else
+        {
+            try
+            {
+                using var content = new MemoryStream(photo);
+                product.ImageUrl = images.Save(ImageStorageService.Folders.Products, product.Id, content, product.ImageUrl);
+            }
+            catch (InvalidImageException)
+            {
+                return "Produit enregistré, mais la photo n'est pas une image valide.";
+            }
+        }
+
+        product.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return null;
     }
 }
 

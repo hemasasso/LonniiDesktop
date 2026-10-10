@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Lonnii.Api.Features.Auth;
+using Lonnii.Api.Features.Images;
 using Lonnii.Api.Features.Members;
 using Lonnii.Data;
 using Lonnii.Data.Services;
@@ -26,6 +27,60 @@ public static class RemoteEndpoints
         // shop's own database is the one that counts, and the copy is rebuilt from it.
         remote.MapPost("/commands", QueueCommandAsync).RequireGroupScope();
         remote.MapGet("/commands", ListCommands).RequireGroupScope();
+
+        // A photo for a product request is uploaded first, then named by the request (PhotoId).
+        // Under /commands so the remote routing lets it through like the request itself.
+        remote.MapPost("/commands/photos", UploadPhotoAsync).RequireGroupScope().DisableAntiforgery();
+    }
+
+    /// <summary>
+    /// Keeps a product photo sent from afar until the shop collects the request that names it. Only
+    /// checked to be a real image here; the shop's host resizes and stores it like any other photo.
+    /// </summary>
+    private static async Task<IResult> UploadPhotoAsync(
+        IFormFile file, GroupScope scope, HttpContext http, RemoteCommandStore commands, CancellationToken ct)
+    {
+        if (!http.Items.ContainsKey(RemoteKeys.ReplicaPath))
+        {
+            return Results.Json(
+                new ApiError("Cette demande n'est possible que depuis une session à distance."),
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (!scope.IsAdmin && !scope.IsAdminGeneral)
+        {
+            return Results.Json(
+                new ApiError("L'accès à distance est réservé aux administrateurs de l'espace."),
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        if (!scope.Privileges.HasGestion(Priv.Gestion.AddProducts) && !scope.Privileges.HasGestion(Priv.Gestion.EditProducts))
+        {
+            return Results.Json(new ApiError("Privilège insuffisant", Priv.Gestion.EditProducts),
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        if (file.Length == 0) return Results.BadRequest(new ApiError("Aucun fichier reçu"));
+        if (file.Length > ImageStorageService.MaxUploadBytes)
+        {
+            return Results.BadRequest(new ApiError(
+                $"L'image dépasse la taille maximale de {ImageStorageService.MaxUploadBytes / (1024 * 1024)} Mo"));
+        }
+
+        using var buffer = new MemoryStream();
+        await file.CopyToAsync(buffer, ct);
+        var bytes = buffer.ToArray();
+
+        try
+        {
+            SixLabors.ImageSharp.Image.Identify(bytes);
+        }
+        catch (Exception e) when (e is SixLabors.ImageSharp.UnknownImageFormatException or SixLabors.ImageSharp.InvalidImageContentException)
+        {
+            return Results.BadRequest(new ApiError("Le fichier n'est pas une image valide"));
+        }
+
+        return Results.Ok(new RemotePhotoResponse(commands.SavePhoto(scope.GroupId, bytes)));
     }
 
     /// <summary>
@@ -205,7 +260,12 @@ public static class RemoteEndpoints
                     break;
 
                 case var type when RemoteCommandTypes.IsProduct(type):
-                    check = await ProductCommands.RunAsync(
+                    if (ProductCommands.PhotoError(type, request.PhotoId, request.RemovePhoto) is { } photoError)
+                        return Results.BadRequest(new ApiError(photoError));
+                    if (request.PhotoId is not null && !commands.HasPhoto(scope.GroupId, request.PhotoId))
+                        return Results.BadRequest(new ApiError("Photo introuvable : envoyez-la de nouveau."));
+
+                    (check, _) = await ProductCommands.RunAsync(
                         type, request.ProductId, request.Product, request.StockAdjustment, scope, db, ct);
                     break;
 
@@ -252,7 +312,9 @@ public static class RemoteEndpoints
             Status: RemoteCommandStatuses.Pending,
             ProductId: request.ProductId,
             Product: request.Product,
-            StockAdjustment: request.StockAdjustment));
+            StockAdjustment: request.StockAdjustment,
+            PhotoId: request.PhotoId,
+            RemovePhoto: request.RemovePhoto));
 
         return Results.Accepted($"/api/remote/commands/{command.Id}", command);
     }

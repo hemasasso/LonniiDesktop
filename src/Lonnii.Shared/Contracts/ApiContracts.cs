@@ -137,6 +137,8 @@ public static class RemoteCommandStatuses
 /// <summary>
 /// A change an administrator asks for from afar. <paramref name="Catalog"/> is <c>gestion</c> or
 /// <c>option</c> for a privilege; <paramref name="Role"/> is the new role for a role change.
+/// A product added or changed may carry a photo uploaded first (<paramref name="PhotoId"/>), or ask
+/// for its photo to be removed (<paramref name="RemovePhoto"/>).
 /// </summary>
 public sealed record RemoteCommandRequest(
     string Type,
@@ -147,7 +149,13 @@ public sealed record RemoteCommandRequest(
     string? Role = null,
     string? ProductId = null,
     SaveProductRequest? Product = null,
-    AdjustStockRequest? StockAdjustment = null);
+    AdjustStockRequest? StockAdjustment = null,
+    string? PhotoId = null,
+    bool? RemovePhoto = null);
+
+/// <summary>A photo uploaded from afar, waiting to travel to the shop with a product request
+/// (<see cref="RemoteCommandRequest.PhotoId"/>).</summary>
+public sealed record RemotePhotoResponse(string PhotoId);
 
 /// <summary>A queued command and what became of it. <paramref name="Message"/> is the shop's
 /// answer when it was refused.</summary>
@@ -168,7 +176,9 @@ public sealed record RemoteCommandDto(
     DateTime? AppliedAt = null,
     string? ProductId = null,
     SaveProductRequest? Product = null,
-    AdjustStockRequest? StockAdjustment = null);
+    AdjustStockRequest? StockAdjustment = null,
+    string? PhotoId = null,
+    bool? RemovePhoto = null);
 
 /// <summary>What the shop's host reports back for a command it collected.</summary>
 public sealed record RemoteCommandResult(string Status, string? Message = null);

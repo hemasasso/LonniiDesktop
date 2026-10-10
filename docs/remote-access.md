@@ -55,6 +55,16 @@ A remote administrator cannot change the copy, but can **ask the shop to make a 
    (`POST /api/backup/commands/{id}/result`) and runs a backup so the copy shows the change soon.
 3. `GET /api/remote/commands` lists recent requests (pending / applied / failed / expired) for the screen.
 
+**Photos.** A product added or changed from afar can carry a photo. The phone uploads it first
+(`POST /api/remote/commands/photos`, multipart `file`, checked to be a real image, at most 8 MB) and gets a
+`photoId`, which the `product.create` / `product.update` request names; `removePhoto: true` on an update asks
+for the product's photo to be removed. The server keeps the bytes in `remote-commands/photos/{groupId}/` only
+until the request is settled or expires (an unclaimed upload is swept after a day). The host downloads it
+(`GET /api/backup/commands/{id}/photo`) **before** applying, so a dropped connection leaves the whole request
+for the next pass; it then resizes and stores it like a photo picked at the shop, and its next backup brings it
+back to the phone. A photo that cannot be used does not undo the product change: the request is reported
+applied, with a note.
+
 Safety: the host applies a request **only if its sender still holds an administrator role in the shop's own
 data** at that moment, so an administrator removed after asking cannot have a queued request carried out.
 A request that waits more than 7 days for an offline shop expires. A shop with no internet collects its
@@ -64,6 +74,6 @@ waiting.
 ## Known limits
 
 - Data is as old as the last backup (up to 15 minutes).
-- Product pictures come from what the host uploaded with its backup; the phone must send the session headers to load them. Receipt logo and QR-code pictures on the phone still use the old uploads path.
+- Product pictures come from what the host uploaded with its backup; the phone must send the session headers to load them. A photo sent from the phone shows there only after the shop has applied the request and backed up. Receipt logo and QR-code pictures on the phone still use the old uploads path.
 - Only accounts known to OCI can sign in: the administrator registered with the shop. Staff accounts
   created later on the host, and a password changed on the host, are not reflected there yet.

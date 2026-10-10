@@ -599,6 +599,108 @@ public class RemoteAccessTests : IAsyncLifetime
         Assert.Equal(1500m, db.Products.AsNoTracking().Single(p => p.Id == ProductId).Price);
     }
 
+    // --- Photos sent from afar ---------------------------------------------------------
+
+    private static byte[] SmallJpeg()
+    {
+        using var image = new SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgb24>(8, 8);
+        using var stream = new MemoryStream();
+        SixLabors.ImageSharp.ImageExtensions.SaveAsJpeg(image, stream);
+        return stream.ToArray();
+    }
+
+    private async Task<HttpResponseMessage> UploadPhotoAsync(string jwt, string session, byte[] bytes)
+    {
+        var request = Remote(HttpMethod.Post, "/api/remote/commands/photos", jwt, session);
+        var file = new ByteArrayContent(bytes);
+        file.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+        request.Content = new MultipartFormDataContent { { file, "file", "photo.jpg" } };
+        return await _client.SendAsync(request);
+    }
+
+    [Fact]
+    public async Task A_photo_travels_with_a_new_product_to_the_shop_and_is_then_dropped()
+    {
+        var (jwt, session) = await AdminSessionAsync();
+        var bytes = SmallJpeg();
+
+        var uploaded = await UploadPhotoAsync(jwt, session.SessionToken, bytes);
+        Assert.Equal(HttpStatusCode.OK, uploaded.StatusCode);
+        var photoId = (await uploaded.Content.ReadFromJsonAsync<RemotePhotoResponse>())!.PhotoId;
+
+        var queued = await QueueAsync(jwt, session.SessionToken, new RemoteCommandRequest(
+            RemoteCommandTypes.ProductCreate, _adminId, Product: new SaveProductRequest("Vitamine C", 500m), PhotoId: photoId));
+        Assert.Equal(HttpStatusCode.Accepted, queued.StatusCode);
+        var command = (await queued.Content.ReadFromJsonAsync<RemoteCommandDto>())!;
+        Assert.Equal(photoId, command.PhotoId);
+
+        // The shop's host downloads it with its machine token...
+        var download = await _client.SendAsync(await HostRequestAsync(HttpMethod.Get, $"commands/{command.Id}/photo"));
+        Assert.Equal(HttpStatusCode.OK, download.StatusCode);
+        Assert.Equal(bytes, await download.Content.ReadAsByteArrayAsync());
+
+        // ...and once it has reported, the server no longer keeps it.
+        await _client.SendAsync(await HostRequestAsync(HttpMethod.Post, $"commands/{command.Id}/result",
+            JsonContent.Create(new RemoteCommandResult(RemoteCommandStatuses.Applied))));
+        var again = await _client.SendAsync(await HostRequestAsync(HttpMethod.Get, $"commands/{command.Id}/photo"));
+        Assert.Equal(HttpStatusCode.NotFound, again.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_photo_that_is_not_an_image_or_goes_with_the_wrong_request_is_refused()
+    {
+        var (jwt, session) = await AdminSessionAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await UploadPhotoAsync(jwt, session.SessionToken, [1, 2, 3, 4])).StatusCode);
+
+        var photoId = (await (await UploadPhotoAsync(jwt, session.SessionToken, SmallJpeg()))
+            .Content.ReadFromJsonAsync<RemotePhotoResponse>())!.PhotoId;
+
+        // A stock adjustment carries no photo; an unknown photo; a photo that is both sent and removed.
+        Assert.Equal(HttpStatusCode.BadRequest, (await QueueAsync(jwt, session.SessionToken, new RemoteCommandRequest(
+            RemoteCommandTypes.ProductAdjust, _adminId, ProductId: ProductId,
+            StockAdjustment: new AdjustStockRequest(2, "ajout"), PhotoId: photoId))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await QueueAsync(jwt, session.SessionToken, new RemoteCommandRequest(
+            RemoteCommandTypes.ProductUpdate, _adminId, ProductId: ProductId,
+            Product: new SaveProductRequest("Paracétamol 500 mg", 1500m), PhotoId: Guid.NewGuid().ToString("N")))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await QueueAsync(jwt, session.SessionToken, new RemoteCommandRequest(
+            RemoteCommandTypes.ProductUpdate, _adminId, ProductId: ProductId,
+            Product: new SaveProductRequest("Paracétamol 500 mg", 1500m), PhotoId: photoId, RemovePhoto: true))).StatusCode);
+    }
+
+    [Fact]
+    public async Task The_host_attaches_a_photo_sent_from_afar_and_removes_one_when_asked()
+    {
+        await MakeThisTheShopsHostAsync();
+        await AddHostProductAsync();
+        using var scope = _factory.Services.CreateScope();
+        var applier = scope.ServiceProvider.GetRequiredService<RemoteCommandApplier>();
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+
+        // A new product with its photo.
+        var create = ProductCommand(_adminId, RemoteCommandTypes.ProductCreate,
+            product: new SaveProductRequest("Vitamine C", 500m), productId: null) with { PhotoId = Guid.NewGuid().ToString("N") };
+        Assert.Equal(RemoteCommandStatuses.Applied, (await applier.ApplyAsync(GroupId, create, CancellationToken.None, SmallJpeg())).Status);
+        var created = db.Products.AsNoTracking().Single(p => p.Name == "Vitamine C");
+        Assert.StartsWith("/api/images/products/" + created.Id, created.ImageUrl);
+
+        // An existing product's photo removed.
+        db.Products.Single(p => p.Id == ProductId).ImageUrl = created.ImageUrl!.Replace(created.Id, ProductId);
+        await db.SaveChangesAsync();
+        var remove = ProductCommand(_adminId, RemoteCommandTypes.ProductUpdate,
+            product: new SaveProductRequest("Paracétamol 500 mg", 1500m)) with { RemovePhoto = true };
+        Assert.Equal(RemoteCommandStatuses.Applied, (await applier.ApplyAsync(GroupId, remove, CancellationToken.None)).Status);
+        Assert.Null(db.Products.AsNoTracking().Single(p => p.Id == ProductId).ImageUrl);
+
+        // A photo that never arrived: the product change stands, with a note saying so.
+        var lost = ProductCommand(_adminId, RemoteCommandTypes.ProductUpdate,
+            product: new SaveProductRequest("Paracétamol 500 mg", 1600m)) with { PhotoId = Guid.NewGuid().ToString("N") };
+        var result = await applier.ApplyAsync(GroupId, lost, CancellationToken.None, photo: null);
+        Assert.Equal(RemoteCommandStatuses.Applied, result.Status);
+        Assert.Contains("photo", result.Message);
+        Assert.Equal(1600m, db.Products.AsNoTracking().Single(p => p.Id == ProductId).Price);
+    }
+
     [Fact]
     public void Remote_tokens_expire_and_cannot_be_forged()
     {

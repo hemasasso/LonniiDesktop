@@ -24,6 +24,9 @@ public sealed class RemoteCommandStore
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
+    /// <summary>How long an uploaded photo waits for the request that should carry it.</summary>
+    private static readonly TimeSpan UnclaimedPhotoLifetime = TimeSpan.FromDays(1);
+
     private readonly string _root;
     private readonly Dictionary<string, object> _locks = [];
 
@@ -31,6 +34,73 @@ public sealed class RemoteCommandStore
     {
         _root = Path.Combine(dataDirectory, "remote-commands");
         Directory.CreateDirectory(_root);
+    }
+
+    // --- Photos travelling with a product request ---------------------------------------
+
+    /// <summary>
+    /// Keeps a photo sent from afar until the shop's host collects the request it goes with
+    /// (<c>remote-commands/photos/{groupId}/{photoId}</c>). The bytes are stored as sent: the host
+    /// decodes, resizes and re-encodes them exactly as it does a photo picked at the shop.
+    /// </summary>
+    public string SavePhoto(string groupId, byte[] content)
+    {
+        var folder = PhotoFolder(groupId);
+        Directory.CreateDirectory(folder);
+
+        lock (LockFor(groupId))
+        {
+            var waiting = Read(groupId)
+                .Where(c => c.Status == RemoteCommandStatuses.Pending && c.PhotoId is not null)
+                .Select(c => c.PhotoId!)
+                .ToHashSet();
+            SweepUnclaimedPhotos(folder, waiting);
+        }
+
+        var id = Guid.NewGuid().ToString("N");
+        File.WriteAllBytes(Path.Combine(folder, id), content);
+        return id;
+    }
+
+    public bool HasPhoto(string groupId, string photoId) =>
+        PhotoPath(groupId, photoId) is { } path && File.Exists(path);
+
+    /// <summary>The photo a still-pending request carries, for the shop's host to download.</summary>
+    public Stream? OpenCommandPhoto(string groupId, string commandId)
+    {
+        string? photoId;
+        lock (LockFor(groupId))
+            photoId = Read(groupId).FirstOrDefault(c => c.Id == commandId && c.Status == RemoteCommandStatuses.Pending)?.PhotoId;
+
+        return photoId is not null && PhotoPath(groupId, photoId) is { } path && File.Exists(path)
+            ? File.OpenRead(path)
+            : null;
+    }
+
+    private string PhotoFolder(string groupId) => Path.Combine(_root, "photos", Path.GetFileNameWithoutExtension(PathFor(groupId)));
+
+    /// <summary>Null for anything that is not one of our own ids, so a request value never becomes an arbitrary path.</summary>
+    private string? PhotoPath(string groupId, string photoId) =>
+        Guid.TryParseExact(photoId, "N", out _) ? Path.Combine(PhotoFolder(groupId), photoId) : null;
+
+    private void DeletePhoto(string groupId, string? photoId)
+    {
+        if (photoId is null || PhotoPath(groupId, photoId) is not { } path) return;
+        try { File.Delete(path); }
+        catch (IOException) { }
+    }
+
+    /// <summary>A photo uploaded but never sent with a request is not kept. One a request is still
+    /// waiting with stays, however long the shop is offline.</summary>
+    private static void SweepUnclaimedPhotos(string folder, HashSet<string> waiting)
+    {
+        foreach (var file in Directory.EnumerateFiles(folder))
+        {
+            if (waiting.Contains(Path.GetFileName(file))) continue;
+            if (DateTime.UtcNow - File.GetLastWriteTimeUtc(file) <= UnclaimedPhotoLifetime) continue;
+            try { File.Delete(file); }
+            catch (IOException) { }
+        }
     }
 
     public RemoteCommandDto Enqueue(string groupId, RemoteCommandDto command)
@@ -63,6 +133,7 @@ public sealed class RemoteCommandStore
                         Status = RemoteCommandStatuses.Expired,
                         Message = "La boutique n'est pas restée connectée à temps : demande abandonnée.",
                     };
+                    DeletePhoto(groupId, all[i].PhotoId);
                     changed = true;
                 }
             }
@@ -86,6 +157,9 @@ public sealed class RemoteCommandStore
 
             all[index] = all[index] with { Status = status, Message = message, AppliedAt = DateTime.UtcNow };
             Write(groupId, all);
+
+            // The shop has dealt with it; the photo, if any, is now in the shop's own data.
+            DeletePhoto(groupId, all[index].PhotoId);
             return true;
         }
     }

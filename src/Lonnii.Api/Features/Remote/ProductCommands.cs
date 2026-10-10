@@ -37,15 +37,17 @@ internal static class ProductCommands
             _ => null,
         };
 
-    public static async Task<PrivilegeChangeResult> RunAsync(
+    /// <returns>The outcome, and the product's id (the new one, for a product just added) so a photo
+    /// sent with the request can be attached to it.</returns>
+    public static async Task<(PrivilegeChangeResult Result, string? ProductId)> RunAsync(
         string type, string? productId, SaveProductRequest? product, AdjustStockRequest? adjustment,
         GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
         if (!scope.Privileges.All().TryGetValue(RequiredPrivilege(type), out var allowed) || !allowed)
-            return PrivilegeChangeResult.Refused(StatusCodes.Status403Forbidden, "Privilège insuffisant pour cette modification.");
+            return (PrivilegeChangeResult.Refused(StatusCodes.Status403Forbidden, "Privilège insuffisant pour cette modification."), null);
 
         if (Incomplete(type, productId, product, adjustment) is { } missing)
-            return PrivilegeChangeResult.Refused(StatusCodes.Status400BadRequest, missing);
+            return (PrivilegeChangeResult.Refused(StatusCodes.Status400BadRequest, missing), null);
 
         var result = type switch
         {
@@ -56,10 +58,23 @@ internal static class ProductCommands
         };
 
         var status = (result as IStatusCodeHttpResult)?.StatusCode ?? StatusCodes.Status200OK;
-        var error = ((result as IValueHttpResult)?.Value as ApiError)?.Error;
+        var value = (result as IValueHttpResult)?.Value;
 
         return status is >= 200 and < 300
-            ? PrivilegeChangeResult.Done
-            : PrivilegeChangeResult.Refused(status, error ?? "Modification refusée.");
+            ? (PrivilegeChangeResult.Done, (value as ProductDto)?.Id ?? productId)
+            : (PrivilegeChangeResult.Refused(status, (value as ApiError)?.Error ?? "Modification refusée."), null);
     }
+
+    /// <summary>What is wrong with the photo part of a request, or null. A photo only goes with a
+    /// product being added or changed, and removing one only makes sense for a product that exists.</summary>
+    public static string? PhotoError(string type, string? photoId, bool? removePhoto) =>
+        (photoId, removePhoto) switch
+        {
+            (not null, true) => "Une photo ne peut pas être à la fois envoyée et supprimée.",
+            (not null, _) when type is not (RemoteCommandTypes.ProductCreate or RemoteCommandTypes.ProductUpdate) =>
+                "Une photo accompagne seulement l'ajout ou la modification d'un produit.",
+            (_, true) when type != RemoteCommandTypes.ProductUpdate =>
+                "Seule la modification d'un produit peut retirer sa photo.",
+            _ => null,
+        };
 }

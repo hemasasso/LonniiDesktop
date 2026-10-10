@@ -185,6 +185,22 @@ public class DeviceEnforcementTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, (await OpenSessionAsync("till-2")).StatusCode);
     }
 
+    /// <summary>A phone or tablet used to sell takes a slot like a till, and is recorded as what it is.</summary>
+    [Fact]
+    public async Task A_phone_registers_like_a_till_and_says_it_is_one()
+    {
+        var response = await _client.PostAsJsonAsync("/api/devices/register",
+            new RegisterDeviceRequest(AdminEmail, AdminPassword, "phone-1", "Téléphone", "1.0.0", DevicePlatforms.Android));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(DevicePlatforms.Android, _licences.LastRequest!.Platform);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+        Assert.Equal(DevicePlatforms.Android, db.Devices.Single(d => d.DeviceId == "phone-1").Platform);
+        Assert.Equal(HttpStatusCode.OK, (await OpenSessionAsync("phone-1")).StatusCode);
+    }
+
     /// <summary>
     /// The allowance is our server's to enforce. A shop that could add rows locally would
     /// simply grant itself machines.

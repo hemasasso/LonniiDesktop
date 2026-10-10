@@ -436,8 +436,20 @@ public static class GroupEndpoints
     /// self-service registration is closed on a local network, so an administrator
     /// onboarding a till operator does it in this single step.
     /// </summary>
-    private static async Task<IResult> AddMemberAsync(
+    private static Task<IResult> AddMemberAsync(
         AddMemberRequest request,
+        GroupScope scope,
+        LonniiDbContext db,
+        DatabaseSeeder seeder,
+        ShopChangeNotifier changes,
+        CancellationToken ct) =>
+        AddMemberCoreAsync(request, passwordHash: null, scope, db, seeder, changes, ct);
+
+    /// <summary>Adds a member - shared with a member added from afar (<c>MemberCommands</c>), whose
+    /// new account comes with its password already hashed.</summary>
+    internal static async Task<IResult> AddMemberCoreAsync(
+        AddMemberRequest request,
+        string? passwordHash,
         GroupScope scope,
         LonniiDbContext db,
         DatabaseSeeder seeder,
@@ -451,7 +463,7 @@ public static class GroupEndpoints
 
         if (user is null)
         {
-            if (string.IsNullOrEmpty(request.Password))
+            if (string.IsNullOrEmpty(request.Password) && passwordHash is null)
             {
                 return Results.NotFound(new ApiError(
                     "Aucun compte ne correspond. Indiquez un mot de passe pour créer le compte."));
@@ -460,12 +472,12 @@ public static class GroupEndpoints
             var (created, error) = await AuthEndpoints.CreateAccountAsync(
                 new RegisterRequest(
                     Email: identifier,
-                    Password: request.Password,
+                    Password: request.Password ?? string.Empty,
                     Username: request.Username,
                     FirstName: request.FirstName,
                     LastName: request.LastName,
                     Phone: request.Phone),
-                db, ct);
+                db, ct, passwordHash);
 
             if (error is not null) return error;
             user = created!;
@@ -547,7 +559,7 @@ public static class GroupEndpoints
     }
 
     /// <summary>Removes a member. The group creator cannot be removed.</summary>
-    private static async Task<IResult> RemoveMemberAsync(
+    internal static async Task<IResult> RemoveMemberAsync(
         string userId, GroupScope scope, LonniiDbContext db, ShopChangeNotifier changes, CancellationToken ct)
     {
         var creatorId = await db.Groupes

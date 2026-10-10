@@ -70,6 +70,9 @@ public static class DeviceEndpoints
         var existing = await db.Devices
             .FirstOrDefaultAsync(d => d.GroupId == groupe.Id && d.DeviceId == request.DeviceId, ct);
 
+        // A phone or tablet selling at the shop counts like a till; it says what it is.
+        var platform = DevicePlatforms.All.Contains(request.Platform) ? request.Platform! : DevicePlatforms.Windows;
+
         if (existing is { RevokedAt: null })
             return Results.Ok(ToDto(existing, request.DeviceId));
 
@@ -85,7 +88,7 @@ public static class DeviceEndpoints
                     Password: request.Password,
                     DeviceId: request.DeviceId,
                     DeviceName: request.DeviceName,
-                    Platform: DevicePlatforms.Windows,
+                    Platform: platform,
                     AppVersion: request.AppVersion),
                 ct);
 
@@ -103,6 +106,7 @@ public static class DeviceEndpoints
         var device = existing ?? new Device { GroupId = groupe.Id, DeviceId = request.DeviceId };
         device.DeviceName = request.DeviceName ?? device.DeviceName;
         device.AppVersion = request.AppVersion;
+        device.Platform = platform;
         device.LastSeenAt = DateTime.UtcNow;
         device.RevokedAt = null;
         device.RevokedReason = null;

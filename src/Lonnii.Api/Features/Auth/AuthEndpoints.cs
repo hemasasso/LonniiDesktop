@@ -150,15 +150,18 @@ public static class AuthEndpoints
     /// so a caller can commit it alongside other work in one transaction.
     /// Returns the account, or the failure to return to the client.
     /// </summary>
+    /// <param name="passwordHash">A BCrypt hash to use instead of hashing <c>request.Password</c>: a
+    /// member added from afar, whose password was checked and hashed on the server so it never
+    /// travels to the shop in clear.</param>
     internal static async Task<(User? User, IResult? Error)> CreateAccountAsync(
-        RegisterRequest request, LonniiDbContext db, CancellationToken ct)
+        RegisterRequest request, LonniiDbContext db, CancellationToken ct, string? passwordHash = null)
     {
         var email = request.Email.Trim().ToLowerInvariant();
 
         if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
             return (null, Results.BadRequest(new ApiError("Adresse email invalide")));
 
-        if (request.Password.Length < MinimumPasswordLength)
+        if (passwordHash is null && request.Password.Length < MinimumPasswordLength)
             return (null, Results.BadRequest(new ApiError(
                 $"Le mot de passe doit contenir au moins {MinimumPasswordLength} caractères")));
 
@@ -173,7 +176,7 @@ public static class AuthEndpoints
         {
             Email = email,
             Username = username,
-            Password = BCrypt.Net.BCrypt.HashPassword(request.Password),
+            Password = passwordHash ?? BCrypt.Net.BCrypt.HashPassword(request.Password),
             FirstName = request.FirstName,
             LastName = request.LastName,
             Phone = request.Phone,

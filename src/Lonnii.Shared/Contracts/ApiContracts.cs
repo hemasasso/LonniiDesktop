@@ -123,6 +123,14 @@ public static class RemoteCommandTypes
 
     public static bool IsProduct(string type) =>
         type is ProductCreate or ProductUpdate or ProductAdjust or ProductDeactivate;
+
+    /// <summary>Add a member, creating their account when it does not exist (<c>Member</c> carries it).</summary>
+    public const string MemberAdd = "member.add";
+
+    /// <summary>Remove a member from the shop (<c>UserId</c>).</summary>
+    public const string MemberRemove = "member.remove";
+
+    public static bool IsMember(string type) => type is MemberAdd or MemberRemove;
 }
 
 /// <summary>Where a remote command is: waiting for the shop, done, refused, or given up on.</summary>
@@ -138,7 +146,8 @@ public static class RemoteCommandStatuses
 /// A change an administrator asks for from afar. <paramref name="Catalog"/> is <c>gestion</c> or
 /// <c>option</c> for a privilege; <paramref name="Role"/> is the new role for a role change.
 /// A product added or changed may carry a photo uploaded first (<paramref name="PhotoId"/>), or ask
-/// for its photo to be removed (<paramref name="RemovePhoto"/>).
+/// for its photo to be removed (<paramref name="RemovePhoto"/>). A member added carries their
+/// details in <paramref name="Member"/>, with the password when their account is to be created.
 /// </summary>
 public sealed record RemoteCommandRequest(
     string Type,
@@ -151,14 +160,17 @@ public sealed record RemoteCommandRequest(
     SaveProductRequest? Product = null,
     AdjustStockRequest? StockAdjustment = null,
     string? PhotoId = null,
-    bool? RemovePhoto = null);
+    bool? RemovePhoto = null,
+    AddMemberRequest? Member = null);
 
 /// <summary>A photo uploaded from afar, waiting to travel to the shop with a product request
 /// (<see cref="RemoteCommandRequest.PhotoId"/>).</summary>
 public sealed record RemotePhotoResponse(string PhotoId);
 
 /// <summary>A queued command and what became of it. <paramref name="Message"/> is the shop's
-/// answer when it was refused.</summary>
+/// answer when it was refused. A member added never carries their password: the server keeps
+/// only its BCrypt <paramref name="PasswordHash"/>, handed to the shop and dropped once it has
+/// answered.</summary>
 public sealed record RemoteCommandDto(
     string Id,
     string Type,
@@ -178,7 +190,9 @@ public sealed record RemoteCommandDto(
     SaveProductRequest? Product = null,
     AdjustStockRequest? StockAdjustment = null,
     string? PhotoId = null,
-    bool? RemovePhoto = null);
+    bool? RemovePhoto = null,
+    AddMemberRequest? Member = null,
+    string? PasswordHash = null);
 
 /// <summary>What the shop's host reports back for a command it collected.</summary>
 public sealed record RemoteCommandResult(string Status, string? Message = null);
@@ -1221,7 +1235,8 @@ public sealed record RegisterDeviceRequest(
     string Password,
     string DeviceId,
     string? DeviceName = null,
-    string? AppVersion = null);
+    string? AppVersion = null,
+    string? Platform = null);
 
 /// <summary>A machine bound to the workspace, as the device list shows it.</summary>
 public sealed record DeviceDto(

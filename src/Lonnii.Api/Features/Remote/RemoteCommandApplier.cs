@@ -35,6 +35,7 @@ public sealed class RemoteCommandApplier(
     ShopChangeNotifier changes,
     CloudBackupRunner backups,
     ImageStorageService images,
+    DatabaseSeeder seeder,
     ILogger<RemoteCommandApplier> logger)
 {
     /// <summary>Requests already applied whose report has not reached the server yet. A lost reply
@@ -150,6 +151,13 @@ public sealed class RemoteCommandApplier(
                     var photoMessage = await ApplyPhotoAsync(groupId, productId, command, photo, ct);
                     if (photoMessage is not null) return new RemoteCommandResult(RemoteCommandStatuses.Applied, photoMessage);
                 }
+                break;
+
+            case var type when RemoteCommandTypes.IsMember(type):
+                outcome = await MemberCommands.RunAsync(
+                    type, command.UserId, command.Member, command.PasswordHash,
+                    new GroupScope { UserId = command.RequestedBy, GroupId = groupId, Privileges = sender },
+                    db, seeder, changes, ct);
                 break;
 
             default:

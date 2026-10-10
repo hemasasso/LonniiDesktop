@@ -127,9 +127,9 @@ public class RemoteAccessTests : IAsyncLifetime
         Assert.NotNull(await store.SaveSnapshotAsync(GroupId, gz, recordCount: 1, imageCount: 0, CancellationToken.None));
     }
 
-    private async Task<string> LoginAsync(string email)
+    private async Task<string> LoginAsync(string email, string password = Password)
     {
-        var response = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, Password));
+        var response = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, password));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<LoginResponse>())!.AccessToken;
     }
@@ -772,5 +772,112 @@ public class RemoteAccessTests : IAsyncLifetime
         var response = await OpenRemoteAsync(await LoginAsync(otherEmail));
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    // --- Member requests -----------------------------------------------------------------
+
+    private const string HireEmail = "nouveau@pharmacie.test";
+    private const string HirePassword = "Embauche2026";
+
+    private static RemoteCommandRequest AddHire(string? password = HirePassword, string identifier = HireEmail) =>
+        new(RemoteCommandTypes.MemberAdd, string.Empty,
+            Member: new AddMemberRequest(identifier, password, FirstName: "Awa", LastName: "Traoré"));
+
+    [Fact]
+    public async Task A_hire_is_queued_with_a_hashed_password_and_the_copy_is_left_alone()
+    {
+        var (jwt, session) = await AdminSessionAsync();
+
+        var queued = await QueueAsync(jwt, session.SessionToken, AddHire());
+
+        Assert.Equal(HttpStatusCode.Accepted, queued.StatusCode);
+        var command = (await queued.Content.ReadFromJsonAsync<RemoteCommandDto>())!;
+        Assert.Equal("Awa Traoré", command.TargetName);
+        Assert.Null(command.Member!.Password);
+
+        // The screen's list never shows the hash; the shop gets it, and it matches the password.
+        var listed = (await (await _client.SendAsync(Remote(HttpMethod.Get, "/api/remote/commands", jwt, session.SessionToken)))
+            .Content.ReadFromJsonAsync<RemoteCommandsResponse>())!;
+        Assert.Null(listed.Commands.Single(c => c.Id == command.Id).PasswordHash);
+
+        var collected = (await (await _client.SendAsync(await HostRequestAsync(HttpMethod.Get, "commands")))
+            .Content.ReadFromJsonAsync<RemoteCommandsResponse>())!;
+        var forShop = collected.Commands.Single(c => c.Id == command.Id);
+        Assert.True(BCrypt.Net.BCrypt.Verify(HirePassword, forShop.PasswordHash));
+
+        // Checking the request against the copy must not have added anyone to it.
+        var members = await _client.SendAsync(Remote(HttpMethod.Get, "/api/groupe/members", jwt, session.SessionToken));
+        Assert.DoesNotContain(HireEmail, await members.Content.ReadAsStringAsync());
+
+        // Once the shop has answered, the server keeps no hash.
+        await _client.SendAsync(await HostRequestAsync(HttpMethod.Post, $"commands/{command.Id}/result",
+            JsonContent.Create(new RemoteCommandResult(RemoteCommandStatuses.Applied))));
+        var store = _factory.Services.GetRequiredService<RemoteCommandStore>();
+        Assert.Null(store.Recent(GroupId).Single(c => c.Id == command.Id).PasswordHash);
+        Assert.DoesNotContain("$2", await File.ReadAllTextAsync(
+            Directory.GetFiles(Path.Combine(_dataDirectory, "remote-commands"), "*.json").Single()));
+    }
+
+    [Fact]
+    public async Task A_member_request_the_shop_would_refuse_is_refused_at_once()
+    {
+        var (jwt, session) = await AdminSessionAsync();
+
+        // Already a member; a new account with too short a password or none; no one named; the creator.
+        Assert.Equal(HttpStatusCode.Conflict, (await QueueAsync(jwt, session.SessionToken, AddHire(identifier: StaffEmail))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await QueueAsync(jwt, session.SessionToken, AddHire(password: "court"))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await QueueAsync(jwt, session.SessionToken, AddHire(password: null))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await QueueAsync(jwt, session.SessionToken, AddHire(identifier: " "))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await QueueAsync(jwt, session.SessionToken,
+            new RemoteCommandRequest(RemoteCommandTypes.MemberRemove, _adminId))).StatusCode);
+
+        var listed = (await (await _client.SendAsync(Remote(HttpMethod.Get, "/api/remote/commands", jwt, session.SessionToken)))
+            .Content.ReadFromJsonAsync<RemoteCommandsResponse>())!;
+        Assert.Empty(listed.Commands);
+    }
+
+    private static RemoteCommandDto MemberCommand(string requestedBy, string type, string userId = "",
+        AddMemberRequest? member = null, string? passwordHash = null) =>
+        new(Guid.NewGuid().ToString(), type, userId, null, null, null, null, null, requestedBy, null,
+            DateTime.UtcNow, RemoteCommandStatuses.Pending, Member: member, PasswordHash: passwordHash);
+
+    [Fact]
+    public async Task The_host_adds_a_hire_who_can_then_sign_in_and_removes_a_member_when_asked()
+    {
+        await MakeThisTheShopsHostAsync();
+        using var scope = _factory.Services.CreateScope();
+        var applier = scope.ServiceProvider.GetRequiredService<RemoteCommandApplier>();
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+
+        var added = await applier.ApplyAsync(GroupId, MemberCommand(_adminId, RemoteCommandTypes.MemberAdd,
+            member: new AddMemberRequest(HireEmail, FirstName: "Awa"), passwordHash: BCrypt.Net.BCrypt.HashPassword(HirePassword)),
+            CancellationToken.None);
+
+        Assert.Equal(RemoteCommandStatuses.Applied, added.Status);
+        var hire = db.Users.AsNoTracking().Single(u => u.Email == HireEmail);
+        Assert.True(db.GroupMembers.AsNoTracking().Any(m => m.IdGroupe == GroupId && m.IdUser == hire.IdUser));
+        Assert.Equal(GroupRoles.Member, db.UserRoles.AsNoTracking().Single(r => r.UserId == hire.IdUser && r.GroupId == GroupId).Role);
+        await LoginAsync(HireEmail, HirePassword);
+
+        var removed = await applier.ApplyAsync(GroupId, MemberCommand(_adminId, RemoteCommandTypes.MemberRemove, userId: _staffId),
+            CancellationToken.None);
+
+        Assert.Equal(RemoteCommandStatuses.Applied, removed.Status);
+        Assert.False(db.GroupMembers.AsNoTracking().Any(m => m.IdGroupe == GroupId && m.IdUser == _staffId));
+    }
+
+    [Fact]
+    public async Task The_host_refuses_a_member_request_from_someone_who_is_no_longer_an_administrator()
+    {
+        await MakeThisTheShopsHostAsync();
+        using var scope = _factory.Services.CreateScope();
+        var applier = scope.ServiceProvider.GetRequiredService<RemoteCommandApplier>();
+
+        var result = await applier.ApplyAsync(GroupId, MemberCommand(_staffId, RemoteCommandTypes.MemberAdd,
+            member: new AddMemberRequest(HireEmail), passwordHash: BCrypt.Net.BCrypt.HashPassword(HirePassword)), CancellationToken.None);
+
+        Assert.Equal(RemoteCommandStatuses.Failed, result.Status);
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+        Assert.False(db.Users.AsNoTracking().Any(u => u.Email == HireEmail));
     }
 }

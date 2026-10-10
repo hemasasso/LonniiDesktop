@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Lonnii.Api.Features.Auth;
 using Lonnii.Api.Features.Images;
+using Lonnii.Api.Features.Live;
 using Lonnii.Api.Features.Members;
 using Lonnii.Data;
 using Lonnii.Data.Services;
@@ -203,7 +204,7 @@ public static class RemoteEndpoints
             SnapshotAt: http.Items[RemoteKeys.SnapshotAt] as DateTime?));
 
     /// <summary>
-    /// Queues a privilege or role change for the shop's host.
+    /// Queues a privilege, role, product or member change for the shop's host.
     ///
     /// <para>
     /// The request is checked first against the copy, by really making the change inside a
@@ -215,7 +216,7 @@ public static class RemoteEndpoints
     /// </summary>
     private static async Task<IResult> QueueCommandAsync(
         RemoteCommandRequest request, GroupScope scope, LonniiDbContext db, HttpContext http,
-        RemoteCommandStore commands, CancellationToken ct)
+        RemoteCommandStore commands, DatabaseSeeder seeder, ShopChangeNotifier changes, CancellationToken ct)
     {
         if (!http.Items.ContainsKey(RemoteKeys.ReplicaPath))
         {
@@ -269,6 +270,13 @@ public static class RemoteEndpoints
                         type, request.ProductId, request.Product, request.StockAdjustment, scope, db, ct);
                     break;
 
+                case var type when RemoteCommandTypes.IsMember(type):
+                    // The copy holds the shop's accounts, so an email already in use or a member already
+                    // there is refused now, as the shop would.
+                    check = await MemberCommands.RunAsync(
+                        type, request.UserId, request.Member, passwordHash: null, scope, db, seeder, changes, ct);
+                    break;
+
                 default:
                     return Results.BadRequest(new ApiError($"Type de demande inconnu : {request.Type}"));
             }
@@ -286,6 +294,16 @@ public static class RemoteEndpoints
                 ?? await db.Products.AsNoTracking().Where(p => p.Id == request.ProductId).Select(p => p.Name).FirstOrDefaultAsync(ct);
         }
 
+        // A new account's password is checked above, then kept only as a hash: the queue is a file on
+        // this server, read back by the shop, and a password in clear has no business in either.
+        AddMemberRequest? member = null;
+        string? passwordHash = null;
+        if (request.Type == RemoteCommandTypes.MemberAdd && request.Member is { } asked)
+        {
+            if (!string.IsNullOrEmpty(asked.Password)) passwordHash = BCrypt.Net.BCrypt.HashPassword(asked.Password);
+            member = asked with { Identifier = asked.Identifier.Trim(), Password = null };
+        }
+
         var names = await db.Users.AsNoTracking()
             .Where(u => u.IdUser == request.UserId || u.IdUser == scope.UserId)
             .Select(u => new { u.IdUser, u.FirstName, u.LastName, u.Username, u.Email })
@@ -301,7 +319,7 @@ public static class RemoteEndpoints
             Id: Guid.NewGuid().ToString(),
             Type: request.Type,
             UserId: request.UserId,
-            TargetName: productName ?? NameOf(request.UserId),
+            TargetName: productName ?? (member is not null ? MemberCommands.DisplayName(member) : NameOf(request.UserId)),
             PrivilegeName: request.PrivilegeName,
             Catalog: request.Catalog,
             Granted: request.Granted,
@@ -314,7 +332,9 @@ public static class RemoteEndpoints
             Product: request.Product,
             StockAdjustment: request.StockAdjustment,
             PhotoId: request.PhotoId,
-            RemovePhoto: request.RemovePhoto));
+            RemovePhoto: request.RemovePhoto,
+            Member: member,
+            PasswordHash: passwordHash));
 
         return Results.Accepted($"/api/remote/commands/{command.Id}", command);
     }

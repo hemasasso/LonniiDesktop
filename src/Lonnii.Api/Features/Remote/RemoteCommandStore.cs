@@ -131,6 +131,7 @@ public sealed class RemoteCommandStore
                     all[i] = all[i] with
                     {
                         Status = RemoteCommandStatuses.Expired,
+                        PasswordHash = null,
                         Message = "La boutique n'est pas restée connectée à temps : demande abandonnée.",
                     };
                     DeletePhoto(groupId, all[i].PhotoId);
@@ -155,7 +156,8 @@ public sealed class RemoteCommandStore
             var index = all.FindIndex(c => c.Id == id && c.Status == RemoteCommandStatuses.Pending);
             if (index < 0) return false;
 
-            all[index] = all[index] with { Status = status, Message = message, AppliedAt = DateTime.UtcNow };
+            // A new member's password hash was only ever for the shop: once it has answered, it goes.
+            all[index] = all[index] with { Status = status, Message = message, AppliedAt = DateTime.UtcNow, PasswordHash = null };
             Write(groupId, all);
 
             // The shop has dealt with it; the photo, if any, is now in the shop's own data.
@@ -168,7 +170,8 @@ public sealed class RemoteCommandStore
     public IReadOnlyList<RemoteCommandDto> Recent(string groupId, int take = 30)
     {
         lock (LockFor(groupId))
-            return Read(groupId).OrderByDescending(c => c.RequestedAt).Take(take).ToList();
+            return Read(groupId).OrderByDescending(c => c.RequestedAt).Take(take)
+                .Select(c => c with { PasswordHash = null }).ToList();
     }
 
     // --- Storage ---------------------------------------------------------------------

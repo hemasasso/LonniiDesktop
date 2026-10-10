@@ -6,6 +6,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using Lonnii.Client.Common;
 using Lonnii.Client.Services;
 using Lonnii.Shared.Contracts;
 using Lonnii.Shared.Security;
@@ -47,8 +48,11 @@ public partial class StockView : UserControl
     /// of each other (PrivilegeAliases), so either grants it.</summary>
     private readonly bool _canViewStockAnalytics;
 
-    private DateOnly? _movementDateDebut;
-    private DateOnly? _movementDateFin;
+    // Starts on "Aujourd'hui", the dropdown's default, like the Ventes list.
+    private DateOnly? _movementDateDebut = DateOnly.FromDateTime(DateTime.Now);
+    private DateOnly? _movementDateFin = DateOnly.FromDateTime(DateTime.Now);
+    private string _movementPeriodTag = "today";
+    private bool _suppressMovementPeriodEvent;
 
     /// <summary>French label for each <c>Lonnii.Data.Entities.StockMovementTypes</c> constant,
     /// same wording as <see cref="StockAdjustDialog"/>'s movement dropdown so a type
@@ -629,12 +633,50 @@ public partial class StockView : UserControl
             await LoadMovementStatsAsync();
     }
 
-    private async void MovementFilter_Changed(object sender, EventArgs e)
+    /// <summary>Same presets, "custom" dialog and revert-on-cancel as the Ventes list's
+    /// <c>VenteDateFilter_Changed</c>.</summary>
+    private async void MovementPeriod_Changed(object sender, SelectionChangedEventArgs e)
     {
-        if (!IsLoaded) return;
+        if (!IsLoaded || _suppressMovementPeriodEvent) return;
 
-        _movementDateDebut = MovementDateDebutPicker.SelectedDate is { } d ? DateOnly.FromDateTime(d) : null;
-        _movementDateFin = MovementDateFinPicker.SelectedDate is { } f ? DateOnly.FromDateTime(f) : null;
+        var tag = (string)((ComboBoxItem)MovementPeriodCombo.SelectedItem).Tag;
+        var today = DateOnly.FromDateTime(DateTime.Now);
+
+        if (tag == "custom")
+        {
+            var dialog = new CustomDateRangeDialog(_movementDateDebut ?? today, _movementDateFin ?? today)
+            {
+                Owner = Window.GetWindow(this),
+            };
+            if (dialog.ShowDialog() != true)
+            {
+                _suppressMovementPeriodEvent = true;
+                foreach (ComboBoxItem item in MovementPeriodCombo.Items)
+                {
+                    if ((string)item.Tag != _movementPeriodTag) continue;
+                    MovementPeriodCombo.SelectedItem = item;
+                    break;
+                }
+                _suppressMovementPeriodEvent = false;
+                return;
+            }
+
+            _movementDateDebut = dialog.DateDebut;
+            _movementDateFin = dialog.DateFin;
+            _movementPeriodTag = "custom";
+            await LoadMovementStatsAsync();
+            return;
+        }
+
+        (_movementDateDebut, _movementDateFin) = tag switch
+        {
+            "today" => (today, today),
+            "week" => (today.AddDays(-6), today),
+            "month" => (new DateOnly(today.Year, today.Month, 1), today),
+            "year" => (new DateOnly(today.Year, 1, 1), today),
+            _ => (_movementDateDebut, _movementDateFin),
+        };
+        _movementPeriodTag = tag;
 
         await LoadMovementStatsAsync();
     }

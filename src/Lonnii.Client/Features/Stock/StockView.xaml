@@ -182,12 +182,15 @@
                          would not mean anything. Collapsed entirely without
                          can_view_stock_history, same as the table it filters. -->
                     <StackPanel x:Name="MovementFilterPanel" Orientation="Horizontal">
-                        <TextBlock Text="Mouvements du" VerticalAlignment="Center" Margin="0,0,6,6" />
-                        <DatePicker x:Name="MovementDateDebutPicker" Width="120" Margin="0,0,10,6"
-                                    SelectedDateChanged="MovementFilter_Changed" />
-                        <TextBlock Text="au" VerticalAlignment="Center" Margin="0,0,6,6" />
-                        <DatePicker x:Name="MovementDateFinPicker" Width="120" Margin="0,0,10,6"
-                                    SelectedDateChanged="MovementFilter_Changed" />
+                        <TextBlock Text="Mouvements" VerticalAlignment="Center" Margin="0,0,6,6" />
+                        <ComboBox x:Name="MovementPeriodCombo" Width="170" Margin="0,0,10,6"
+                                  SelectionChanged="MovementPeriod_Changed">
+                            <ComboBoxItem Content="Aujourd'hui" Tag="today" IsSelected="True" />
+                            <ComboBoxItem Content="7 derniers jours" Tag="week" />
+                            <ComboBoxItem Content="Ce mois" Tag="month" />
+                            <ComboBoxItem Content="Cette année" Tag="year" />
+                            <ComboBoxItem Content="Période personnalisée" Tag="custom" />
+                        </ComboBox>
                     </StackPanel>
                 </StackPanel>
             </WrapPanel>

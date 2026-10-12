@@ -44,6 +44,10 @@ public static class PrivilegeSections
         // "finance" (can_view_expenses and siblings) has no desktop feature at all and is
         // filtered out of the dialog entirely (see PrivilegeDialog.LoadAsync).
         [Priv.Gestion.ManageSuppliers] = Stock,
+
+        // Catalogued under the legacy "admin" module; grants every section of Configuration &
+        // Serveurs, so it is listed with them.
+        [Priv.Gestion.ManageGestionSettings] = GestionModules.Configuration,
     };
 
     public static string Of(PrivilegeDto privilege) =>

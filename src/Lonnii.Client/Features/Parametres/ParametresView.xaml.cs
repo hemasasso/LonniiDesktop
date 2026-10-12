@@ -1,7 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using Lonnii.Client.Features.CustomerDisplay;
 using Lonnii.Client.Features.Payments;
 using Lonnii.Client.Services;
 using Lonnii.Shared.Contracts;
@@ -10,8 +9,10 @@ using Lonnii.Shared.Security;
 namespace Lonnii.Client.Features.Parametres;
 
 /// <summary>
-/// The Paramètres screen: what this workspace is configured to do, where this machine is
-/// connected, and exactly which privileges the signed-in user holds.
+/// The Paramètres screen: the espace itself, its members and photo, and exactly which
+/// privileges the signed-in user holds. The shop's running configuration and its servers
+/// (connexion, devise, reçus, écran client, bilan, consommation, données) live in
+/// <see cref="ConfigurationView"/>, which can be opened to a team section by section.
 ///
 /// The privilege list is worth showing plainly. In Lonnii Business a user who cannot see
 /// a module has no way to find out why; here the technical name is on screen, so an
@@ -45,14 +46,8 @@ public partial class ParametresView : UserControl
 
         GestionAccessText.Text = groupe?.GestionAccess == true ? "Activé" : "Désactivé";
 
-        PrestationsText.Text = groupe?.PrestationsEnabled == true
-            ? $"Activé ({groupe.PrestationsLocation ?? "gestion"})"
-            : "Désactivé";
 
-        HostText.Text = _session.Api.BaseAddress ?? "—";
-        MachineText.Text = Environment.MachineName;
-
-        // Gated the same way as Currency/Ventes below, and for the same reason.
+        // Admin-only, as the API is.
         MembersPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
 
         // Deleting is the creator's alone, as on the API.
@@ -63,160 +58,15 @@ public partial class ParametresView : UserControl
         PhotoInitial.Text = string.IsNullOrEmpty(groupe?.Nom) ? string.Empty : groupe!.Nom[..1].ToUpperInvariant();
         if (_session.IsAdmin && groupe is not null) _ = LoadPhotoAsync(groupe.Id);
 
-        CurrencyPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
-        CurrencyBox.Text = groupe?.CurrencyLabel ?? Money.Label;
-        (groupe?.CurrencyBefore == true ? CurrencyBeforeRadio : CurrencyAfterRadio).IsChecked = true;
-        UpdateCurrencyPreview();
-
-        // Gated the same way, and for the same reason: the API refuses these writes to
-        // anyone but an admin, so showing the entry to a member only advertises a locked door.
-        VentesSettingsPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
-        CustomerDisplaySettingsPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
+        // Gated the same way: the API refuses these writes to anyone but an admin, so showing
+        // the entry to a member only advertises a locked door.
         PaymentSettingsPanel.Visibility = _session.IsAdmin && PaymentProviderRegistry.SettingsVisible ? Visibility.Visible : Visibility.Collapsed;
 
-        BilanSettingsPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
-        EspaceDataPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
-        if (_session.IsAdmin) _ = LoadCalculAutomatiqueAsync();
-
         PopulatePrivileges();
-        PopulateConsumptionYears();
     }
-
-    // --- Bilan ---
-
-    /// <summary>Set while <see cref="CalculAutomatiqueCheck"/> is being populated from the
-    /// server, so that does not itself fire a save.</summary>
-    private bool _loadingCalculAutomatique;
-
-    private async Task LoadCalculAutomatiqueAsync()
-    {
-        try
-        {
-            _loadingCalculAutomatique = true;
-            var parametres = await _session.Api.GetComptabiliteParametresAsync();
-            CalculAutomatiqueCheck.IsChecked = parametres.CalculAutomatique;
-        }
-        catch (ApiException)
-        {
-            // A convenience toggle - a failed read just leaves it at its default (checked).
-        }
-        finally
-        {
-            _loadingCalculAutomatique = false;
-        }
-    }
-
-    private async void CalculAutomatique_Changed(object sender, RoutedEventArgs e)
-    {
-        if (_loadingCalculAutomatique) return;
-
-        try
-        {
-            await _session.Api.SaveComptabiliteParametresAsync(
-                new SaveComptabiliteParametresRequest(CalculAutomatiqueCheck.IsChecked == true));
-        }
-        catch (ApiException ex)
-        {
-            MessageBox.Show(Window.GetWindow(this), ex.Message, "Bilan", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
-    }
-
-    // --- Consommation données ---
-
-    /// <summary>"Toutes les années" plus the last five, as the web app's picker offers. The
-    /// selection fires the first load.</summary>
-    private void PopulateConsumptionYears()
-    {
-        if (!_session.IsAdmin) return;
-        ConsumptionPanel.Visibility = Visibility.Visible;
-
-        var items = new List<ComboBoxItem> { new() { Content = "Toutes les années", Tag = null } };
-        for (var year = DateTime.Today.Year; year > DateTime.Today.Year - 5; year--)
-            items.Add(new ComboBoxItem { Content = year.ToString(), Tag = year });
-
-        ConsumptionYearCombo.ItemsSource = items;
-        ConsumptionYearCombo.SelectedIndex = 0;
-    }
-
-    private void ConsumptionHeader_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
-    {
-        var open = ConsumptionBody.Visibility != Visibility.Visible;
-        ConsumptionBody.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-        ConsumptionHeader.Text = (open ? "▾  " : "▸  ") + "CONSOMMATION DONNÉES";
-    }
-
-    private async void ConsumptionYear_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        var year = (ConsumptionYearCombo.SelectedItem as ComboBoxItem)?.Tag as int?;
-        try
-        {
-            var data = await _session.Api.GetDataConsumptionAsync(year);
-
-            ConsumptionRecordsText.Text = Money.FormatPlain(data.TotalRecords);
-            ConsumptionVolumeText.Text = FormatBytes(data.TotalBytes);
-            ConsumptionSectionsText.Text = $"{data.SectionsWithData} / {data.Sections}";
-            ConsumptionFilesText.Text = Money.FormatPlain(data.TotalFiles);
-
-            ConsumptionGrid.ItemsSource = data.Rows
-                .OrderByDescending(r => r.Bytes)
-                .Select(r => new
-                {
-                    r.Section,
-                    r.Label,
-                    CountDisplay = Money.FormatPlain(r.Count),
-                    BytesDisplay = FormatBytes(r.Bytes),
-                })
-                .ToList();
-
-            ConsumptionNoteText.Foreground = (Brush)FindResource("TextSecondary");
-        }
-        catch (ApiException ex)
-        {
-            ConsumptionNoteText.Text = ex.Message;
-            ConsumptionNoteText.Foreground = (Brush)FindResource("Danger");
-        }
-    }
-
-    private static string FormatBytes(long bytes) => bytes switch
-    {
-        < 1024 => $"{bytes} o",
-        < 1024 * 1024 => $"{bytes / 1024.0:0.#} Ko",
-        < 1024L * 1024 * 1024 => $"{bytes / (1024.0 * 1024):0.##} Mo",
-        _ => $"{bytes / (1024.0 * 1024 * 1024):0.##} Go",
-    };
-
-    /// <summary>Opens the reçu/facture editor. Its own Enregistrer does the saving and
-    /// refreshes the session's cached settings, so there is nothing to do on return.</summary>
-    private void OpenReceiptSettings_Click(object sender, RoutedEventArgs e) =>
-        new ReceiptSettingsDialog(_session) { Owner = Window.GetWindow(this) }.ShowDialog();
 
     private void OpenPaymentProviders_Click(object sender, RoutedEventArgs e) =>
         new PaymentProvidersDialog { Owner = Window.GetWindow(this) }.ShowDialog();
-
-    /// <summary>Opens the espace export/import screen. Refreshes afterwards: an import brings
-    /// the file's currency and module settings with it.</summary>
-    private async void OpenEspaceTransfer_Click(object sender, RoutedEventArgs e)
-    {
-        new EspaceTransferDialog(_session) { Owner = Window.GetWindow(this) }.ShowDialog();
-
-        try { await _session.RefreshAsync(); }
-        catch (ApiException) { /* best-effort refresh; the dialog already reported any error */ }
-        Populate();
-    }
-
-    /// <summary>Opens the cloud backup status and its controls. Refreshes afterwards: a restore
-    /// brings the espace's settings and staff back with it.</summary>
-    private async void OpenCloudBackup_Click(object sender, RoutedEventArgs e)
-    {
-        new CloudBackupDialog(_session) { Owner = Window.GetWindow(this) }.ShowDialog();
-
-        try { await _session.RefreshAsync(); }
-        catch (ApiException) { /* best-effort refresh; the dialog already reported any error */ }
-        Populate();
-    }
-
-    private void OpenCustomerDisplay_Click(object sender, RoutedEventArgs e) =>
-        new CustomerDisplaySettingsDialog { Owner = Window.GetWindow(this) }.ShowDialog();
 
     /// <summary>Opens the members/roles/privileges screen. Refreshes afterwards so a member
     /// added or removed there is reflected in this screen's own "Membres" count above, and so
@@ -228,50 +78,6 @@ public partial class ParametresView : UserControl
         try { await _session.RefreshAsync(); }
         catch (ApiException) { /* best-effort refresh; the dialog already reported any error */ }
         Populate();
-    }
-
-    /// <summary>Fires while the view is still being built (the radio's IsChecked in XAML), before
-    /// every control exists - hence the null check.</summary>
-    private void CurrencyInput_Changed(object sender, RoutedEventArgs e)
-    {
-        if (CurrencyPreviewText is null || CurrencyBox is null) return;
-        UpdateCurrencyPreview();
-        if (CurrencyStatusText is not null) CurrencyStatusText.Text = string.Empty;
-    }
-
-    private void UpdateCurrencyPreview()
-    {
-        var label = CurrencyBox.Text.Trim();
-        CurrencyPreviewText.Text = label.Length == 0
-            ? "—"
-            : Money.WithLabel(1500, Money.FormatPlain(1500m), label, CurrencyBeforeRadio.IsChecked == true);
-    }
-
-    /// <summary>Saves the new currency label and position and applies them immediately
-    /// across the app.</summary>
-    private async void SaveCurrency_Click(object sender, RoutedEventArgs e)
-    {
-        var label = CurrencyBox.Text.Trim();
-        if (label.Length == 0)
-        {
-            CurrencyStatusText.Text = "La devise ne peut pas être vide.";
-            CurrencyStatusText.Foreground = (Brush)FindResource("Danger");
-            return;
-        }
-
-        try
-        {
-            var updated = await _session.Api.UpdateCurrencyAsync(label, CurrencyBeforeRadio.IsChecked == true);
-            _session.ApplyCurrencyChange(updated);
-            CurrencyBox.Text = updated.CurrencyLabel;
-            CurrencyStatusText.Text = "Enregistré.";
-            CurrencyStatusText.Foreground = (Brush)FindResource("TextSecondary");
-        }
-        catch (ApiException ex)
-        {
-            CurrencyStatusText.Text = ex.Message;
-            CurrencyStatusText.Foreground = (Brush)FindResource("Danger");
-        }
     }
 
     // --- Espace photo ----------------------------------------------------------------
@@ -437,6 +243,8 @@ public partial class ParametresView : UserControl
             virtualRows.Add(("admin", "Accès Audit", Priv.Gestion.ViewAudit));
         if (privileges.Gestion.TryGetValue(Priv.Gestion.ViewParametres, out var param) && param)
             virtualRows.Add(("admin", "Accès Paramètres", Priv.Gestion.ViewParametres));
+        if (privileges.Gestion.TryGetValue(Priv.Gestion.ViewConfiguration, out var config) && config)
+            virtualRows.Add(("admin", "Accès Configuration", Priv.Gestion.ViewConfiguration));
 
         PrivilegeGrid.ItemsSource = rows
             .Select(r => new { r.Module, r.DisplayName, r.Name })

@@ -124,9 +124,13 @@
                         Style="{StaticResource ModuleTabButton}" Click="Tab_Click">
                     <TextBlock Text="Produits" Style="{StaticResource ButtonContentText}" />
                 </Button>
-                <Button x:Name="CategoriesTabButton" Tag="categories"
+                <Button x:Name="CategoriesTabButton" Tag="categories" Margin="0,0,6,0"
                         Style="{StaticResource ModuleTabButton}" Click="Tab_Click">
                     <TextBlock Text="Catégories" Style="{StaticResource ButtonContentText}" />
+                </Button>
+                <Button x:Name="ForecastTabButton" Tag="forecast"
+                        Style="{StaticResource ModuleTabButton}" Click="Tab_Click">
+                    <TextBlock Text="Prévisions" Style="{StaticResource ButtonContentText}" />
                 </Button>
             </StackPanel>
         </Border>
@@ -409,6 +413,81 @@
                                                     SortMemberPath="Share" ElementStyle="{StaticResource NumericCell}" />
                             </DataGrid.Columns>
                         </DataGrid>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Prévisions: the calendar year projected from the monthly history -->
+            <ScrollViewer x:Name="ForecastPanel" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="16">
+                    <Border Margin="0,0,0,10" Padding="12,8" CornerRadius="8" BorderThickness="1"
+                            Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}">
+                        <DockPanel>
+                            <Border x:Name="ForecastReliabilityBadge" DockPanel.Dock="Right" Padding="8,2"
+                                    CornerRadius="10" BorderThickness="1" VerticalAlignment="Center">
+                                <TextBlock x:Name="ForecastReliabilityText" FontSize="11" FontWeight="SemiBold" />
+                            </Border>
+                            <TextBlock Text="&#xE9D2;" FontFamily="Segoe MDL2 Assets" FontSize="14" Margin="0,0,10,0"
+                                       Foreground="{DynamicResource Accent}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="ForecastMethodText" TextWrapping="Wrap" FontSize="12"
+                                       VerticalAlignment="Center" Foreground="{DynamicResource TextSecondary}" />
+                        </DockPanel>
+                    </Border>
+
+                    <WrapPanel x:Name="ForecastTilesPanel" Orientation="Horizontal" />
+                    <WrapPanel x:Name="ForecastBreakEvenPanel" Orientation="Horizontal" Margin="0,0,0,6" />
+
+                    <Border Margin="0,0,0,10" Style="{StaticResource MargeCard}">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,8">
+                                <StackPanel x:Name="ForecastLegendPanel" DockPanel.Dock="Right" Orientation="Horizontal" />
+                                <TextBlock x:Name="ForecastChartTitle" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            </DockPanel>
+                            <Grid Height="300">
+                                <lvc:CartesianChart x:Name="ForecastChart" Background="Transparent" />
+                                <TextBlock x:Name="ForecastEmptyText" Style="{StaticResource EmptyChartText}" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource MargeCard}">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,8">
+                                <Button DockPanel.Dock="Right" Content="Réinitialiser" Padding="10,3" FontSize="11"
+                                        Style="{StaticResource SecondaryButton}" Click="ResetSimulation_Click" />
+                                <TextBlock Text="Simulation : et si… ?" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            </DockPanel>
+                            <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap" Margin="0,0,0,10"
+                                       Text="Faites varier les hypothèses pour le reste de l'année : le résultat est recalculé à partir des prévisions ci-dessus." />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Margin="0,0,20,0">
+                                    <DockPanel>
+                                        <TextBlock x:Name="SimRevenueValue" DockPanel.Dock="Right" FontWeight="SemiBold" />
+                                        <TextBlock Text="Chiffre d'affaires" />
+                                    </DockPanel>
+                                    <Slider x:Name="SimRevenueSlider" Minimum="-50" Maximum="100" Value="0" TickFrequency="5"
+                                            IsSnapToTickEnabled="True" Margin="0,4,0,12" ValueChanged="Simulation_Changed" />
+                                    <DockPanel>
+                                        <TextBlock x:Name="SimMarginValue" DockPanel.Dock="Right" FontWeight="SemiBold" />
+                                        <TextBlock Text="Taux de marque (points)" />
+                                    </DockPanel>
+                                    <Slider x:Name="SimMarginSlider" Minimum="-20" Maximum="20" Value="0" TickFrequency="1"
+                                            IsSnapToTickEnabled="True" Margin="0,4,0,12" ValueChanged="Simulation_Changed" />
+                                    <DockPanel>
+                                        <TextBlock x:Name="SimFixedValue" DockPanel.Dock="Right" FontWeight="SemiBold" />
+                                        <TextBlock Text="Charges fixes" />
+                                    </DockPanel>
+                                    <Slider x:Name="SimFixedSlider" Minimum="-50" Maximum="50" Value="0" TickFrequency="5"
+                                            IsSnapToTickEnabled="True" Margin="0,4,0,0" ValueChanged="Simulation_Changed" />
+                                </StackPanel>
+                                <!-- Capped width: each figure sits right next to its label instead of across the card. -->
+                                <StackPanel x:Name="SimResultPanel" Grid.Column="1" MinWidth="380" MaxWidth="460" HorizontalAlignment="Right" />
+                            </Grid>
+                        </StackPanel>
                     </Border>
                 </StackPanel>
             </ScrollViewer>

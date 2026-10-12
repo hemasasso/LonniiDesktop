@@ -1,4 +1,5 @@
 using Lonnii.Shared.Contracts;
+using Lonnii.Shared.Security;
 using Microsoft.AspNetCore.Http.Features;
 
 namespace Lonnii.Api.Features.Parametres;
@@ -24,8 +25,8 @@ public static class EspaceTransferEndpoints
     {
         var espace = app.MapGroup("/api/parametres/espace").WithTags("Paramètres");
 
-        espace.MapGet("/export", ExportAsync).RequireGroupScope().RequireGroupAdmin();
-        espace.MapPost("/import", ImportAsync).RequireGroupScope().RequireGroupAdmin();
+        espace.MapGet("/export", ExportAsync).RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageDonneesEspace);
+        espace.MapPost("/import", ImportAsync).RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageDonneesEspace);
     }
 
     /// <summary>

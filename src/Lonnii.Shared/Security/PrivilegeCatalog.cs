@@ -188,7 +188,9 @@ public static class PrivilegeCatalog
         yield return new(Priv.Gestion.ScheduleReports, "Programmer Rapports", "Permet de configurer la génération automatique de rapports", analytics, true);
         yield return new(Priv.Gestion.ViewUserActivity, "Activité Utilisateurs", "Permet de surveiller les activités et actions des utilisateurs", analytics, true);
 
-        yield return new(Priv.Gestion.ManageGestionSettings, "Gérer Paramètres", "Permet de configurer les paramètres système de Gestion", admin, true);
+        // Admin-only in Lonnii Business. Grantable here: it opens every section of
+        // Administration → Configuration & Serveurs to a member, so it can be handed to a team.
+        yield return new(Priv.Gestion.ManageGestionSettings, "Gérer Paramètres", "Permet de configurer les paramètres système de Gestion", admin, false);
         yield return new(Priv.Gestion.BackupData, "Sauvegarder Données", "Permet de créer et restaurer des sauvegardes complètes", admin, true);
         yield return new(Priv.Gestion.ManageGestionUsers, "Gérer Utilisateurs", "Permet d'ajouter et supprimer l'accès aux modules Gestion", admin, true);
         yield return new(Priv.Gestion.ViewSystemLogs, "Consulter Logs", "Permet d'accéder aux journaux système et d'audit", admin, true);
@@ -286,5 +288,15 @@ public static class PrivilegeCatalog
 
         // --- add_prestations_option_privileges.sql (only the name it adds first) ---
         yield return new(Priv.Gestion.ViewPrestations, "Consulter Prestations", "Permet de consulter le module Prestations et Services", presta, false);
+
+        // --- Desktop-only: one per section of Configuration & Serveurs ---
+        const string config = GestionModules.Configuration;
+        yield return new(Priv.Gestion.ManageDevise, "Gérer la devise", "Changer le libellé de la devise et sa position", config, false);
+        yield return new(Priv.Gestion.ManageRecuFacture, "Gérer reçus et factures", "Logo, QR code, nom de l'entreprise, titre et notes des reçus et factures", config, false);
+        yield return new(Priv.Gestion.ManageEcranClient, "Gérer l'écran client", "Configurer l'affichage client branché sur ce poste", config, false);
+        yield return new(Priv.Gestion.ManageBilanAutomatique, "Gérer le bilan automatique", "Activer ou désactiver le calcul automatique du bilan", config, false);
+        yield return new(Priv.Gestion.ViewConsommation, "Voir la consommation des données", "Consulter le volume de données de l'espace", config, false);
+        yield return new(Priv.Gestion.ManageDonneesEspace, "Gérer les données de l'espace", "Télécharger l'espace (.db) et gérer la sauvegarde en ligne", config, false);
+        yield return new(Priv.Gestion.ViewConnexion, "Voir la connexion aux serveurs", "Consulter l'état du serveur de la boutique et du serveur central", config, false);
     }
 }

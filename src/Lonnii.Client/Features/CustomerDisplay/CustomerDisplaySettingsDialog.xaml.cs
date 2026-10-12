@@ -21,7 +21,7 @@ public partial class CustomerDisplaySettingsDialog : Window
     private static readonly string[] FontChoices =
         ["Segoe UI", "Segoe UI Variable Display", "Arial", "Calibri", "Verdana", "Tahoma", "Trebuchet MS", "Georgia", "Century Gothic", "Consolas"];
 
-    private static readonly int[] ScaleChoices = [40, 50, 60, 70, 80, 90, 100, 110, 120, 130];
+    private static readonly int[] ScaleChoices = [20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130];
 
     private readonly CustomerDisplayService _service = CustomerDisplayService.Instance;
     private readonly DispatcherTimer _statusTimer = new() { Interval = TimeSpan.FromSeconds(1) };
@@ -36,7 +36,10 @@ public partial class CustomerDisplaySettingsDialog : Window
         foreach (var combo in new[] { SerialProtocolCombo, NetProtocolCombo })
             foreach (var (key, label) in DisplayProtocols.All) combo.Items.Add(new ComboBoxItem { Content = label, Tag = key });
 
+        foreach (var (key, label, _) in DisplayLayouts.All) LayoutCombo.Items.Add(new ComboBoxItem { Content = label, Tag = key });
+        foreach (var (key, label, _) in IdleLayouts.All) IdleLayoutCombo.Items.Add(new ComboBoxItem { Content = label, Tag = key });
         foreach (var (key, label) in DisplayThemes.All) ThemeCombo.Items.Add(new ComboBoxItem { Content = label, Tag = key });
+        foreach (var (key, label) in DisplayPillStyles.All) PillCombo.Items.Add(new ComboBoxItem { Content = label, Tag = key });
         foreach (var (hex, label) in DisplayThemes.Accents) AccentCombo.Items.Add(new ComboBoxItem { Content = label, Tag = hex });
 
         // Only the typefaces the shop's machine really has; the list shows each in its own face.
@@ -60,6 +63,20 @@ public partial class CustomerDisplaySettingsDialog : Window
     private void Load(CustomerDisplaySettings s)
     {
         EnabledCheck.IsChecked = s.Enabled;
+        IdleLayoutCombo.SelectedItem = IdleLayoutCombo.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == s.IdleLayout)
+            ?? IdleLayoutCombo.Items.Cast<ComboBoxItem>().First();
+        IdleLogoCheck.IsChecked = s.IdleShowLogo;
+        IdleQrCheck.IsChecked = s.IdleShowQr;
+        IdleCompanyCheck.IsChecked = s.IdleShowCompany;
+        (s.IdleMediaRight ? MediaRightRadio : MediaLeftRadio).IsChecked = true;
+        IdleTitleBox.Text = s.IdleTitle ?? string.Empty;
+        IdleMessageBox.Text = s.IdleMessage ?? string.Empty;
+        _idleMediaPath = s.IdleMediaPath;
+        ShowMediaName();
+        PillCombo.SelectedItem = PillCombo.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == s.PillStyle)
+            ?? PillCombo.Items.Cast<ComboBoxItem>().First();
+        LayoutCombo.SelectedItem = LayoutCombo.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == s.Layout)
+            ?? LayoutCombo.Items.Cast<ComboBoxItem>().First();
         ThemeCombo.SelectedItem = ThemeCombo.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == s.Theme)
             ?? ThemeCombo.Items.Cast<ComboBoxItem>().First();
         AccentBox.Text = s.AccentColor;
@@ -100,6 +117,16 @@ public partial class CustomerDisplaySettingsDialog : Window
             Enabled = EnabledCheck.IsChecked == true,
             ScreenEnabled = ScreenCheck.IsChecked == true,
             AutoDetectScreen = AutoScreenCheck.IsChecked == true,
+            Layout = (LayoutCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? DisplayLayouts.Classique,
+            PillStyle = (PillCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? DisplayPillStyles.Auto,
+            IdleLayout = (IdleLayoutCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? IdleLayouts.Classique,
+            IdleShowLogo = IdleLogoCheck.IsChecked == true,
+            IdleShowQr = IdleQrCheck.IsChecked == true,
+            IdleShowCompany = IdleCompanyCheck.IsChecked == true,
+            IdleMediaRight = MediaRightRadio.IsChecked == true,
+            IdleTitle = IdleTitleBox.Text.Trim(),
+            IdleMessage = string.IsNullOrWhiteSpace(IdleMessageBox.Text) ? null : IdleMessageBox.Text.Trim(),
+            IdleMediaPath = _idleMediaPath,
             Theme = (ThemeCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? DisplayThemes.Light,
             AccentColor = TryAccent(AccentBox.Text, out var accent) ? accent : CustomerDisplaySettings.DefaultAccent,
             FontFamily = (FontCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? CustomerDisplaySettings.DefaultFont,
@@ -283,4 +310,60 @@ public partial class CustomerDisplaySettingsDialog : Window
     }
 
     private void Preview_Click(object sender, RoutedEventArgs e) => _service.OpenPreview();
+
+    // --- Welcome screen ---
+
+    /// <summary>The welcome picture, already copied into the app's own folder.</summary>
+    private string? _idleMediaPath;
+
+    private void IdleLayout_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        var key = (IdleLayoutCombo.SelectedItem as ComboBoxItem)?.Tag as string;
+        IdleLayoutDescription.Text = IdleLayouts.All.FirstOrDefault(l => l.Key == key).Description ?? string.Empty;
+    }
+
+    private void ShowMediaName()
+    {
+        var exists = !string.IsNullOrEmpty(_idleMediaPath) && System.IO.File.Exists(_idleMediaPath);
+        IdleMediaText.Text = exists ? System.IO.Path.GetFileName(_idleMediaPath) : "Aucune";
+        RemoveMediaButton.Visibility = exists ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void ChooseMedia_Click(object sender, RoutedEventArgs e)
+    {
+        var videos = string.Join(";", CustomerDisplaySettings.VideoExtensions.Select(x => "*" + x));
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Photo, GIF ou vidéo pour l'écran d'accueil",
+            Filter = $"Images et vidéos|*.jpg;*.jpeg;*.png;*.bmp;*.gif;{videos}|Images|*.jpg;*.jpeg;*.png;*.bmp;*.gif|Vidéos|{videos}",
+        };
+        if (dialog.ShowDialog(this) != true) return;
+
+        try
+        {
+            _idleMediaPath = CustomerDisplaySettings.ImportMedia(dialog.FileName);
+            ShowMediaName();
+
+            // Choosing a picture while on a model that would not show it: switch to one that does.
+            if ((IdleLayoutCombo.SelectedItem as ComboBoxItem)?.Tag is string layout && !IdleLayouts.UsesMedia(layout))
+                IdleLayoutCombo.SelectedItem = IdleLayoutCombo.Items.Cast<ComboBoxItem>().First(i => (string)i.Tag == IdleLayouts.PleinEcran);
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+        {
+            MessageBox.Show(this, $"Impossible de copier le fichier : {ex.Message}", "Écran client",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void RemoveMedia_Click(object sender, RoutedEventArgs e)
+    {
+        _idleMediaPath = null;
+        ShowMediaName();
+    }
+
+    private void Layout_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        var key = (LayoutCombo.SelectedItem as ComboBoxItem)?.Tag as string;
+        LayoutDescription.Text = DisplayLayouts.All.FirstOrDefault(l => l.Key == key).Description ?? string.Empty;
+    }
 }

@@ -1,6 +1,7 @@
 using Lonnii.Data;
 using Lonnii.Data.Entities;
 using Lonnii.Shared.Contracts;
+using Lonnii.Shared.Security;
 using Microsoft.EntityFrameworkCore;
 
 namespace Lonnii.Api.Features.Parametres;
@@ -38,17 +39,17 @@ public static class ParametresEndpoints
         // (GroupEndpoints.UpdateCurrencyAsync): the company name and the payment QR code on
         // a customer-facing document are not something a till operator should be able to
         // change quietly.
-        parametres.MapPut("/recu", UpdateAsync).RequireGroupScope().RequireGroupAdmin();
+        parametres.MapPut("/recu", UpdateAsync).RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageRecuFacture);
 
         parametres.MapPost("/recu/logo", UploadLogoAsync)
-            .RequireGroupScope().RequireGroupAdmin().DisableAntiforgery();
+            .RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageRecuFacture).DisableAntiforgery();
         parametres.MapDelete("/recu/logo", DeleteLogoAsync)
-            .RequireGroupScope().RequireGroupAdmin();
+            .RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageRecuFacture);
 
         parametres.MapPost("/recu/qrcode", UploadQrCodeAsync)
-            .RequireGroupScope().RequireGroupAdmin().DisableAntiforgery();
+            .RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageRecuFacture).DisableAntiforgery();
         parametres.MapDelete("/recu/qrcode", DeleteQrCodeAsync)
-            .RequireGroupScope().RequireGroupAdmin();
+            .RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageRecuFacture);
     }
 
     /// <summary>The workspace's receipt configuration, defaults filled in. A workspace that

@@ -1,5 +1,6 @@
 using Lonnii.Data;
 using Lonnii.Shared.Contracts;
+using Lonnii.Shared.Security;
 using Microsoft.EntityFrameworkCore;
 
 namespace Lonnii.Api.Features.Stock;
@@ -28,7 +29,7 @@ public static class ConsommationEndpoints
     {
         app.MapGet("/api/parametres/consommation", GetAsync)
             .WithTags("Paramètres")
-            .RequireGroupScope().RequireGroupAdmin();
+            .RequireGroupScope().RequirePrivilege(Priv.Gestion.ViewConsommation);
     }
 
     /// <summary><paramref name="year"/> narrows the dated sections (ventes, charges, caisses)

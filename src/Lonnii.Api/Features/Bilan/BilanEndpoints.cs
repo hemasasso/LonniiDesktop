@@ -145,9 +145,9 @@ public static class BilanEndpoints
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.EditResultatDonnees);
 
         bilan.MapGet("/parametres", GetParametresAsync)
-            .RequireGroupScope().RequirePrivilege(Priv.Gestion.ViewBilan);
+            .RequireGroupScope().RequireAnyPrivilege(Priv.Gestion.ViewBilan, Priv.Gestion.ManageBilanAutomatique);
         bilan.MapPut("/parametres", SaveParametresAsync)
-            .RequireGroupScope().RequirePrivilege(Priv.Gestion.EditResultatDonnees);
+            .RequireGroupScope().RequireAnyPrivilege(Priv.Gestion.EditResultatDonnees, Priv.Gestion.ManageBilanAutomatique);
 
         bilan.MapGet("/comptes", ListComptesAsync)
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.ViewBilan);

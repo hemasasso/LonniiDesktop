@@ -78,11 +78,14 @@ var tokenService = new TokenService(jwtOptions);
 builder.Services.AddSingleton(jwtOptions);
 builder.Services.AddSingleton(tokenService);
 
-builder.Services
+var authentication = builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options => options.TokenValidationParameters = tokenService.ValidationParameters);
 
 builder.Services.AddAuthorization();
+
+// The admin dashboard's own tokens, for /api/admin only (licence server). See DashboardAdminAuth.
+builder.AddDashboardAdminAuth(authentication);
 
 // --- Application services -------------------------------------------------
 // Reaches our licence server during first launch. Short timeout: a shop waiting on setup
@@ -222,6 +225,8 @@ if (app.Environment.IsDevelopment())
 
 if (builder.Configuration.GetValue("Lonnii:BehindProxy", false)) app.UseForwardedHeaders();
 
+// Before authentication, so a browser's preflight for the admin routes is answered.
+app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseMiddleware<Lonnii.Api.Features.Remote.RemoteRoutingMiddleware>();
@@ -248,12 +253,14 @@ app.MapProgrammeEndpoints();
 app.MapParametresEndpoints();
 app.MapEspaceTransferEndpoints();
 app.MapConsommationEndpoints();
+app.MapConnexionEndpoints();
 app.MapAuditEndpoints();
 app.MapBackupEndpoints();
 app.MapRegistrationEndpoints();
 app.MapHostRegistrationEndpoints();
 app.MapCloudBackupEndpoints();
 app.MapImageEndpoints();
+app.MapDesktopAdminEndpoints();
 
 /// <summary>Lets a client confirm it is talking to a Lonnii host before signing in.</summary>
 app.MapGet("/api/health", () => Results.Ok(new

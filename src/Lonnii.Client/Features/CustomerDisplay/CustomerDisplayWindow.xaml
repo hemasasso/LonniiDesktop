@@ -24,13 +24,13 @@
         <Grid x:Name="Canvas" Width="1280" Height="720">
 
             <!-- ===================== A sale is being rung up ===================== -->
-            <Grid x:Name="SellingPanel">
+            <Grid x:Name="SellingPanel" Background="{DynamicResource Bg}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <Border Background="{DynamicResource Brand}" Padding="40,18">
+                <Border x:Name="HeaderBar" Background="{DynamicResource Brand}" Padding="40,18">
                     <DockPanel>
                         <Border x:Name="HeaderCountPill" DockPanel.Dock="Right" Background="{DynamicResource BrandOnSoft}"
                                 CornerRadius="22" Padding="22,8" VerticalAlignment="Center">
@@ -123,7 +123,7 @@
                             CornerRadius="16" BorderBrush="{DynamicResource Line}" BorderThickness="1" Padding="30,26">
                         <DockPanel LastChildFill="False">
                             <StackPanel DockPanel.Dock="Top">
-                                <TextBlock Text="RÉCAPITULATIF" FontSize="18" FontWeight="SemiBold"
+                                <TextBlock x:Name="SummaryTitle" Text="RÉCAPITULATIF" FontSize="18" FontWeight="SemiBold"
                                            Foreground="{DynamicResource Muted}" Margin="0,0,0,14" />
 
                                 <Grid x:Name="SubtotalRow" Margin="0,0,0,6">
@@ -144,7 +144,7 @@
 
                                 <Border Height="1" Background="{DynamicResource Line}" Margin="0,12,0,16" />
 
-                                <TextBlock Text="TOTAL À PAYER" FontSize="22" FontWeight="SemiBold"
+                                <TextBlock x:Name="TotalLabel" Text="TOTAL À PAYER" FontSize="22" FontWeight="SemiBold"
                                            Foreground="{DynamicResource Muted}" />
                                 <Viewbox StretchDirection="DownOnly" HorizontalAlignment="Left" Margin="0,4,0,0">
                                     <TextBlock x:Name="TotalText" FontSize="68" FontWeight="Bold"
@@ -173,29 +173,52 @@
             </Grid>
 
             <!-- ===================== Nothing in the cart ===================== -->
+            <!-- One grid for the five welcome models: ArrangeIdle moves the picture and the text
+                 block between its cells, and styles the text block's backing. -->
             <Grid x:Name="IdlePanel" Visibility="Collapsed" Background="{DynamicResource BrandDeep}">
-                <!-- DownOnly: never bigger than designed, but shrinks to fit when the screen is short. -->
-                <Viewbox StretchDirection="DownOnly" Margin="40" HorizontalAlignment="Center" VerticalAlignment="Center">
-                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <Border x:Name="IdleLogoChip" Background="White" CornerRadius="22" Padding="22"
-                            HorizontalAlignment="Center" Margin="0,0,0,30">
-                        <Image x:Name="IdleLogo" MaxHeight="150" MaxWidth="420" Stretch="Uniform"
-                               RenderOptions.BitmapScalingMode="HighQuality" />
-                    </Border>
-                    <TextBlock x:Name="IdleCompany" FontSize="68" FontWeight="Bold" TextAlignment="Center"
-                               TextWrapping="Wrap" Foreground="{DynamicResource OnBrand}" />
-                    <TextBlock Text="Bienvenue" FontSize="42" TextAlignment="Center" Margin="0,8,0,0"
-                               Foreground="{DynamicResource OnBrandSoft}" />
-                    <StackPanel x:Name="IdleQrBox" Margin="0,38,0,0" HorizontalAlignment="Center">
-                        <Border x:Name="IdleQrCard" Background="White" CornerRadius="14" Padding="12" HorizontalAlignment="Center">
-                            <Image x:Name="IdleQr" Height="170" Width="170" Stretch="Uniform"
-                                   RenderOptions.BitmapScalingMode="NearestNeighbor" />
-                        </Border>
-                        <TextBlock x:Name="IdleQrNote" FontSize="22" TextAlignment="Center" TextWrapping="Wrap"
-                                   MaxWidth="560" Margin="0,12,0,0" Foreground="{DynamicResource OnBrandSoft}" />
-                    </StackPanel>
-                </StackPanel>
-                </Viewbox>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="0" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="0" />
+                </Grid.RowDefinitions>
+
+                <Grid x:Name="IdleMediaHost" ClipToBounds="True" Background="Black" Visibility="Collapsed">
+                    <Image x:Name="IdleMediaImage" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality" />
+                    <MediaElement x:Name="IdleMediaVideo" Stretch="UniformToFill" IsMuted="True" LoadedBehavior="Manual"
+                                  UnloadedBehavior="Stop" Visibility="Collapsed" />
+                </Grid>
+
+                <Border x:Name="IdleTextHost">
+                    <!-- DownOnly: never bigger than designed, but shrinks to fit when the space is short. -->
+                    <!-- Top-aligned: logo, title and message start at the top of their area. -->
+                    <Viewbox x:Name="IdleTextBox" StretchDirection="DownOnly" Margin="40"
+                             HorizontalAlignment="Center" VerticalAlignment="Top">
+                        <StackPanel x:Name="IdleContent" HorizontalAlignment="Center" VerticalAlignment="Top">
+                            <Border x:Name="IdleLogoChip" Background="White" CornerRadius="22" Padding="22"
+                                    HorizontalAlignment="Center" Margin="0,0,0,30">
+                                <Image x:Name="IdleLogo" MaxHeight="150" MaxWidth="420" Stretch="Uniform"
+                                       RenderOptions.BitmapScalingMode="HighQuality" />
+                            </Border>
+                            <TextBlock x:Name="IdleCompany" FontSize="68" FontWeight="Bold" TextAlignment="Center"
+                                       TextWrapping="Wrap" MaxWidth="1100" Foreground="{DynamicResource OnBrand}" />
+                            <TextBlock x:Name="IdleTitle" FontSize="42" TextAlignment="Center" Margin="0,8,0,0"
+                                       TextWrapping="Wrap" MaxWidth="1100" Foreground="{DynamicResource OnBrandSoft}" />
+                            <TextBlock x:Name="IdleMessage" FontSize="30" TextAlignment="Center" Margin="0,16,0,0"
+                                       TextWrapping="Wrap" MaxWidth="1000" Foreground="{DynamicResource OnBrandSoft}" />
+                            <StackPanel x:Name="IdleQrBox" Margin="0,38,0,0" HorizontalAlignment="Center">
+                                <Border x:Name="IdleQrCard" Background="White" CornerRadius="14" Padding="12" HorizontalAlignment="Center">
+                                    <Image x:Name="IdleQr" Height="170" Width="170" Stretch="Uniform"
+                                           RenderOptions.BitmapScalingMode="NearestNeighbor" />
+                                </Border>
+                                <TextBlock x:Name="IdleQrNote" FontSize="22" TextAlignment="Center" TextWrapping="Wrap"
+                                           MaxWidth="560" Margin="0,12,0,0" Foreground="{DynamicResource OnBrandSoft}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Viewbox>
+                </Border>
             </Grid>
 
             <!-- ===================== Payment confirmed by the provider ===================== -->

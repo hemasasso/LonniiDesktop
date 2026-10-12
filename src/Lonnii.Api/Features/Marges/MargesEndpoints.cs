@@ -25,8 +25,10 @@ public static class MargesEndpoints
 
     public static void MapMargesEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGroup("/api/marges").WithTags("Marges")
-            .MapGet("/", GetMargesAsync)
+        var group = app.MapGroup("/api/marges").WithTags("Marges");
+        group.MapGet("/", GetMargesAsync)
+            .RequireGroupScope().RequirePrivilege(Priv.Gestion.ViewMarges);
+        group.MapGet("/previsions", GetPrevisionsAsync)
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.ViewMarges);
     }
 
@@ -244,6 +246,52 @@ public static class MargesEndpoints
             estimated.Count, estimated.Sum(l => l.PrixTotal),
             productRows, categoryRows, monthly,
             categories.Select(c => new MargeCategoryOptionDto(c.Id, c.Name)).ToList()));
+    }
+
+    /// <summary>
+    /// The Prévisions tab: every month since the shop's first sale or charge, summed, then
+    /// handed to <see cref="MargesForecast"/>. <paramref name="categoryId"/> narrows the sales
+    /// but not the charges, as on the main screen.
+    /// </summary>
+    private static async Task<IResult> GetPrevisionsAsync(
+        string? categoryId, int? tzOffsetMinutes, GroupScope scope, LonniiDbContext db, CancellationToken ct)
+    {
+        var offset = TimeSpan.FromMinutes(tzOffsetMinutes ?? 0);
+        var groupId = scope.GroupId;
+        var today = DateOnly.FromDateTime(DateTime.UtcNow + offset);
+
+        var products = await LoadProductsAsync(db, groupId, ct);
+        var lines = (await SaleLinesAsync(db, groupId, products, null, today.AddDays(1).ToDateTime(TimeOnly.MinValue) - offset, ct))
+            .Where(l => categoryId is null || l.CategoryId == categoryId)
+            .Select(l => (Local: DateOnly.FromDateTime(l.DateVente + offset), l.PrixTotal, l.Cost))
+            .ToList();
+
+        var todayEnd = today.AddDays(1).ToDateTime(TimeOnly.MinValue);
+        var charges = await db.Charges.AsNoTracking()
+            .Where(c => c.GroupId == groupId && c.Date < todayEnd)
+            .Select(c => new { c.Date, c.Montant, c.TypeCharge })
+            .ToListAsync(ct);
+
+        DateOnly? firstSale = lines.Count > 0 ? lines.Min(l => l.Local) : null;
+        var starts = lines.Select(l => l.Local).Concat(charges.Select(c => DateOnly.FromDateTime(c.Date))).ToList();
+
+        var history = new List<MonthActual>();
+        if (starts.Count > 0)
+        {
+            var first = starts.Min();
+            for (var month = new DateOnly(first.Year, first.Month, 1); month <= today; month = month.AddMonths(1))
+            {
+                bool In(DateOnly d) => d.Year == month.Year && d.Month == month.Month;
+                var ofMonth = lines.Where(l => In(l.Local)).ToList();
+                var chargesOfMonth = charges.Where(c => In(DateOnly.FromDateTime(c.Date))).ToList();
+                history.Add(new MonthActual(month,
+                    ofMonth.Sum(l => l.PrixTotal), ofMonth.Sum(l => l.Cost),
+                    chargesOfMonth.Where(c => c.TypeCharge == ChargeTypes.Fixe).Sum(c => c.Montant),
+                    chargesOfMonth.Where(c => c.TypeCharge != ChargeTypes.Fixe).Sum(c => c.Montant)));
+            }
+        }
+
+        return Results.Ok(MargesForecast.Build(history, firstSale, today));
     }
 
     /// <summary>

@@ -414,7 +414,6 @@ public partial class MainWindow : Window
     private static string Glyph(string key) => key switch
     {
         "program" => "🗓",
-        "prestations" => "🧾",
         _ => "•",
     };
 
@@ -467,6 +466,7 @@ public partial class MainWindow : Window
         "bilan" => new BilanView(_session),
         "program" => new ProgrammeView(_session),
         "audit" => new AuditView(_session),
+        "configuration" => new ConfigurationView(_session),
         "parametres" => CreateParametresView(),
         _ => PlaceholderView.For(label, key),
     };

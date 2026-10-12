@@ -24,7 +24,92 @@ public static class DisplayProtocols
     ];
 }
 
-/// <summary>The look of the second-screen view.</summary>
+/// <summary>
+/// The five models of the second-screen view a shop chooses from. Each is an arrangement of the
+/// same screen - same basket, same summary, same welcome and thank-you pages - so the colours,
+/// font and text size chosen alongside apply to every one of them.
+/// </summary>
+public static class DisplayLayouts
+{
+    /// <summary>Header bar, basket on the left, summary card on the right. The default.</summary>
+    public const string Classique = "classique";
+
+    /// <summary>The total first: a wide summary with a very large amount, the basket beside it.</summary>
+    public const string GrandTotal = "grand_total";
+
+    /// <summary>The basket across the whole width, the summary as a band underneath.</summary>
+    public const string Bandeau = "bandeau";
+
+    /// <summary>No coloured bar: the shop's name in brand colour over a tinted background, rounder cards.</summary>
+    public const string Elegant = "elegant";
+
+    /// <summary>Flat and plain: no header, no card shadows or rounding, thin separators.</summary>
+    public const string Minimal = "minimal";
+
+    public static readonly IReadOnlyList<(string Key, string Label, string Description)> All =
+    [
+        (Classique, "Classique", "Bandeau de couleur, articles à gauche, total à droite."),
+        (GrandTotal, "Grand total", "Le montant à payer en très grand, les articles à côté."),
+        (Bandeau, "Liste et bandeau", "Articles sur toute la largeur, total dans un bandeau en bas."),
+        (Elegant, "Élégant", "Nom de la boutique en couleur, fond teinté, cartes arrondies."),
+        (Minimal, "Minimaliste", "Sobre et plat, sans bandeau : idéal pour pharmacie ou petit écran."),
+    ];
+}
+
+/// <summary>
+/// The five models of the welcome screen shown while nothing is in the basket. The three that
+/// feature a picture fall back to <see cref="Classique"/> until one is chosen.
+/// </summary>
+public static class IdleLayouts
+{
+    /// <summary>Logo, name, title and QR code centred on the brand colour. The default.</summary>
+    public const string Classique = "classique";
+
+    /// <summary>The picture or video fills the screen; name and title in a band at the bottom.</summary>
+    public const string PleinEcran = "plein_ecran";
+
+    /// <summary>The picture on the left half, the shop's details on the right.</summary>
+    public const string CoteACote = "cote_a_cote";
+
+    /// <summary>The picture across the top, the details in a brand-coloured band underneath.</summary>
+    public const string Affiche = "affiche";
+
+    /// <summary>No picture: the title and message very large, for a promotion or an announcement.</summary>
+    public const string Message = "message";
+
+    public static readonly IReadOnlyList<(string Key, string Label, string Description)> All =
+    [
+        (Classique, "Classique", "Logo, nom de la boutique, titre et QR code au centre."),
+        (PleinEcran, "Plein écran", "Votre photo, GIF ou vidéo sur tout l'écran, le nom en bas."),
+        (CoteACote, "Côte à côte", "Votre photo à gauche, le logo, le texte et le QR code à droite."),
+        (Affiche, "Affiche", "Votre photo en haut, le texte dans un bandeau de couleur en bas."),
+        (Message, "Grand message", "Votre titre et votre message en très grand : promotion, annonce."),
+    ];
+
+    public static bool UsesMedia(string layout) => layout is PleinEcran or CoteACote or Affiche;
+}
+
+/// <summary>The colour of the "3 articles" pill in the header bar.</summary>
+public static class DisplayPillStyles
+{
+    /// <summary>A see-through tint of the bar, text in the bar's own text colour. The default.</summary>
+    public const string Auto = "auto";
+
+    /// <summary>A white pill with dark text: readable on any brand colour.</summary>
+    public const string WhiteBackground = "white_bg";
+
+    /// <summary>The usual tint, but the text always white.</summary>
+    public const string WhiteText = "white_text";
+
+    public static readonly IReadOnlyList<(string Key, string Label)> All =
+    [
+        (Auto, "Automatique (selon la couleur)"),
+        (WhiteBackground, "Fond blanc, texte foncé"),
+        (WhiteText, "Texte blanc"),
+    ];
+}
+
+/// <summary>The colours of the second-screen view.</summary>
 public static class DisplayThemes
 {
     /// <summary>White cards on light grey, like a big retailer's checkout screen. The default.</summary>
@@ -99,8 +184,14 @@ public sealed class CustomerDisplaySettings
 
     public const string DefaultAccent = "#0071DC";
 
+    /// <summary>One of <see cref="DisplayLayouts"/>.</summary>
+    public string Layout { get; set; } = DisplayLayouts.Classique;
+
     /// <summary>One of <see cref="DisplayThemes"/>.</summary>
     public string Theme { get; set; } = DisplayThemes.Light;
+
+    /// <summary>One of <see cref="DisplayPillStyles"/>.</summary>
+    public string PillStyle { get; set; } = DisplayPillStyles.Auto;
 
     public const string DefaultFont = "Segoe UI";
 
@@ -123,6 +214,46 @@ public sealed class CustomerDisplaySettings
 
     /// <summary>The monitor to use when <see cref="AutoDetectScreen"/> is off, e.g. <c>\\.\DISPLAY2</c>.</summary>
     public string? ScreenDevice { get; set; }
+
+    // --- Welcome screen (nothing in the basket) ---
+
+    /// <summary>One of <see cref="IdleLayouts"/>.</summary>
+    public string IdleLayout { get; set; } = IdleLayouts.Classique;
+
+    public bool IdleShowLogo { get; set; } = true;
+    public bool IdleShowQr { get; set; } = true;
+    public bool IdleShowCompany { get; set; } = true;
+
+    /// <summary>Côte à côte: the picture on the right half instead of the left.</summary>
+    public bool IdleMediaRight { get; set; }
+
+    /// <summary>The line under the shop's name. Empty hides it.</summary>
+    public string IdleTitle { get; set; } = "Bienvenue";
+
+    /// <summary>Free text under the title: opening hours, a promotion, a slogan.</summary>
+    public string? IdleMessage { get; set; }
+
+    /// <summary>A picture, animated GIF or video, copied into <see cref="MediaFolder"/> so it
+    /// survives the original being moved or deleted.</summary>
+    public string? IdleMediaPath { get; set; }
+
+    public static readonly string MediaFolder = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Lonnii", "customer-display-media");
+
+    public static readonly string[] VideoExtensions = [".mp4", ".wmv", ".avi", ".mov", ".m4v"];
+
+    public static bool IsVideo(string? path) =>
+        path is not null && VideoExtensions.Contains(Path.GetExtension(path).ToLowerInvariant());
+
+    /// <summary>Copies a chosen file into <see cref="MediaFolder"/> under a fresh name and returns
+    /// the copy's path.</summary>
+    public static string ImportMedia(string source)
+    {
+        Directory.CreateDirectory(MediaFolder);
+        var target = Path.Combine(MediaFolder, $"accueil-{DateTime.Now:yyyyMMdd-HHmmss}{Path.GetExtension(source).ToLowerInvariant()}");
+        File.Copy(source, target, overwrite: true);
+        return target;
+    }
 
     public SerialDisplaySettings Serial { get; set; } = new();
     public NetworkDisplaySettings Network { get; set; } = new();

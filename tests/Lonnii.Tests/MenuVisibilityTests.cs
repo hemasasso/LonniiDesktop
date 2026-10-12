@@ -21,10 +21,10 @@ public class MenuVisibilityTests
     {
         var visible = AppMenu.Visible(
             AppMenu.Espace, AllGranted(),
-            gestionAccess: true, prestationsEnabled: true, isAdmin: false);
+            gestionAccess: true, isAdmin: false);
 
         Assert.Contains(visible, e => e.Key == "program");
-        Assert.Contains(visible, e => e.Key == "prestations");
+        Assert.DoesNotContain(visible, e => e.Key == "prestations");
     }
 
     [Fact]
@@ -47,7 +47,7 @@ public class MenuVisibilityTests
 
         var visible = AppMenu.Visible(
             AppMenu.Gestion, noPrivileges,
-            gestionAccess: true, prestationsEnabled: true, isAdmin: true);
+            gestionAccess: true, isAdmin: true);
 
         Assert.DoesNotContain(visible, e => e.Key == "gestion-de-stock");
     }

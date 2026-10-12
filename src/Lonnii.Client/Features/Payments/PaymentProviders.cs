@@ -80,9 +80,10 @@ public static class PaymentProviderRegistry
 {
     /// <summary>
     /// Flip to true once at least one provider is wired: it reveals Paramètres → Moyens de
-    /// paiement. Kept off so a shop is not shown switches that do nothing.
+    /// paiement. Off for the first deployment (decided 2026-10-11): payments ship in the
+    /// update after it.
     /// </summary>
-    public static bool SettingsVisible { get; } = true;
+    public static bool SettingsVisible { get; } = false;
 
     public static readonly IReadOnlyList<PaymentProviderInfo> Planned =
     [

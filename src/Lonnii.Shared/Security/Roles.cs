@@ -86,4 +86,7 @@ public static class GestionModules
     public const string Finance = "finance";
     public const string Analytics = "analytics";
     public const string Admin = "admin";
+
+    /// <summary>Desktop-only: one privilege per section of Administration → Configuration &amp; Serveurs.</summary>
+    public const string Configuration = "configuration";
 }

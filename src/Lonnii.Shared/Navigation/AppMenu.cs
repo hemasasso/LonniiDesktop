@@ -12,7 +12,6 @@ namespace Lonnii.Shared.Navigation;
 /// <param name="Accent">Accent colour the web app assigns to this entry.</param>
 /// <param name="RequiredPrivilege">Privilege that must be granted, or null when always visible.</param>
 /// <param name="RequiresGestionAccess">True when the entry is hidden unless the group has gestion_access.</param>
-/// <param name="RequiresPrestationsEnabled">True when the entry depends on the group's prestations toggle.</param>
 /// <param name="RequiresAdmin">True when only an admin or sub_admin may see the entry.</param>
 public sealed record MenuEntry(
     string Key,
@@ -21,7 +20,6 @@ public sealed record MenuEntry(
     string Accent,
     string? RequiredPrivilege = null,
     bool RequiresGestionAccess = false,
-    bool RequiresPrestationsEnabled = false,
     bool RequiresAdmin = false);
 
 /// <summary>A titled group of menu entries, matching the admin sections of the web Gestion page.</summary>
@@ -49,8 +47,10 @@ public static class AppMenu
         // No "Options" pill, unlike the web app: members and privileges are managed from a
         // "MEMBRES ET PRIVILÈGES" section inside Paramètres instead - see ParametresView -
         // so the top bar does not carry a second admin-only entry next to it.
-        new("prestations", "Prestations", "Devis, factures et rentabilité", "#e11d48",
-            Priv.Gestion.ViewPrestations, RequiresPrestationsEnabled: true),
+        //
+        // No Prestations either, here or in Gestion: the module was dropped from the desktop
+        // product (2026-10-11). Its privileges stay in the catalogue only because the shared
+        // database still holds them; the privilege screen hides them.
     ];
 
     /// <summary>Gestion sub-navigation. Source: the buttons array in Gestion.jsx.</summary>
@@ -60,15 +60,14 @@ public static class AppMenu
         new("ventes", "Ventes", "Gérez vos ventes et factures", "#10b981", Priv.Gestion.ViewVentes),
         new("charges", "Charges", "Gérez les charges de l'entreprise", "#f59e0b", Priv.Gestion.ViewCharges),
         new("marges", "Marges", "Analysez vos marges et bénéfices", "#8b5cf6", Priv.Gestion.ViewMarges),
-        new("prestations", "Prestation et Services", "Devis, factures et rentabilité", "#e11d48",
-            Priv.Gestion.ViewPrestations, RequiresPrestationsEnabled: true),
         new("amortissement", "Amortissement", "Suivez les amortissements et immobilisations", "#4895ef", Priv.Gestion.ViewAmortissement),
         // Labelled "États financiers", not the web app's "Bilan": the screen holds both the
         // Bilan and the Compte de résultat, and a menu entry named after only one of them
         // hides the other. The key stays "bilan" so saved navigation state still resolves.
         new("bilan", "États financiers", "Bilan comptable et compte de résultat", "#6366f1", Priv.Gestion.ViewBilan),
         new("audit", "Audit", "Présences, retards et heures de travail des membres", "#6366f1", Priv.Gestion.ViewAudit),
-        new("parametres", "Paramètres", "Devise, reçus et consommation de données", "#64748b", Priv.Gestion.ViewParametres),
+        new("configuration", "Configuration & Serveurs", "Devise, reçus, écran client, bilan, données et connexion aux serveurs", "#0ea5e9", Priv.Gestion.ViewConfiguration),
+        new("parametres", "Paramètres", "Espace, membres et privilèges", "#64748b", Priv.Gestion.ViewParametres),
     ];
 
     /// <summary>
@@ -80,11 +79,11 @@ public static class AppMenu
     public static readonly IReadOnlyList<MenuSection> GestionSections =
     [
         new("operations", "Opérations", "Activités commerciales quotidiennes", "#3b82f6",
-            ["gestion-de-stock", "ventes", "charges", "prestations"]),
+            ["gestion-de-stock", "ventes", "charges"]),
         new("finance", "Finance & Analyse", "Comptabilité et performance financière", "#06b6d4",
             ["marges", "amortissement", "bilan"]),
         new("administration", "Administration", "Contrôle, surveillance et configuration", "#7c3aed",
-            ["audit", "parametres"]),
+            ["audit", "configuration", "parametres"]),
     ];
 
     /// <summary>
@@ -94,13 +93,11 @@ public static class AppMenu
     /// <param name="entries">The menu to filter.</param>
     /// <param name="privileges">Resolved privilege map for the signed-in user in the current group.</param>
     /// <param name="gestionAccess">The group's gestion_access flag.</param>
-    /// <param name="prestationsEnabled">The group's prestations toggle.</param>
     /// <param name="isAdmin">True when the user holds an admin or sub_admin role.</param>
     public static IReadOnlyList<MenuEntry> Visible(
         IEnumerable<MenuEntry> entries,
         IReadOnlyDictionary<string, bool> privileges,
         bool gestionAccess,
-        bool prestationsEnabled,
         bool isAdmin = false)
     {
         var visible = new List<MenuEntry>();
@@ -108,7 +105,6 @@ public static class AppMenu
         {
             if (entry.RequiresAdmin && !isAdmin) continue;
             if (entry.RequiresGestionAccess && !gestionAccess) continue;
-            if (entry.RequiresPrestationsEnabled && !prestationsEnabled) continue;
             if (entry.RequiredPrivilege is { } required &&
                 !(privileges.TryGetValue(required, out var granted) && granted)) continue;
             visible.Add(entry);

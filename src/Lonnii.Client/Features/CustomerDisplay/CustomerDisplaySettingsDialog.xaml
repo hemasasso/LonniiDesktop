@@ -60,13 +60,22 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
-                            <TextBlock Text="Thème" VerticalAlignment="Center" Margin="0,0,0,8" />
-                            <ComboBox x:Name="ThemeCombo" Grid.Column="1" Margin="0,0,0,8" />
+                            <TextBlock Text="Modèle" VerticalAlignment="Top" Margin="0,6,0,8" />
+                            <StackPanel Grid.Column="1" Margin="0,0,0,10">
+                                <ComboBox x:Name="LayoutCombo" SelectionChanged="Layout_Changed" />
+                                <TextBlock x:Name="LayoutDescription" Style="{StaticResource PageSubtitle}"
+                                           TextWrapping="Wrap" Margin="0,4,0,0" />
+                            </StackPanel>
 
-                            <TextBlock Grid.Row="1" Text="Couleur" VerticalAlignment="Center" Margin="0,0,0,8" />
-                            <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,0,0,8">
+                            <TextBlock Grid.Row="1" Text="Thème" VerticalAlignment="Center" Margin="0,0,0,8" />
+                            <ComboBox x:Name="ThemeCombo" Grid.Row="1" Grid.Column="1" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="2" Text="Couleur" VerticalAlignment="Center" Margin="0,0,0,8" />
+                            <DockPanel Grid.Row="2" Grid.Column="1" Margin="0,0,0,8">
                                 <Border x:Name="AccentSwatch" DockPanel.Dock="Left" Width="30" Height="30" CornerRadius="6"
                                         Margin="0,0,8,0" BorderBrush="{DynamicResource Border}" BorderThickness="1" />
                                 <TextBox x:Name="AccentBox" DockPanel.Dock="Right" Width="96" Padding="8,6" Margin="8,0,0,0"
@@ -74,11 +83,79 @@
                                 <ComboBox x:Name="AccentCombo" SelectionChanged="AccentPreset_Changed" />
                             </DockPanel>
 
-                            <TextBlock Grid.Row="2" Text="Police" VerticalAlignment="Center" Margin="0,0,0,8" />
-                            <ComboBox x:Name="FontCombo" Grid.Row="2" Grid.Column="1" Margin="0,0,0,8" />
+                            <TextBlock Grid.Row="3" Text="Police" VerticalAlignment="Center" Margin="0,0,0,8" />
+                            <ComboBox x:Name="FontCombo" Grid.Row="3" Grid.Column="1" Margin="0,0,0,8" />
 
-                            <TextBlock Grid.Row="3" Text="Taille du texte" VerticalAlignment="Center" />
-                            <ComboBox x:Name="ScaleCombo" Grid.Row="3" Grid.Column="1" />
+                            <TextBlock Grid.Row="4" Text="Taille du texte" VerticalAlignment="Center" Margin="0,0,0,8" />
+                            <ComboBox x:Name="ScaleCombo" Grid.Row="4" Grid.Column="1" Margin="0,0,0,8" />
+
+                            <TextBlock Grid.Row="5" Text="Pastille articles" VerticalAlignment="Center" />
+                            <ComboBox x:Name="PillCombo" Grid.Row="5" Grid.Column="1" />
+                        </Grid>
+                    </Border>
+
+                    <!-- Welcome screen: shown while the basket is empty -->
+                    <TextBlock Text="ÉCRAN D'ACCUEIL" Style="{StaticResource SectionHeader}" Margin="0,0,0,6" />
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12" Margin="0,0,0,18">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="110" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Text="Modèle" VerticalAlignment="Top" Margin="0,6,0,8" />
+                            <StackPanel Grid.Column="1" Margin="0,0,0,10">
+                                <ComboBox x:Name="IdleLayoutCombo" SelectionChanged="IdleLayout_Changed" />
+                                <TextBlock x:Name="IdleLayoutDescription" Style="{StaticResource PageSubtitle}"
+                                           TextWrapping="Wrap" Margin="0,4,0,0" />
+                            </StackPanel>
+
+                            <TextBlock Grid.Row="1" Text="Afficher" VerticalAlignment="Top" Margin="0,2,0,8" />
+                            <WrapPanel Grid.Row="1" Grid.Column="1" Margin="0,0,0,10">
+                                <CheckBox x:Name="IdleLogoCheck" Content="Logo" Margin="0,0,18,0" />
+                                <CheckBox x:Name="IdleQrCheck" Content="QR code" Margin="0,0,18,0" />
+                                <CheckBox x:Name="IdleCompanyCheck" Content="Nom de la boutique" />
+                            </WrapPanel>
+
+                            <TextBlock Grid.Row="6" Text="Position photo" VerticalAlignment="Center" Margin="0,8,0,0" />
+                            <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,8,0,0">
+                                <RadioButton x:Name="MediaLeftRadio" GroupName="MediaSide" Content="À gauche" IsChecked="True"
+                                             Margin="0,0,18,0" />
+                                <RadioButton x:Name="MediaRightRadio" GroupName="MediaSide" Content="À droite" />
+                                <TextBlock Text="(modèle Côte à côte)" Margin="12,0,0,0" Style="{StaticResource PageSubtitle}"
+                                           VerticalAlignment="Center" />
+                            </StackPanel>
+
+                            <TextBlock Grid.Row="2" Text="Titre" VerticalAlignment="Center" Margin="0,0,0,8" />
+                            <TextBox x:Name="IdleTitleBox" Grid.Row="2" Grid.Column="1" Padding="8,6" Margin="0,0,0,8"
+                                     MaxLength="80" ToolTip="Laissez vide pour ne pas afficher de titre" />
+
+                            <TextBlock Grid.Row="3" Text="Message" VerticalAlignment="Top" Margin="0,6,0,8" />
+                            <TextBox x:Name="IdleMessageBox" Grid.Row="3" Grid.Column="1" Padding="8,6" Margin="0,0,0,8"
+                                     MaxLength="300" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="54"
+                                     ToolTip="Horaires, promotion, slogan… (facultatif)" />
+
+                            <TextBlock Grid.Row="4" Text="Photo / vidéo" VerticalAlignment="Center" />
+                            <DockPanel Grid.Row="4" Grid.Column="1">
+                                <Button x:Name="RemoveMediaButton" DockPanel.Dock="Right" Content="Retirer" Margin="8,0,0,0"
+                                        Style="{StaticResource SecondaryButton}" Click="RemoveMedia_Click" />
+                                <Button DockPanel.Dock="Right" Content="Choisir…" Margin="8,0,0,0"
+                                        Style="{StaticResource SecondaryButton}" Click="ChooseMedia_Click" />
+                                <TextBlock x:Name="IdleMediaText" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                            </DockPanel>
+                            <TextBlock Grid.Row="5" Grid.Column="1" Style="{StaticResource PageSubtitle}" TextWrapping="Wrap"
+                                       Margin="0,6,0,0"
+                                       Text="Photo (JPG, PNG), GIF animé ou vidéo sans son (MP4, WMV). Utilisée par les modèles Plein écran, Côte à côte et Affiche." />
                         </Grid>
                     </Border>
 

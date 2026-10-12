@@ -1508,6 +1508,53 @@ public sealed record MargesResponse(
     IReadOnlyList<MargeMonthDto> Monthly,
     IReadOnlyList<MargeCategoryOptionDto> CategoryOptions);
 
+/// <summary>How far a forecast can be trusted - see <see cref="MargesPrevisionResponse.Fiabilite"/>.</summary>
+public static class MargePrevisionFiabilite
+{
+    public const string Elevee = "elevee";
+    public const string Moyenne = "moyenne";
+    public const string Faible = "faible";
+}
+
+/// <summary>One month of the Prévisions chart. <paramref name="Prevu"/> false: actual
+/// figures (bands equal to the value). Today's month is prévu: actual so far plus forecast.</summary>
+public sealed record MargePrevisionMoisDto(
+    DateOnly Mois, bool Prevu, decimal Revenue, decimal RevenueBas, decimal RevenueHaut,
+    decimal MargeBrute, decimal BeneficeNet);
+
+/// <summary>
+/// Response of <c>GET /api/marges/previsions</c>: a statistical projection of the calendar
+/// year from the shop's monthly history. Rates are percentages of revenue. Bas/haut are an
+/// 80 % interval. "Réalisé" is the year to date, "restant" the forecast from today to 31/12;
+/// <paramref name="BeneficeAnnee"/> = réalisé + revenue restant × taux de MCV − charges fixes
+/// restantes, so a client can re-run it with other assumptions.
+/// </summary>
+/// <param name="MoisHistorique">Completed months the trend was fitted on.</param>
+/// <param name="Saisonnier">Whether a per-calendar-month seasonal index was applied (Holt-Winters).</param>
+/// <param name="ErreurMoyenne">Backtest: the last <paramref name="MoisTestes"/> months forecast
+/// from the months before them, sum |actual - forecast| / sum actual, in %. Null under nine months.</param>
+/// <param name="CroissanceMensuelle">Trend growth per month, % of the average month.</param>
+/// <param name="ProbabiliteBenefice">Chance (%) that the year ends with a net profit.</param>
+/// <param name="PointMortDate">Day cumulative revenue reaches <paramref name="SeuilAnnuel"/>
+/// this year, past or forecast; null when not reached by 31/12.</param>
+/// <param name="PremierMoisRentable">First month from today's whose forecast pays its fixed charges.</param>
+/// <param name="CaJournalierNecessaire">Revenue per remaining day for the year to break even; 0 when already secured.</param>
+/// <param name="ResultatCumule">Net result since the first recorded activity.</param>
+/// <param name="DateRecuperationPertes">Month a negative <paramref name="ResultatCumule"/> is forecast to turn positive.</param>
+public sealed record MargesPrevisionResponse(
+    int Annee, int MoisHistorique, bool Saisonnier, string Fiabilite, decimal? ErreurMoyenne, int MoisTestes,
+    decimal? CroissanceMensuelle,
+    decimal TauxCoutVentes, decimal TauxChargesVariables, decimal TauxMcv, decimal ChargesFixesMensuelles,
+    decimal RevenueRealise, decimal BeneficeRealise, decimal ChargesFixesRealisees,
+    decimal RevenueRestant, decimal ChargesFixesRestantes,
+    decimal RevenueAnnee, decimal RevenueAnneeBas, decimal RevenueAnneeHaut,
+    decimal MargeBruteAnnee, decimal BeneficeAnnee, decimal BeneficeAnneeBas, decimal BeneficeAnneeHaut,
+    decimal ProbabiliteBenefice,
+    decimal? SeuilAnnuel, DateOnly? PointMortDate, decimal? SeuilMensuel, DateOnly? PremierMoisRentable,
+    decimal? CaJournalierNecessaire, int JoursRestants,
+    decimal ResultatCumule, DateOnly? DateRecuperationPertes, DateOnly? PremiereVente,
+    IReadOnlyList<MargePrevisionMoisDto> Mois);
+
 // --- Programme ---
 
 /// <summary>One worker's day on the Programme board. <paramref name="Type"/> is one of
@@ -2006,3 +2053,31 @@ public sealed record SetupActivatePendingRequest(
 
 /// <summary>A failure response. <paramref name="Required"/> names the missing privilege on a 403.</summary>
 public sealed record ApiError(string Error, string? Required = null);
+
+// --- Paramètres: connexion ---
+
+public static class ConnexionRoles
+{
+    /// <summary>The shop's own server: the API this client is talking to.</summary>
+    public const string Boutique = "boutique";
+    /// <summary>The central Lonnii server: licence, synchronisation, updates.</summary>
+    public const string Central = "central";
+    public const string Sauvegarde = "sauvegarde";
+}
+
+public static class ConnexionEtats
+{
+    public const string Connecte = "connecte";
+    public const string HorsLigne = "hors_ligne";
+    /// <summary>Not in use yet - an online backup that has never run.</summary>
+    public const string Inactif = "inactif";
+}
+
+/// <summary>One server this espace depends on.</summary>
+/// <param name="Hote">The machine's name, for the shop's own server; null for ours, which is never addressed.</param>
+/// <param name="DernierContact">When it last answered (UTC).</param>
+public sealed record ConnexionServeurDto(string Role, string Nom, string? Hote, string Etat, DateTime? DernierContact, string? Detail);
+
+/// <summary>Response of <c>GET /api/parametres/connexion</c>.</summary>
+/// <param name="Active">Whether the espace was activated against the central server at all.</param>
+public sealed record ConnexionResponse(string Mode, bool Active, IReadOnlyList<ConnexionServeurDto> Serveurs);

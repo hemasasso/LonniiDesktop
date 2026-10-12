@@ -85,6 +85,9 @@ location ^~ /api/images/       { proxy_pass http://127.0.0.1:5280; include /www/
 location = /api/parametres/recu   { proxy_pass http://127.0.0.1:5280; include /www/server/nginx/conf/lonnii-api-proxy.conf; }
 location ^~ /api/parametres/recu/ { proxy_pass http://127.0.0.1:5280; include /www/server/nginx/conf/lonnii-api-proxy.conf; client_max_body_size 10m; }
 location = /api/parametres/consommation { proxy_pass http://127.0.0.1:5280; include /www/server/nginx/conf/lonnii-api-proxy.conf; }
+# Admin dashboard (dashboard-lonniib.com), Lonnii Desktop side. Node has nothing under /api/admin
+# (its admin routes are /admin and /dashboard-admin, at the root).
+location ^~ /api/admin/        { proxy_pass http://127.0.0.1:5280; include /www/server/nginx/conf/lonnii-api-proxy.conf; }
 location ^~ /api/backup/ {
     proxy_pass http://127.0.0.1:5280;
     include /www/server/nginx/conf/lonnii-api-proxy.conf;

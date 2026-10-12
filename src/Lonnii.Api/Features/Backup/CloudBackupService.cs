@@ -1,6 +1,7 @@
 using Lonnii.Data;
 using Lonnii.Data.Entities;
 using Lonnii.Shared.Contracts;
+using Lonnii.Shared.Security;
 using Microsoft.EntityFrameworkCore;
 
 namespace Lonnii.Api.Features.Backup;
@@ -80,10 +81,10 @@ public static class CloudBackupEndpoints
     {
         var group = app.MapGroup("/api/parametres/cloud-backup").WithTags("Paramètres");
 
-        group.MapGet("/", StatusAsync).RequireGroupScope().RequireGroupAdmin();
-        group.MapPost("/run", RunAsync).RequireGroupScope().RequireGroupAdmin();
-        group.MapPost("/restore", RestoreAsync).RequireGroupScope().RequireGroupAdmin();
-        group.MapPost("/restart", RestartAsync).RequireGroupScope().RequireGroupAdmin();
+        group.MapGet("/", StatusAsync).RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageDonneesEspace);
+        group.MapPost("/run", RunAsync).RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageDonneesEspace);
+        group.MapPost("/restore", RestoreAsync).RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageDonneesEspace);
+        group.MapPost("/restart", RestartAsync).RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageDonneesEspace);
     }
 
     private static async Task<IResult> StatusAsync(GroupScope scope, LonniiDbContext db, CancellationToken ct)

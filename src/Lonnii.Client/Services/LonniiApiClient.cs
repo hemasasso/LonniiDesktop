@@ -575,6 +575,15 @@ public class LonniiApiClient
         return GetAsync<MargesResponse>("api/marges?" + string.Join("&", query), ct);
     }
 
+    /// <summary>Marges' Prévisions: the calendar year projected from the monthly history.
+    /// Independent of the period filter; <paramref name="categoryId"/> narrows sales only.</summary>
+    public Task<MargesPrevisionResponse> GetMargesPrevisionsAsync(string? categoryId = null, CancellationToken ct = default)
+    {
+        var query = $"api/marges/previsions?tzOffsetMinutes={LocalTzOffsetMinutes()}";
+        if (!string.IsNullOrWhiteSpace(categoryId)) query += $"&categoryId={Uri.EscapeDataString(categoryId)}";
+        return GetAsync<MargesPrevisionResponse>(query, ct);
+    }
+
     // --- Amortissement ---
 
     /// <summary>Every fixed asset and the summary tiles, figured for this machine's current
@@ -714,6 +723,10 @@ public class LonniiApiClient
     public Task<DataConsumptionResponse> GetDataConsumptionAsync(int? year, CancellationToken ct = default) =>
         GetAsync<DataConsumptionResponse>(
             "api/parametres/consommation" + (year is { } y ? $"?year={y}" : string.Empty), ct);
+
+    /// <summary>Every server the espace depends on and where each stands.</summary>
+    public Task<ConnexionResponse> GetConnexionAsync(CancellationToken ct = default) =>
+        GetAsync<ConnexionResponse>("api/parametres/connexion", ct);
 
     // --- Paramètres: reçu et facture ---
 

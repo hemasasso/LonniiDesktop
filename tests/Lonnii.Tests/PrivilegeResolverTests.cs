@@ -132,6 +132,31 @@ public class PrivilegeResolverTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task GererParametres_OpensEveryConfigurationSection_ButNotParametres()
+    {
+        Assert.False((await _resolver.ResolveAsync(MemberId, GroupId)).HasGestion(Priv.Gestion.ViewConfiguration));
+
+        await GrantGestionAsync(MemberId, Priv.Gestion.ManageGestionSettings);
+        var result = await _resolver.ResolveAsync(MemberId, GroupId);
+
+        Assert.True(result.HasGestion(Priv.Gestion.ViewConfiguration));
+        Assert.All(Priv.Gestion.ConfigurationSections, s => Assert.True(result.HasGestion(s), s));
+        Assert.False(result.HasGestion(Priv.Gestion.ViewParametres));
+    }
+
+    [Fact]
+    public async Task OneConfigurationSection_OpensTheMenuEntry_AndOnlyThatSection()
+    {
+        await GrantGestionAsync(MemberId, Priv.Gestion.ManageRecuFacture);
+        var result = await _resolver.ResolveAsync(MemberId, GroupId);
+
+        Assert.True(result.HasGestion(Priv.Gestion.ViewConfiguration));
+        Assert.True(result.HasGestion(Priv.Gestion.ManageRecuFacture));
+        Assert.False(result.HasGestion(Priv.Gestion.ManageDevise));
+        Assert.False(result.HasGestion(Priv.Gestion.ManageDonneesEspace));
+    }
+
+    [Fact]
     public async Task InactiveGrant_DoesNotResolve()
     {
         await GrantGestionAsync(MemberId, Priv.Gestion.ViewStock, isActive: false);
@@ -248,7 +273,7 @@ public class PrivilegeResolverTests : IAsyncLifetime
         await GrantGestionAsync(MemberId, Priv.Gestion.ViewVentes);
 
         var result = await _resolver.ResolveAsync(MemberId, GroupId);
-        var visible = AppMenu.Visible(AppMenu.Gestion, result.All(), gestionAccess: true, prestationsEnabled: false);
+        var visible = AppMenu.Visible(AppMenu.Gestion, result.All(), gestionAccess: true);
 
         Assert.Equal(["gestion-de-stock", "ventes"], visible.Select(e => e.Key));
     }
@@ -257,16 +282,19 @@ public class PrivilegeResolverTests : IAsyncLifetime
     public async Task Menu_ShowsEveryGestionEntryForTheCreator()
     {
         var result = await _resolver.ResolveAsync(CreatorId, GroupId);
-        var visible = AppMenu.Visible(AppMenu.Gestion, result.All(), gestionAccess: true, prestationsEnabled: true);
+        var visible = AppMenu.Visible(AppMenu.Gestion, result.All(), gestionAccess: true);
 
         Assert.Equal(AppMenu.Gestion.Count, visible.Count);
     }
 
     [Fact]
-    public async Task Menu_HidesPrestationsWhenTheToggleIsOff()
+    public async Task Menu_NeverOffersPrestations()
     {
+        // The module was removed from the desktop: not even the creator, who holds every
+        // privilege, is offered it anywhere.
         var result = await _resolver.ResolveAsync(CreatorId, GroupId);
-        var visible = AppMenu.Visible(AppMenu.Gestion, result.All(), gestionAccess: true, prestationsEnabled: false);
+        var visible = AppMenu.Visible(AppMenu.Gestion, result.All(), gestionAccess: true)
+            .Concat(AppMenu.Visible(AppMenu.Espace, result.All(), gestionAccess: true));
 
         Assert.DoesNotContain(visible, e => e.Key == "prestations");
     }
@@ -276,10 +304,9 @@ public class PrivilegeResolverTests : IAsyncLifetime
     {
         // The Gestion door moved out of Espace and into one pill per section, and the
         // sections are gated on the group's gestion access in PrivilegeEndpoints. Nothing
-        // in Espace may quietly become a second way in, bypassing that gate - Prestations
-        // excepted, which is a module of its own gated on the prestations toggle.
+        // in Espace may quietly become a second way in, bypassing that gate.
         var result = await _resolver.ResolveAsync(CreatorId, GroupId);
-        var visible = AppMenu.Visible(AppMenu.Espace, result.All(), gestionAccess: false, prestationsEnabled: false);
+        var visible = AppMenu.Visible(AppMenu.Espace, result.All(), gestionAccess: false);
 
         var gestionKeys = AppMenu.Gestion.Select(e => e.Key).ToHashSet();
         Assert.DoesNotContain(visible, e => gestionKeys.Contains(e.Key));

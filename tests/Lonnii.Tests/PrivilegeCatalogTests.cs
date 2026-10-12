@@ -68,7 +68,9 @@ public class PrivilegeCatalogTests
         Assert.True(Admin(Priv.Gestion.DeleteVente));
         Assert.True(Admin(Priv.Gestion.ResolveCaisseEcart));
         Assert.True(Admin(Priv.Gestion.ApproveCharges));
-        Assert.True(Admin(Priv.Gestion.ManageGestionSettings));
+        // The one deliberate divergence: Gérer Paramètres is grantable here, so Administration →
+        // Configuration can be handed to a team without making them admins.
+        Assert.False(Admin(Priv.Gestion.ManageGestionSettings));
         Assert.True(Admin(Priv.Gestion.BackupData));
         Assert.True(Admin(Priv.Gestion.ViewSystemLogs));
 
@@ -89,7 +91,7 @@ public class PrivilegeCatalogTests
     {
         var known = PrivilegeCatalog.Gestion.Select(p => p.Name)
             .Concat(PrivilegeCatalog.Option.Select(p => p.Name))
-            .Concat([Priv.Gestion.ViewAudit, Priv.Gestion.ViewParametres])
+            .Concat([Priv.Gestion.ViewAudit, Priv.Gestion.ViewParametres, Priv.Gestion.ViewConfiguration])
             .ToHashSet(StringComparer.Ordinal);
 
         var entries = AppMenu.Espace.Concat(AppMenu.Gestion);

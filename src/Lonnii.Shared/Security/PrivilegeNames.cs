@@ -219,5 +219,28 @@ public static class Priv
 
         /// <summary>Virtual privilege, as <see cref="ViewAudit"/>. Gates the Paramètres menu entry.</summary>
         public const string ViewParametres = "can_view_parametres";
+
+        /// <summary>
+        /// Virtual privilege gating the Configuration &amp; Serveurs menu entry: held by every admin
+        /// role, by a member granted <see cref="ManageGestionSettings"/> (every section), and by
+        /// a member granted any one of <see cref="ConfigurationSections"/>.
+        /// </summary>
+        public const string ViewConfiguration = "can_view_configuration";
+
+        // configuration (desktop-only): one per section of Configuration & Serveurs. Each is
+        // also implied by ManageGestionSettings and by any admin role - see PrivilegeResolver.
+        public const string ManageDevise = "can_manage_devise";
+        public const string ManageRecuFacture = "can_manage_recu_facture";
+        public const string ManageEcranClient = "can_manage_ecran_client";
+        public const string ManageBilanAutomatique = "can_manage_bilan_automatique";
+        public const string ViewConsommation = "can_view_consommation";
+        public const string ManageDonneesEspace = "can_manage_donnees_espace";
+        public const string ViewConnexion = "can_view_connexion";
+
+        public static readonly IReadOnlyList<string> ConfigurationSections =
+        [
+            ManageDevise, ManageRecuFacture, ManageEcranClient, ManageBilanAutomatique,
+            ViewConsommation, ManageDonneesEspace, ViewConnexion,
+        ];
     }
 }

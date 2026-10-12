@@ -54,9 +54,9 @@ public static class PrivilegeEndpoints
         var all = scope.Privileges.All();
 
         var espace = AppMenu.Visible(
-            AppMenu.Espace, all, groupe.GestionAccess, groupe.PrestationsEnabled, scope.IsAdmin);
+            AppMenu.Espace, all, groupe.GestionAccess, scope.IsAdmin);
         var gestion = AppMenu.Visible(
-            AppMenu.Gestion, all, groupe.GestionAccess, groupe.PrestationsEnabled, scope.IsAdmin);
+            AppMenu.Gestion, all, groupe.GestionAccess, scope.IsAdmin);
 
         // Gestion entries are only reachable at all when the group has gestion access.
         if (!groupe.GestionAccess) gestion = [];

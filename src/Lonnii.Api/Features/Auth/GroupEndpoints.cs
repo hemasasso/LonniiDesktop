@@ -35,7 +35,7 @@ public static class GroupEndpoints
         scoped.MapDelete("/members/{userId}", RemoveMemberAsync).RequireGroupScope().RequireGroupAdmin();
         scoped.MapPost("/members/{userId}/password", ResetMemberPasswordAsync)
             .RequireGroupScope().RequireGroupAdmin();
-        scoped.MapPut("/currency", UpdateCurrencyAsync).RequireGroupScope().RequireGroupAdmin();
+        scoped.MapPut("/currency", UpdateCurrencyAsync).RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageDevise);
         scoped.MapDelete("/session", CloseSessionAsync).RequireGroupScope();
 
         scoped.MapPost("/photo", UploadPhotoAsync)

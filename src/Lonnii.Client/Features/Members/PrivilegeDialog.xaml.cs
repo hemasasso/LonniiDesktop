@@ -45,9 +45,9 @@ public partial class PrivilegeDialog : Window
         ["marges"] = "Marges",
         ["amortissement"] = "Amortissement",
         ["bilan"] = "Bilan",
-        ["prestations"] = "Prestations",
         ["programme"] = "Programme",
         [PrivilegeSections.Caisse] = "Caisse",
+        [GestionModules.Configuration] = "Configuration & Serveurs",
     };
 
     /// <summary>Section order for the Gestion tab: the day-to-day till tasks first.
@@ -70,7 +70,12 @@ public partial class PrivilegeDialog : Window
     private static bool IsUsedInDesktop(PrivilegeDto p) => p.Module switch
     {
         GestionModules.Finance => p.Name == Priv.Gestion.ManageSuppliers,
-        GestionModules.Analytics or GestionModules.Admin => false,
+        // Of the legacy "admin" set, only Gérer Paramètres does something here: every section
+        // of Configuration & Serveurs at once. Resectioned there by PrivilegeSections.
+        GestionModules.Admin => p.Name == Priv.Gestion.ManageGestionSettings,
+        GestionModules.Analytics => false,
+        // Prestations was removed from the desktop; its rows remain in the shared catalogue.
+        GestionModules.Prestations => false,
         OptionModules.Chat or OptionModules.Formulaire => false,
         _ => true,
     };
@@ -100,19 +105,10 @@ public partial class PrivilegeDialog : Window
                 return;
             }
 
-            // Two kinds of privilege never get a row here. Prestations has ~19 of its own -
-            // clutter for the common case, since the module itself is hidden everywhere else
-            // in the app until an admin turns the group's Prestations toggle on (see AppMenu's
-            // RequiresPrestationsEnabled); left out entirely rather than just unchecked, so the
-            // list an admin who does not use Prestations sees matches what their shop actually
-            // has. Separately, IsUsedInDesktop drops whole modules the desktop never wired to
-            // anything at all - not a toggle away like Prestations, just genuinely absent
-            // (Lonnii Business's chat/formulaires, or a legacy "finance"/"analytics"/"admin"
-            // set superseded by each module's own privileges) - ticking them would do nothing.
-            var prestationsOn = _session.Groupe?.PrestationsEnabled == true;
-            var gestionUsed = data.Gestion.Where(IsUsedInDesktop).ToList();
-            var gestion = prestationsOn
-                ? gestionUsed : gestionUsed.Where(p => p.Module != GestionModules.Prestations).ToList();
+            // IsUsedInDesktop drops whole modules the desktop has no feature for - Lonnii
+            // Business's chat, formulaires and Prestations, and the legacy "finance"/"analytics"
+            // sets superseded by each module's own privileges: ticking them would do nothing.
+            var gestion = data.Gestion.Where(IsUsedInDesktop).ToList();
             var option = data.Option.Where(IsUsedInDesktop).ToList();
 
             Tabs.Items.Clear();
@@ -121,11 +117,7 @@ public partial class PrivilegeDialog : Window
             Tabs.SelectedIndex = 0;
 
             var granted = gestion.Count(p => p.IsGranted) + option.Count(p => p.IsGranted);
-            var hiddenPrestations = prestationsOn ? 0 : gestionUsed.Count(p => p.Module == GestionModules.Prestations);
-            StatusText.Text = $"{granted} privilège(s) accordé(s)."
-                + (hiddenPrestations > 0
-                    ? $" ({hiddenPrestations} privilège(s) Prestations masqué(s) - module non activé pour cet espace.)"
-                    : string.Empty);
+            StatusText.Text = $"{granted} privilège(s) accordé(s).";
         }
         catch (ApiException ex)
         {

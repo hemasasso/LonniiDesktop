@@ -159,13 +159,20 @@ public class PrivilegeResolver(LonniiDbContext db)
         result[Priv.Gestion.ViewAudit] = isAdmin;
         result[Priv.Gestion.ViewParametres] = isAdmin;
 
+        // Configuration & Serveurs: every section for an admin role or Gérer Paramètres, each
+        // section on its own grant otherwise; the menu entry opens with any one of them.
+        var allConfiguration = isAdmin || grantedSet.Contains(Priv.Gestion.ManageGestionSettings);
+        foreach (var section in Priv.Gestion.ConfigurationSections)
+            result[section] = allConfiguration || result[section];
+        result[Priv.Gestion.ViewConfiguration] = Priv.Gestion.ConfigurationSections.Any(s => result[s]);
+
         return result;
     }
 
-    /// <summary>All gestion privilege names, including the two virtual ones.</summary>
+    /// <summary>All gestion privilege names, including the virtual ones.</summary>
     private static IEnumerable<string> AllGestionNames() =>
         PrivilegeCatalog.Gestion.Select(p => p.Name)
-            .Concat([Priv.Gestion.ViewAudit, Priv.Gestion.ViewParametres]);
+            .Concat([Priv.Gestion.ViewAudit, Priv.Gestion.ViewParametres, Priv.Gestion.ViewConfiguration]);
 
     private static Dictionary<string, bool> GrantAll(IEnumerable<string> names)
     {

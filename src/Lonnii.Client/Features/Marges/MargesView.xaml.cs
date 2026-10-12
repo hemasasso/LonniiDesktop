@@ -126,7 +126,7 @@ public partial class MargesView : UserControl
         _suppressFilterEvents = false;
 
         var saved = UiState.For(_session).Tabs.GetValueOrDefault(ModuleKey);
-        _activeTab = saved is "products" or "categories" ? saved : "overview";
+        _activeTab = saved is "products" or "categories" or "forecast" ? saved : "overview";
         ApplyTabVisuals();
         UpdatePeriodText();
 
@@ -135,11 +135,13 @@ public partial class MargesView : UserControl
         ThemeManager.Changed += (_, _) =>
         {
             if (_data is not null) RenderCharts();
+            if (_forecast is not null) RenderForecast();
         };
 
         Loaded += async (_, _) =>
         {
             if (_data is null) await LoadAsync();
+            else if (_activeTab == "forecast" && _forecast is null) await LoadForecastAsync();
         };
     }
 
@@ -147,12 +149,13 @@ public partial class MargesView : UserControl
 
     private void Tab_Click(object sender, RoutedEventArgs e) => SetActiveTab(((Button)sender).Tag as string ?? "overview");
 
-    private void SetActiveTab(string tab)
+    private async void SetActiveTab(string tab)
     {
         _activeTab = tab;
         ApplyTabVisuals();
         UiState.For(_session).Tabs[ModuleKey] = tab;
         UiState.Save();
+        if (tab == "forecast" && _forecast is null && IsLoaded) await LoadForecastAsync();
     }
 
     private void ApplyTabVisuals()
@@ -171,10 +174,12 @@ public partial class MargesView : UserControl
         Apply(OverviewTabButton, _activeTab == "overview");
         Apply(ProductsTabButton, _activeTab == "products");
         Apply(CategoriesTabButton, _activeTab == "categories");
+        Apply(ForecastTabButton, _activeTab == "forecast");
 
         OverviewPanel.Visibility = _activeTab == "overview" ? Visibility.Visible : Visibility.Collapsed;
         ProductsPanel.Visibility = _activeTab == "products" ? Visibility.Visible : Visibility.Collapsed;
         CategoriesPanel.Visibility = _activeTab == "categories" ? Visibility.Visible : Visibility.Collapsed;
+        ForecastPanel.Visibility = _activeTab == "forecast" ? Visibility.Visible : Visibility.Collapsed;
     }
 
     // --- Filters ---
@@ -250,6 +255,10 @@ public partial class MargesView : UserControl
             PopulateCategoryFilter(_data.CategoryOptions);
             HideMessage();
             RenderAll();
+
+            // The forecast ignores the period but follows the category: refetched with it.
+            _forecast = null;
+            if (_activeTab == "forecast") await LoadForecastAsync();
         }
         catch (ApiException ex)
         {
@@ -1128,6 +1137,28 @@ public partial class MargesView : UserControl
                 {
                     c.Categorie, Money.FormatPlain(c.QuantiteVendue), Amount(c.Revenue),
                     Amount(c.Cost), Amount(c.Profit), Percent(c.Margin),
+                }));
+        }
+        else if (_activeTab == "forecast" && _forecast is { } f)
+        {
+            Divider();
+            Section($"PRÉVISIONS {f.Annee}");
+            Row("CA prévu sur l'année", $"{Amount(f.RevenueAnnee)}  ({Amount(f.RevenueAnneeBas)} – {Amount(f.RevenueAnneeHaut)})", bold: true);
+            Row("Bénéfice net prévu", $"{Amount(f.BeneficeAnnee)}  ({Amount(f.BeneficeAnneeBas)} – {Amount(f.BeneficeAnneeHaut)})",
+                bold: true, color: f.BeneficeAnnee >= 0 ? PrintInk : PrintLoss);
+            Row("Probabilité d'une année bénéficiaire", Percent(f.ProbabiliteBenefice));
+            if (f.SeuilAnnuel is { } s) Row("Seuil de rentabilité annuel", Amount(s));
+            if (f.PointMortDate is { } pm) Row("Point mort", pm.ToString("dd/MM/yyyy"));
+            if (f.PremierMoisRentable is { } pr) Row("Premier mois rentable", pr.ToDateTime(TimeOnly.MinValue).ToString("MMMM yyyy", French));
+            Row("Fiabilité", ReliabilityLabel(f.Fiabilite)
+                + (f.ErreurMoyenne is { } err ? $" (erreur testée ±{Money.FormatPlain(err, 1)} % sur {f.MoisTestes} mois)" : string.Empty));
+            Table(["Mois", "", "CA", "Fourchette", "Marge brute", "Bénéfice net"],
+                [80, 50, 100, 170, 100, 100],
+                f.Mois.Select(m => new[]
+                {
+                    m.Mois.ToDateTime(TimeOnly.MinValue).ToString("MMM yyyy", French), m.Prevu ? "prévu" : "réel",
+                    Amount(m.Revenue), m.Prevu ? $"{Amount(m.RevenueBas)} – {Amount(m.RevenueHaut)}" : string.Empty,
+                    Amount(m.MargeBrute), Signed(m.BeneficeNet),
                 }));
         }
 

@@ -93,9 +93,9 @@
                 -->
                 <controls:RevealPasswordBox x:Name="PasswordBox" />
 
-                <CheckBox x:Name="RememberMeCheck" Content="Rester connecté sur ce poste"
-                          Margin="0,12,0,0"
-                          ToolTip="Ne cochez pas sur un poste partagé entre plusieurs personnes." />
+                <TextBlock Margin="0,10,0,0" FontSize="12">
+                    <Hyperlink Click="ForgotPassword_Click">Mot de passe oublié ?</Hyperlink>
+                </TextBlock>
 
                 <!-- Shown only when the host has no account yet. -->
                 <Border x:Name="SetupPanel" Visibility="Collapsed" Margin="0,16,0,0"

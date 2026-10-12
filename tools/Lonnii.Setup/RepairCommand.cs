@@ -92,6 +92,62 @@ public static class RepairCommand
         }
     }
 
+    /// <summary>
+    /// Issues an offline password reset code for a shop owner (see <see cref="ResetCode"/>). Check
+    /// who is calling before you run this: the code lets them set the owner's password.
+    /// </summary>
+    public static int IssueReset(string[] args)
+    {
+        var account = Option(args, "account");
+        if (account is null)
+        {
+            Console.Error.WriteLine("""
+
+                lonnii-setup reset-code --account <identifiant du compte>
+                                        [--hours 24] [--key <fichier de clé privée>]
+
+                  --account   L'identifiant affiché sur l'écran « Mot de passe oublié » du magasin.
+                  --hours     Durée pour saisir le code (défaut 24).
+
+                """);
+            return 1;
+        }
+
+        var keyPath = Option(args, "key") ?? DefaultKeyPath;
+        if (!File.Exists(keyPath))
+        {
+            Console.Error.WriteLine($"Clé privée introuvable : {keyPath}. Créez-la avec : lonnii-setup repair-keygen");
+            return 1;
+        }
+
+        if (!int.TryParse(Option(args, "hours") ?? "24", out var hours) || hours < 1)
+        {
+            Console.Error.WriteLine("Durée invalide.");
+            return 1;
+        }
+
+        try
+        {
+            var expires = DateTimeOffset.UtcNow.AddHours(hours);
+            var code = ResetCode.Issue(Convert.FromBase64String(File.ReadAllText(keyPath).Trim()), account, expires);
+            Console.WriteLine($"""
+
+                Code de réinitialisation (valable jusqu'au {expires.ToLocalTime():dd/MM/yyyy HH:mm}, une seule fois) :
+
+                {code}
+
+                Compte : {account}
+
+                """);
+            return 0;
+        }
+        catch (Exception e) when (e is ArgumentException or FormatException or CryptographicException)
+        {
+            Console.Error.WriteLine($"Impossible d'émettre le code : {e.Message}");
+            return 1;
+        }
+    }
+
     private static string? Option(string[] args, string name)
     {
         var i = Array.FindIndex(args, a => a.Equals("--" + name, StringComparison.OrdinalIgnoreCase));

@@ -2033,6 +2033,36 @@ public sealed record PendingEspaceDto(string GroupId, string Name, DateTime Requ
 /// <summary>Picks up an approved espace: the online account's password, as for creating it.</summary>
 public sealed record ActivatePendingEspaceRequest(string Password);
 
+// --- Forgotten password (licence server) ---
+
+/// <summary>Asks the licence server to email a reset code to a shop owner.</summary>
+public sealed record PasswordResetStartRequest(string Email);
+
+/// <summary>
+/// The same answer whether or not the address belongs to a shop owner, so the endpoint does not
+/// reveal who our customers are.
+/// </summary>
+public sealed record PasswordResetStartResponse(string RequestId, DateTime ExpiresAt);
+
+public sealed record PasswordResetVerifyRequest(string RequestId, string Email, string Code, string NewPassword);
+
+public sealed record PasswordResetVerifyResponse(bool Changed);
+
+// --- Forgotten password (as the desktop host exposes it to the login screen) ---
+
+/// <summary>The email or username typed on the login screen.</summary>
+public sealed record ForgotPasswordStartRequest(string Identifier);
+
+/// <summary><paramref name="MaskedEmail"/> says where the code went without spelling it out.</summary>
+public sealed record ForgotPasswordStartResponse(string RequestId, DateTime ExpiresAt, string MaskedEmail);
+
+public sealed record ForgotPasswordVerifyRequest(string RequestId, string Identifier, string Code, string NewPassword);
+
+/// <summary>The tag the owner reads out to Lonnii to get an offline reset code (see ResetCode).</summary>
+public sealed record OfflineResetTagResponse(string AccountTag);
+
+public sealed record OfflineResetApplyRequest(string Identifier, string Code, string NewPassword);
+
 // --- Registration (as the desktop host exposes it to its own client) ---
 
 /// <summary>The email and shop name come back with the code: the host keeps no state between the two steps.</summary>

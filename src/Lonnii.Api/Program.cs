@@ -154,6 +154,7 @@ var emailOptions = new EmailOptions();
 builder.Configuration.GetSection(EmailOptions.SectionName).Bind(emailOptions);
 builder.Services.AddSingleton(emailOptions);
 builder.Services.AddSingleton(new RegistrationLimiter());
+builder.Services.AddSingleton(new PasswordResetStore());
 builder.Services.AddSingleton(new PendingRegistrationStore(dataDirectory));
 
 if (builder.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(emailOptions.Host))
@@ -258,6 +259,7 @@ app.MapAuditEndpoints();
 app.MapBackupEndpoints();
 app.MapRegistrationEndpoints();
 app.MapHostRegistrationEndpoints();
+app.MapPasswordResetEndpoints();
 app.MapCloudBackupEndpoints();
 app.MapImageEndpoints();
 app.MapDesktopAdminEndpoints();

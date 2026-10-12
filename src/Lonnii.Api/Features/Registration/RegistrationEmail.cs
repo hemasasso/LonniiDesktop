@@ -14,7 +14,20 @@ public static class RegistrationEmail
     // The logo the web app's emails already use.
     private const string LogoUrl = "https://www.lonnii.com/images/logo.png";
 
-    public static string Html(string shopName, string code, int validMinutes) => $$"""
+    public static string Html(string shopName, string code, int validMinutes) => Layout(
+        $"Merci de vous être inscrit sur Lonnii. Utilisez le code ci-dessous pour confirmer l'inscription de « {WebUtility.HtmlEncode(shopName)} ».",
+        code, validMinutes,
+        "Si vous n'êtes pas à l'origine de cette demande, veuillez ignorer cet email. Aucun compte n'est créé sans ce code.");
+
+    public const string PasswordResetSubject = "Réinitialisation de votre mot de passe";
+
+    /// <summary>The forgotten-password code, in the same layout as the sign-up one.</summary>
+    public static string PasswordResetHtml(string code, int validMinutes) => Layout(
+        "Une demande de nouveau mot de passe a été faite pour votre compte administrateur Lonnii. Saisissez ce code dans l'application pour choisir votre nouveau mot de passe.",
+        code, validMinutes,
+        "Si vous n'êtes pas à l'origine de cette demande, ignorez cet email : votre mot de passe actuel reste valable.");
+
+    private static string Layout(string intro, string code, int validMinutes, string disclaimer) => $$"""
         <!DOCTYPE html>
         <html>
         <head>
@@ -42,12 +55,12 @@ public static class RegistrationEmail
             </div>
             <div class="content">
               <div class="h1">Bonjour,</div>
-              <div class="p">Merci de vous être inscrit sur Lonnii. Utilisez le code ci-dessous pour confirmer l'inscription de « {{WebUtility.HtmlEncode(shopName)}} ».</div>
+              <div class="p">{{intro}}</div>
               <div class="code-box">
                 <div class="code">{{code}}</div>
               </div>
               <div class="p">Ce code est valable pendant <span class="highlight">{{validMinutes}} minutes</span>.</div>
-              <div class="p">Si vous n'êtes pas à l'origine de cette demande, veuillez ignorer cet email. Aucun compte n'est créé sans ce code.</div>
+              <div class="p">{{disclaimer}}</div>
               <div class="p" style="margin-top: 40px; border-top: 1px solid #e2e8f0; padding-top: 20px;">
                 Cordialement,<br>
                 <strong>L'équipe Lonnii</strong>

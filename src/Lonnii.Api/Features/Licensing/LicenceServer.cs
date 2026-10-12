@@ -47,6 +47,16 @@ public interface ILicenceServer
     Task<RegistrationVerifyResponse> RegistrationVerifyAsync(
         string baseUrl, RegistrationVerifyRequest request, CancellationToken ct) =>
         throw new NotSupportedException();
+
+    /// <summary>Asks the server to email a shop owner a code for setting a new password.</summary>
+    Task<PasswordResetStartResponse> PasswordResetStartAsync(
+        string baseUrl, PasswordResetStartRequest request, CancellationToken ct) =>
+        throw new NotSupportedException();
+
+    /// <summary>Checks the emailed code; the server then holds the new password too.</summary>
+    Task<PasswordResetVerifyResponse> PasswordResetVerifyAsync(
+        string baseUrl, PasswordResetVerifyRequest request, CancellationToken ct) =>
+        throw new NotSupportedException();
 }
 
 /// <summary>
@@ -91,6 +101,20 @@ public sealed class HttpLicenceServer(HttpClient http, ILogger<HttpLicenceServer
         PostAsync<RegistrationVerifyRequest, RegistrationVerifyResponse>(
             baseUrl, "api/registration/verify",
             "Impossible de joindre le serveur Lonnii. Vérifiez la connexion Internet, puis réessayez.",
+            request, ct);
+
+    public Task<PasswordResetStartResponse> PasswordResetStartAsync(
+        string baseUrl, PasswordResetStartRequest request, CancellationToken ct) =>
+        PostAsync<PasswordResetStartRequest, PasswordResetStartResponse>(
+            baseUrl, "api/registration/password/start",
+            "Impossible de joindre le serveur Lonnii. Connectez cet ordinateur à Internet, puis réessayez.",
+            request, ct);
+
+    public Task<PasswordResetVerifyResponse> PasswordResetVerifyAsync(
+        string baseUrl, PasswordResetVerifyRequest request, CancellationToken ct) =>
+        PostAsync<PasswordResetVerifyRequest, PasswordResetVerifyResponse>(
+            baseUrl, "api/registration/password/verify",
+            "Impossible de joindre le serveur Lonnii. Connectez cet ordinateur à Internet, puis réessayez.",
             request, ct);
 
     private async Task<TResponse> PostAsync<TRequest, TResponse>(

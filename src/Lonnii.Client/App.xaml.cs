@@ -76,7 +76,10 @@ public partial class App : Application
         // explicitly until the shell is up.
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
-        if (!await TryRestoreSessionAsync())
+        // Every launch starts at the sign-in screen: a till is shared, and a saved session would
+        // hand the next person whoever signed in last. Older builds could save one; drop it.
+        SessionStore.Clear();
+
         {
             // Sign in, then choose an espace. Cancelling the choice goes back to sign-in rather
             // than leaving a signed-in user with nowhere to work.
@@ -91,10 +94,6 @@ public partial class App : Application
 
                 if (new GroupPickerWindow().ShowDialog() == true)
                 {
-                    if (login.RememberMe && Session.AccessToken is { } token)
-                        SessionStore.Save(new StoredSession(login.Host, token, Session.AccessTokenExpiresAt));
-                    else
-                        SessionStore.Clear();
                     break;
                 }
 
@@ -118,42 +117,6 @@ public partial class App : Application
                 $"Détails enregistrés dans :\n{CrashLogPath}",
                 "Lonnii", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown();
-        }
-    }
-
-    /// <summary>
-    /// "Rester connecté": skips the sign-in form entirely by replaying a saved token
-    /// against the server and re-opening the last group worked in. Anything short of a
-    /// full success - no saved session, an expired or revoked token, the group gone - falls
-    /// back to the ordinary sign-in screen rather than leaving the app half signed in.
-    /// </summary>
-    private async Task<bool> TryRestoreSessionAsync()
-    {
-        var stored = SessionStore.Load();
-        if (stored is null) return false;
-
-        // The saved host is only taken on trust if it is this machine or one we authorised;
-        // otherwise it has to answer the search on the shop's network again.
-        if (!ServerTrust.IsAllowedWithoutSearch(stored.Host, Settings))
-        {
-            var found = await HostDiscovery.FindAsync(TimeSpan.FromSeconds(3));
-            if (!found.Any(h => string.Equals(h.Address, stored.Host, StringComparison.OrdinalIgnoreCase)))
-                return false;
-        }
-
-        try
-        {
-            Session.Api.Connect(stored.Host);
-            await Session.RestoreAsync(stored.AccessToken, stored.ExpiresAt, Settings.LastGroupId);
-            if (Session.HasGroup) return true;
-
-            Session.SignOut();
-            return false;
-        }
-        catch (ApiException)
-        {
-            Session.SignOut();
-            return false;
         }
     }
 

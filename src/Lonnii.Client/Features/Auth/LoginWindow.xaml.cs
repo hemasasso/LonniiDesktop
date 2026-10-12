@@ -236,6 +236,26 @@ public partial class LoginWindow : Window
         HostHint.Text = "Compte créé. Connectez-vous avec votre mot de passe.";
     }
 
+    /// <summary>The shop owner gets an emailed code; anyone else is told to ask their administrator.</summary>
+    private void ForgotPassword_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_serverFound || _blocked)
+        {
+            ShowError("Attendez que le serveur soit trouvé.");
+            return;
+        }
+
+        _session.Api.Connect(_host);
+        var dialog = new ForgotPasswordWindow(_session, IdentifierBox.Text.Trim()) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        IdentifierBox.Text = dialog.Identifier;
+        PasswordBox.Clear();
+        HideError();
+        PasswordBox.Focus();
+        HostHint.Text = "Mot de passe changé. Connectez-vous avec le nouveau.";
+    }
+
     /// <summary>Confirms a Lonnii host is answering before the user types a password.</summary>
     private async void SignIn_Click(object sender, RoutedEventArgs e) => await SignInAsync();
 
@@ -260,9 +280,6 @@ public partial class LoginWindow : Window
 
     /// <summary>The server the user signed in against, once <see cref="Window.DialogResult"/> is true.</summary>
     public string Host { get; private set; } = string.Empty;
-
-    /// <summary>Whether "Rester connecté" was ticked at sign-in.</summary>
-    public bool RememberMe { get; private set; }
 
     private async Task SignInCoreAsync()
     {
@@ -289,7 +306,6 @@ public partial class LoginWindow : Window
             // here and tried to keep this window out of the way: hiding ends a dialog, and
             // minimising showed as a visible shrink to the taskbar.)
             Host = host;
-            RememberMe = RememberMeCheck.IsChecked == true;
             DialogResult = true;
         }
         catch (ApiException ex)

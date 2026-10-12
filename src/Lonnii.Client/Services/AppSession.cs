@@ -27,8 +27,7 @@ public class AppSession(LonniiApiClient api)
     public bool IsSignedIn => User is not null;
     public bool HasGroup => Groupe is not null;
 
-    /// <summary>Set by <see cref="SignInAsync"/>, read by the sign-in window when
-    /// "Rester connecté" is checked so it has something to hand <see cref="SessionStore"/>.</summary>
+    /// <summary>Set by <see cref="SignInAsync"/>; held in memory only, never saved to disk.</summary>
     public string? AccessToken { get; private set; }
 
     public DateTime AccessTokenExpiresAt { get; private set; }
@@ -60,30 +59,6 @@ public class AppSession(LonniiApiClient api)
         AccessTokenExpiresAt = response.ExpiresAt;
         User = response.User;
         Raise();
-    }
-
-    /// <summary>
-    /// Re-enters a session "Rester connecté" saved earlier: validates the bearer token
-    /// against the server (rather than trusting the locally-recorded expiry alone, since a
-    /// password change or a revoked account invalidates it early) and, when a group id is
-    /// given, re-opens that group too. Throws <see cref="ApiException"/> on any failure -
-    /// callers should fall back to the ordinary sign-in screen rather than treat this as fatal.
-    /// </summary>
-    public async Task RestoreAsync(string accessToken, DateTime expiresAt, string? groupId, CancellationToken ct = default)
-    {
-        Api.SetAccessToken(accessToken);
-        AccessToken = accessToken;
-        AccessTokenExpiresAt = expiresAt;
-        User = await Api.MeAsync(ct);
-
-        if (groupId is not null)
-        {
-            await EnterGroupAsync(groupId, ct);
-        }
-        else
-        {
-            Raise();
-        }
     }
 
     /// <summary>

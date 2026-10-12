@@ -122,7 +122,7 @@ public static class RepairCode
         return text.TrimEnd('/');
     }
 
-    private static byte[] Hash(string text) => SHA256.HashData(Encoding.UTF8.GetBytes(text));
+    internal static byte[] Hash(string text) => SHA256.HashData(Encoding.UTF8.GetBytes(text));
 
     private static byte[] ParseTag(string tag)
     {
@@ -135,7 +135,7 @@ public static class RepairCode
 
     private const string Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
-    private static string Base32Encode(byte[] data)
+    internal static string Base32Encode(byte[] data)
     {
         var sb = new StringBuilder();
         int buffer = 0, bits = 0;
@@ -153,7 +153,7 @@ public static class RepairCode
         return sb.ToString();
     }
 
-    private static byte[] Base32Decode(string text)
+    internal static byte[] Base32Decode(string text)
     {
         var clean = new string(text.Where(c => !char.IsWhiteSpace(c) && c != '-').ToArray()).ToUpperInvariant();
         var bytes = new List<byte>();
@@ -174,6 +174,6 @@ public static class RepairCode
         return [.. bytes];
     }
 
-    private static string Format(string code) =>
+    internal static string Format(string code) =>
         string.Join('-', Enumerable.Range(0, (code.Length + 5) / 6).Select(i => code.Substring(i * 6, Math.Min(6, code.Length - i * 6))));
 }

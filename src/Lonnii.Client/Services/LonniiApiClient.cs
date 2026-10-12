@@ -756,6 +756,24 @@ public class LonniiApiClient
     public Task DeleteReceiptQrCodeAsync(CancellationToken ct = default) =>
         SendAsync(HttpMethod.Delete, "api/parametres/recu/qrcode", null, ct);
 
+    // --- Forgotten password (shop owner) ---
+
+    /// <summary>Has Lonnii email the shop owner a code. Anonymous: called from the login screen.</summary>
+    public Task<ForgotPasswordStartResponse> ForgotPasswordStartAsync(string identifier, CancellationToken ct = default) =>
+        PostAsync<ForgotPasswordStartResponse>("api/auth/forgot/start", new ForgotPasswordStartRequest(identifier), ct);
+
+    /// <summary>Sets the new password once the emailed code checks out.</summary>
+    public Task ForgotPasswordVerifyAsync(ForgotPasswordVerifyRequest request, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, "api/auth/forgot/verify", request, ct);
+
+    /// <summary>The tag the owner reads out to Lonnii for an offline reset code.</summary>
+    public Task<OfflineResetTagResponse> OfflineResetTagAsync(string identifier, CancellationToken ct = default) =>
+        PostAsync<OfflineResetTagResponse>("api/auth/forgot/offline/tag", new ForgotPasswordStartRequest(identifier), ct);
+
+    /// <summary>Sets the new password with a code Lonnii signed. Needs no internet.</summary>
+    public Task OfflineResetApplyAsync(OfflineResetApplyRequest request, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, "api/auth/forgot/offline/apply", request, ct);
+
     // --- Registration (first launch) ---
 
     public Task<RegistrationStartResponse> RegistrationStartAsync(

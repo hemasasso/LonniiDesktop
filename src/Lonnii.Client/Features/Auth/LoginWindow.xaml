@@ -78,9 +78,15 @@
                                Foreground="{DynamicResource TextSecondary}" />
                 </StackPanel>
 
-                <Button x:Name="RepairButton" Content="Réparer la connexion…" Visibility="Collapsed"
-                        HorizontalAlignment="Left" Margin="0,8,0,0"
-                        Style="{StaticResource SecondaryButton}" Click="Repair_Click" />
+                <!-- Shown when the search gives up: look again (the server may just have been
+                     switched on), or enter a repair code from Lonnii. -->
+                <StackPanel x:Name="NotFoundButtons" Orientation="Horizontal" Visibility="Collapsed"
+                            HorizontalAlignment="Left" Margin="0,8,0,0">
+                    <Button Content="Réessayer" Margin="0,0,8,0"
+                            Style="{StaticResource PrimaryButton}" Click="Retry_Click" />
+                    <Button Content="Réparer la connexion…"
+                            Style="{StaticResource SecondaryButton}" Click="Repair_Click" />
+                </StackPanel>
                 <TextBlock x:Name="HostHint" Style="{StaticResource PageSubtitle}" TextWrapping="Wrap" />
 
                 <TextBlock Text="Email ou nom d'utilisateur" Style="{StaticResource FieldLabel}" Margin="0,18,0,4" />

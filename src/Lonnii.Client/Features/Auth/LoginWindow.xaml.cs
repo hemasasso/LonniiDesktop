@@ -46,7 +46,7 @@ public partial class LoginWindow : Window
 
     private async Task FindHostAsync()
     {
-        RepairButton.Visibility = Visibility.Collapsed;
+        NotFoundButtons.Visibility = Visibility.Collapsed;
         _serverFound = false;
         _blocked = false;
         UpdateSignIn();
@@ -77,7 +77,15 @@ public partial class LoginWindow : Window
         while (IsLoaded && DateTime.UtcNow < deadline);
 
         SetDiscovery("Serveur introuvable.", "Danger", "Danger", blink: false);
-        RepairButton.Visibility = Visibility.Visible;
+        NotFoundButtons.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>Searches again, for when the server was off or the network was down.</summary>
+    private async void Retry_Click(object sender, RoutedEventArgs e)
+    {
+        HideError();
+        await FindHostAsync();
+        await CheckSetupStateAsync();
     }
 
     private async void Repair_Click(object sender, RoutedEventArgs e)
@@ -126,7 +134,7 @@ public partial class LoginWindow : Window
         _serverFound = true;
         UpdateSignIn();
         SetDiscovery("Serveur trouvé. Vous pouvez vous connecter maintenant.", "Success", "Success", blink: false);
-        RepairButton.Visibility = Visibility.Collapsed;
+        NotFoundButtons.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>

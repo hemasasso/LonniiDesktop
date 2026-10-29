@@ -7,15 +7,15 @@ namespace Lonnii.Api.Features.Registration;
 /// Registration is open to the internet and each request sends an email, so unchecked it is
 /// both a way to fill our list with junk and a way to make us mail strangers. In memory on
 /// purpose: a restart forgives everyone, which costs nothing, while a shared store would be
-/// one more thing to run. The limits are per hour.
+/// one more thing to run. The limits are per 30 minutes.
 /// </para>
 /// </summary>
 public sealed class RegistrationLimiter(TimeProvider? clock = null)
 {
-    public const int PerEmailPerHour = 3;
-    public const int PerIpPerHour = 10;
+    public const int PerEmail = 5;
+    public const int PerIp = 10;
 
-    private static readonly TimeSpan Window = TimeSpan.FromHours(1);
+    private static readonly TimeSpan Window = TimeSpan.FromMinutes(30);
 
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
     private readonly Dictionary<string, List<DateTimeOffset>> _hits = [];
@@ -31,7 +31,7 @@ public sealed class RegistrationLimiter(TimeProvider? clock = null)
             var emailKey = "e:" + email.Trim().ToLowerInvariant();
             var ipKey = "i:" + (ip ?? "?");
 
-            if (Count(emailKey, now) >= PerEmailPerHour || Count(ipKey, now) >= PerIpPerHour)
+            if (Count(emailKey, now) >= PerEmail || Count(ipKey, now) >= PerIp)
                 return false;
 
             _hits[emailKey].Add(now);

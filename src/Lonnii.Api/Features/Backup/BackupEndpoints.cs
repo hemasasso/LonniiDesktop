@@ -46,8 +46,7 @@ public static class BackupEndpoints
         var group = app.MapGroup("/api/backup").WithTags("Backup")
             .AddEndpointFilter(AuthenticateAsync);
 
-        group.MapGet("/info", (HttpContext http, BackupStore store) =>
-            Results.Ok(store.Info(GroupOf(http))));
+        group.MapGet("/info", InfoAsync);
 
         group.MapPost("/begin", BeginAsync);
         group.MapPost("/reset", ResetAsync);
@@ -86,6 +85,21 @@ public static class BackupEndpoints
     }
 
     private static string GroupOf(HttpContext http) => ((Caller)http.Items[CallerKey]!).GroupId;
+
+    /// <summary>
+    /// What backup this shop has. Asked by a computer being set up for it: a shop that only ever
+    /// lived online has none uploaded, so one is built from our live data first (see
+    /// <see cref="LiveSnapshotBuilder"/>) and the new computer restores that.
+    /// </summary>
+    private static async Task<IResult> InfoAsync(
+        HttpContext http, BackupStore store, LiveSnapshotBuilder live, CancellationToken ct)
+    {
+        var groupId = GroupOf(http);
+        using var _ = await store.LockAsync(groupId, ct);
+
+        await live.TryBuildAsync(groupId, ct);
+        return Results.Ok(store.Info(groupId));
+    }
 
     // --- Authentication ----------------------------------------------------------------
 

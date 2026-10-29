@@ -219,6 +219,24 @@ public partial class LoginWindow : Window
     }
 
     /// <summary>
+    /// Someone who already has a Lonnii account installs one of their espaces on this computer.
+    /// </summary>
+    private async void ExistingAccount_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new ExistingAccountWindow(IdentifierBox.Text.Trim()) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        IdentifierBox.Text = dialog.SignedInEmail ?? IdentifierBox.Text;
+        PasswordBox.Clear();
+        HideError();
+
+        await CheckSetupStateAsync();
+
+        PasswordBox.Focus();
+        HostHint.Text = "Espace installé. Connectez-vous avec votre compte.";
+    }
+
+    /// <summary>
     /// A new shop registers with Lonnii, and is activated here once we have approved it.
     /// </summary>
     private async void Register_Click(object sender, RoutedEventArgs e)

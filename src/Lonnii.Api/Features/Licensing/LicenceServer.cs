@@ -43,6 +43,11 @@ public interface ILicenceServer
         string baseUrl, RegistrationEspaceRequest request, CancellationToken ct) =>
         throw new NotSupportedException();
 
+    /// <summary>The approved espaces an existing account administers, for installing one on a new computer.</summary>
+    Task<List<AccountEspaceDto>> AccountEspacesAsync(
+        string baseUrl, AccountEspacesRequest request, CancellationToken ct) =>
+        throw new NotSupportedException();
+
     /// <summary>Confirms the emailed code; the shop then exists on the server, pending our approval.</summary>
     Task<RegistrationVerifyResponse> RegistrationVerifyAsync(
         string baseUrl, RegistrationVerifyRequest request, CancellationToken ct) =>
@@ -94,6 +99,13 @@ public sealed class HttpLicenceServer(HttpClient http, ILogger<HttpLicenceServer
         PostAsync<RegistrationEspaceRequest, RegistrationVerifyResponse>(
             baseUrl, "api/registration/espace",
             "Impossible de joindre le serveur Lonnii. Connectez cet ordinateur à Internet pour créer un espace.",
+            request, ct);
+
+    public Task<List<AccountEspaceDto>> AccountEspacesAsync(
+        string baseUrl, AccountEspacesRequest request, CancellationToken ct) =>
+        PostAsync<AccountEspacesRequest, List<AccountEspaceDto>>(
+            baseUrl, "api/registration/account-espaces",
+            "Impossible de joindre le serveur Lonnii. Connectez cet ordinateur à Internet, puis réessayez.",
             request, ct);
 
     public Task<RegistrationVerifyResponse> RegistrationVerifyAsync(

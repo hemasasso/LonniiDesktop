@@ -92,6 +92,15 @@ public sealed partial class BackupStore
 
     private string MetaPath(string groupId) => Path.Combine(Dir(groupId), "meta.json");
     private string SnapshotsDir(string groupId) => Path.Combine(Dir(groupId), "snapshots");
+    private string LiveMarkerPath(string groupId) => Path.Combine(Dir(groupId), "built-from-live");
+
+    /// <summary>
+    /// True when this shop's backup can be (re)built from the server's live data: it has none
+    /// yet, or the one it has was built that way rather than uploaded by a host. A shop that
+    /// lives only online keeps changing here, so its copy is rebuilt each time it is asked for.
+    /// </summary>
+    public bool MayBuildFromLive(string groupId) =>
+        ReadMeta(groupId)?.SnapshotAt is null || File.Exists(LiveMarkerPath(groupId));
 
     // --- Epoch -----------------------------------------------------------------------
 
@@ -235,7 +244,7 @@ public sealed partial class BackupStore
     /// </summary>
     /// <returns>The snapshot's time, or null when the body was refused.</returns>
     public async Task<DateTime?> SaveSnapshotAsync(
-        string groupId, Stream body, int recordCount, int imageCount, CancellationToken ct)
+        string groupId, Stream body, int recordCount, int imageCount, CancellationToken ct, bool builtFromLive = false)
     {
         var dir = SnapshotsDir(groupId);
         Directory.CreateDirectory(dir);
@@ -259,6 +268,11 @@ public sealed partial class BackupStore
 
             var epoch = ReadMeta(groupId)?.Epoch ?? NewEpoch();
             WriteMeta(groupId, new Meta(epoch, at, recordCount, imageCount, size));
+
+            // A host's own upload is the real thing from then on: stop rebuilding from live data.
+            var marker = LiveMarkerPath(groupId);
+            if (builtFromLive) File.WriteAllText(marker, at.ToString("O"));
+            else if (File.Exists(marker)) File.Delete(marker);
 
             Prune(groupId);
             return at;

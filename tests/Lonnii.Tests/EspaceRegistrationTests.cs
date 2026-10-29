@@ -129,7 +129,7 @@ public class EspaceRegistrationServerTests : IAsyncLifetime
     {
         await SeedOwnerAsync(ApprovalStatuses.Approved);
 
-        for (var i = 0; i < RegistrationLimiter.PerEmailPerHour; i++)
+        for (var i = 0; i < RegistrationLimiter.PerEmail; i++)
             Assert.Equal(HttpStatusCode.Forbidden, (await NewEspace("wrong-" + i)).StatusCode);
 
         // Even the right password is now turned away until the hour is up.

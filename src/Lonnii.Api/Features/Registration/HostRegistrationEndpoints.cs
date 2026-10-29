@@ -61,6 +61,68 @@ public static class HostRegistrationEndpoints
         group.MapGet("/pending", PendingAsync);
         group.MapPost("/activate", ActivateAsync);
         group.MapDelete("/pending", CancelAsync);
+
+        // "J'ai déjà un compte": an existing account installs one of its espaces on this computer.
+        var account = app.MapGroup("/api/setup/account").WithTags("Setup");
+        account.MapPost("/espaces", AccountEspacesAsync);
+        account.MapPost("/install", InstallAsync);
+    }
+
+    private static async Task<IResult> AccountEspacesAsync(
+        AccountEspacesRequest request, LonniiDbContext db, ILicenceServer licences,
+        IConfiguration config, CancellationToken ct)
+    {
+        if (await GuardAsync(db, config, ct) is { } refusal) return refusal;
+
+        try
+        {
+            return Results.Ok(await licences.AccountEspacesAsync(ServerUrl(config), request, ct));
+        }
+        catch (ActivationRefusedException e)
+        {
+            return Refuse(e.Message, (int?)e.Status ?? StatusCodes.Status503ServiceUnavailable);
+        }
+    }
+
+    /// <summary>
+    /// Activates this computer for the chosen espace and builds it here, exactly as the other
+    /// first-launch paths do. If the espace has an online backup the answer says so, and the
+    /// window offers to restore it - which brings back its data, its staff and its real owner.
+    /// </summary>
+    private static async Task<IResult> InstallAsync(
+        SetupInstallEspaceRequest request, LonniiDbContext db, ILicenceServer licences,
+        CloudBackupClient backups, IConfiguration config, CancellationToken ct)
+    {
+        if (await GuardAsync(db, config, ct) is { } refusal) return refusal;
+
+        if (string.IsNullOrWhiteSpace(request.DeviceId))
+            return Results.BadRequest(new ApiError("Identifiant de poste manquant."));
+
+        var email = request.Email.Trim().ToLowerInvariant();
+
+        ActivationResponse activation;
+        try
+        {
+            activation = await licences.ActivateAsync(
+                ServerUrl(config),
+                new ActivationRequest(
+                    GroupId: request.GroupId,
+                    Email: email,
+                    Password: request.Password,
+                    DeviceId: request.DeviceId,
+                    DeviceName: request.DeviceName,
+                    Platform: DevicePlatforms.Windows,
+                    AppVersion: request.AppVersion),
+                ct);
+        }
+        catch (ActivationRefusedException e)
+        {
+            return Refuse(e.Message, (int?)e.Status ?? StatusCodes.Status403Forbidden);
+        }
+
+        return await SetupEndpoints.CreateWorkspaceAsync(
+            db, backups, activation, email, request.Password, ServerUrl(config),
+            request.DeviceId, request.DeviceName, request.AppVersion, ct);
     }
 
     private static IResult Refuse(string message, int status) =>

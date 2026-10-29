@@ -2108,6 +2108,22 @@ public sealed record SetupActivatePendingRequest(
     string? DeviceName = null,
     string? AppVersion = null);
 
+/// <summary>An existing Lonnii account asking which of its espaces it may install on a new
+/// computer. Sent by a fresh host to the licence server, and by its client to the host.</summary>
+public sealed record AccountEspacesRequest(string Email, string Password);
+
+/// <summary>An approved espace the account administers. <paramref name="IsOwner"/>: it created it.</summary>
+public sealed record AccountEspaceDto(string GroupId, string Name, string Mode, bool IsOwner);
+
+/// <summary>Installs one of the account's existing espaces on this computer.</summary>
+public sealed record SetupInstallEspaceRequest(
+    string Email,
+    string Password,
+    string GroupId,
+    string DeviceId,
+    string? DeviceName = null,
+    string? AppVersion = null);
+
 // --- Errors ---
 
 /// <summary>A failure response. <paramref name="Required"/> names the missing privilege on a 403.</summary>

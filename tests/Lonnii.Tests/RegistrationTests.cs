@@ -219,7 +219,7 @@ public class RegistrationTests : IAsyncLifetime
     [Fact]
     public async Task Too_many_requests_for_one_address_are_limited()
     {
-        for (var i = 0; i < RegistrationLimiter.PerEmailPerHour; i++)
+        for (var i = 0; i < RegistrationLimiter.PerEmail; i++)
             Assert.Equal(HttpStatusCode.OK, (await Start()).StatusCode);
 
         Assert.Equal(HttpStatusCode.TooManyRequests, (await Start()).StatusCode);
@@ -270,6 +270,37 @@ public class RegistrationTests : IAsyncLifetime
         await RegisterAsync();
 
         Assert.Equal(HttpStatusCode.Conflict, (await Start(email: "autre@pharmacie.bf")).StatusCode);
+    }
+
+    private Task<HttpResponseMessage> AccountEspaces(string password = Password) =>
+        _client.PostAsJsonAsync("/api/registration/account-espaces", new AccountEspacesRequest(Email, password));
+
+    [Fact]
+    public async Task An_account_lists_the_approved_espaces_it_owns()
+    {
+        var result = await RegisterAsync();
+
+        // Still pending: nothing to install yet.
+        Assert.Empty((await (await AccountEspaces()).Content.ReadFromJsonAsync<List<AccountEspaceDto>>())!);
+
+        await SetStatusAsync(result.GroupId, ApprovalStatuses.Approved);
+
+        var espace = Assert.Single((await (await AccountEspaces()).Content.ReadFromJsonAsync<List<AccountEspaceDto>>())!);
+        Assert.Equal(result.GroupId, espace.GroupId);
+        Assert.Equal("Pharmacie Sud", espace.Name);
+        Assert.True(espace.IsOwner);
+    }
+
+    [Fact]
+    public async Task Listing_espaces_needs_the_right_password()
+    {
+        var result = await RegisterAsync();
+        await SetStatusAsync(result.GroupId, ApprovalStatuses.Approved);
+
+        var refused = await AccountEspaces("wrong-password");
+
+        Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+        Assert.DoesNotContain("Pharmacie", await refused.Content.ReadAsStringAsync());
     }
 
     private async Task SetStatusAsync(string groupId, string status)

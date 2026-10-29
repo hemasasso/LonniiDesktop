@@ -80,6 +80,26 @@ public static class ActivationEndpoints
 
         if (!belongs) return refusal;
 
+        // Activation makes a computer the shop's server, which only its administrators may do.
+        // Tills and phones join through device registration, not here. Said plainly: the caller
+        // has proved they are a member, so this tells them nothing they did not know.
+        if (groupe.IdUserAdmin != user.IdUser)
+        {
+            // Roles compared here rather than in SQL: on PostgreSQL the column is the enum role_type.
+            var roles = await db.UserRoles
+                .Where(r => r.UserId == user.IdUser && r.GroupId == groupe.Id && r.IsActive)
+                .Select(r => r.Role)
+                .ToListAsync(ct);
+
+            if (!roles.Any(GroupRoles.IsAdminRole))
+            {
+                return Results.Json(
+                    new ApiError("Seul un administrateur de l'espace peut l'installer sur un ordinateur. " +
+                                 "Demandez à votre administrateur."),
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+        }
+
         // A shop that registered itself is not let in until we have approved it. Said only now,
         // after the credentials checked out, so the answer is for the owner and nobody else.
         if (groupe.ApprovalStatus != ApprovalStatuses.Approved)

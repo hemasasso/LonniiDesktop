@@ -1,0 +1,65 @@
+<Window x:Class="Lonnii.Client.Features.Auth.ExistingAccountWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:Lonnii.Client.Common.Controls"
+        Title="Lonnii — J'ai déjà un compte"
+        Height="560" Width="520"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="{DynamicResource Surface}">
+
+    <Grid Margin="28">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,18">
+            <TextBlock Text="Installer un espace existant" Style="{StaticResource PageTitle}" />
+            <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap"
+                       Text="Connectez-vous avec votre compte Lonnii en ligne, puis choisissez l'espace à installer sur cet ordinateur. Réservé aux administrateurs de l'espace." />
+        </StackPanel>
+
+        <!-- Step 1: the account -->
+        <StackPanel Grid.Row="1" Margin="0,0,0,10">
+            <TextBlock Text="Adresse e-mail" Style="{StaticResource FieldLabel}" />
+            <TextBox x:Name="EmailBox" Margin="0,4,0,10" Padding="8,6" />
+            <TextBlock Text="Mot de passe Lonnii en ligne" Style="{StaticResource FieldLabel}" />
+            <controls:RevealPasswordBox x:Name="PasswordBox" Margin="0,4,0,0" />
+        </StackPanel>
+
+        <Button Grid.Row="2" x:Name="SearchButton" Content="Afficher mes espaces" HorizontalAlignment="Left"
+                Margin="0,4,0,12" Style="{StaticResource SecondaryButton}" Click="Search_Click" />
+
+        <!-- Step 2: the espace -->
+        <StackPanel Grid.Row="3" x:Name="EspacePanel" Visibility="Collapsed">
+            <TextBlock Text="Espace à installer" Style="{StaticResource FieldLabel}" />
+            <ListBox x:Name="EspaceList" Margin="0,4,0,0" MaxHeight="150"
+                     DisplayMemberPath="Display" MouseDoubleClick="EspaceList_DoubleClick" />
+        </StackPanel>
+
+        <Border x:Name="ErrorPanel" Grid.Row="4" Visibility="Collapsed" Margin="0,10,0,0"
+                Background="{DynamicResource DangerLight}"
+                BorderBrush="{DynamicResource Danger}" BorderThickness="1"
+                CornerRadius="3" Padding="10,8">
+            <TextBlock x:Name="ErrorText" Foreground="{DynamicResource Danger}"
+                       TextWrapping="Wrap" FontSize="12" />
+        </Border>
+
+        <Grid Grid.Row="5" Margin="0,16,0,0">
+            <TextBlock x:Name="BusyText" VerticalAlignment="Center" FontSize="12" TextWrapping="Wrap"
+                       Margin="0,0,190,0"
+                       Foreground="{DynamicResource TextSecondary}" Visibility="Collapsed" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Annuler" Style="{StaticResource SecondaryButton}"
+                        Margin="0,0,8,0" Click="Cancel_Click" />
+                <Button x:Name="InstallButton" Content="Installer" IsDefault="True" IsEnabled="False"
+                        Style="{StaticResource PrimaryButton}" Click="Install_Click" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

@@ -156,6 +156,8 @@ builder.Services.AddHttpClient(CloudBackupClient.HttpClientName, client =>
 builder.Services.AddScoped<CloudBackupClient>();
 builder.Services.AddScoped<CloudBackupRunner>();
 builder.Services.AddScoped<CloudRestoreService>();
+// On the licence server: a shop with no host gets its backup built from the live data (see LiveSnapshotBuilder).
+builder.Services.AddScoped<LiveSnapshotBuilder>();
 // The sending side of the backup belongs to a shop's own host (SQLite). The licence server runs on
 // PostgreSQL and is the one that *receives* backups: it has no cloud_backup_state table, and a job
 // asking for it would only log a failure every interval.

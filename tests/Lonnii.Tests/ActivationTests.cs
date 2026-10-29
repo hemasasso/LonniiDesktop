@@ -244,6 +244,42 @@ public class ActivationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
+    /// <summary>Adds a member of this workspace with the given role, signing in with <c>AdminPassword</c>.</summary>
+    private async Task<string> AddMemberAsync(string email, string role)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+
+        var user = new User { Email = email, Password = BCrypt.Net.BCrypt.HashPassword(AdminPassword), IsVerified = true };
+        db.Users.Add(user);
+        db.GroupMembers.Add(new GroupMember { IdGroupe = GroupId, IdUser = user.IdUser });
+        db.UserRoles.Add(new UserRole { UserId = user.IdUser, GroupId = GroupId, Role = role });
+        await db.SaveChangesAsync();
+        return email;
+    }
+
+    /// <summary>Activation makes a computer the shop's server: a cashier cannot do that alone.</summary>
+    [Fact]
+    public async Task A_member_who_is_not_an_admin_is_refused()
+    {
+        var email = await AddMemberAsync("caissier@pharmacie-nord.bf", GroupRoles.Member);
+
+        var response = await ActivateAsync(new ActivationRequest(GroupId, email, AdminPassword, "machine-1"));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Contains("administrateur", (await response.Content.ReadFromJsonAsync<ApiError>())!.Error);
+    }
+
+    [Fact]
+    public async Task An_admin_who_did_not_create_the_workspace_may_activate()
+    {
+        var email = await AddMemberAsync("gerant@pharmacie-nord.bf", GroupRoles.Admin);
+
+        var response = await ActivateAsync(new ActivationRequest(GroupId, email, AdminPassword, "machine-1"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
     [Fact]
     public async Task Local_mode_never_asks_for_a_subscription()
     {

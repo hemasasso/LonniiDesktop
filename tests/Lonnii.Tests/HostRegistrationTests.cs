@@ -130,7 +130,7 @@ public class HostRegistrationTests : IAsyncLifetime
     [Fact]
     public async Task The_servers_refusal_reaches_the_client_with_its_own_status_and_words()
     {
-        _licences.StartFails = new ActivationRefusedException("Trop de tentatives. Réessayez dans une heure.", HttpStatusCode.TooManyRequests);
+        _licences.StartFails = new ActivationRefusedException("Trop de tentatives. Réessayez dans 30 minutes.", HttpStatusCode.TooManyRequests);
 
         var response = await Start();
 

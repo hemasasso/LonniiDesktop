@@ -39,6 +39,69 @@ public static class RegistrationEndpoints
         group.MapPost("/start", StartAsync);
         group.MapPost("/verify", VerifyAsync);
         group.MapPost("/espace", NewEspaceAsync);
+        group.MapPost("/account-espaces", AccountEspacesAsync);
+    }
+
+    /// <summary>
+    /// The approved espaces an existing account administers, so a new computer can be set up for
+    /// one of them by signing in instead of with a credentials file or a new registration.
+    ///
+    /// <para>
+    /// Authenticated by email and password and capped like sign-up, since it checks passwords.
+    /// Only espaces the account may install a host for are listed: ones it created, or where it
+    /// holds an admin role. Pending, blocked and deleted ones are left out.
+    /// </para>
+    /// </summary>
+    private static async Task<IResult> AccountEspacesAsync(
+        AccountEspacesRequest request,
+        LonniiDbContext db,
+        RegistrationLimiter limiter,
+        HttpContext http,
+        CancellationToken ct)
+    {
+        var email = request.Email?.Trim().ToLowerInvariant() ?? string.Empty;
+
+        if (!limiter.TryAcquire(email, http.Connection.RemoteIpAddress?.ToString()))
+        {
+            return Results.Json(
+                new ApiError("Trop de tentatives. Réessayez dans 30 minutes."),
+                statusCode: StatusCodes.Status429TooManyRequests);
+        }
+
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email, ct);
+        if (user?.Password is null || user.IsBlocked || !BCrypt.Net.BCrypt.Verify(request.Password ?? string.Empty, user.Password))
+        {
+            return Results.Json(
+                new ApiError("Adresse e-mail ou mot de passe incorrect."),
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        var approved = db.Groupes.Where(g =>
+            g.ApprovalStatus == ApprovalStatuses.Approved && !g.IsBlocked && !g.IsDeleted);
+
+        var owned = await approved
+            .Where(g => g.IdUserAdmin == user.IdUser)
+            .Select(g => new { g.Id, g.Nom, g.Mode })
+            .ToListAsync(ct);
+
+        // Roles compared here rather than in SQL: on PostgreSQL the column is the enum role_type.
+        var roles = await db.UserRoles
+            .Where(r => r.UserId == user.IdUser && r.IsActive && approved.Any(g => g.Id == r.GroupId))
+            .Select(r => new { r.GroupId, r.Role })
+            .ToListAsync(ct);
+        var adminOf = roles.Where(r => GroupRoles.IsAdminRole(r.Role)).Select(r => r.GroupId)
+            .Except(owned.Select(g => g.Id))
+            .ToList();
+
+        var administered = await approved
+            .Where(g => adminOf.Contains(g.Id))
+            .Select(g => new { g.Id, g.Nom, g.Mode })
+            .ToListAsync(ct);
+
+        return Results.Ok(owned.Select(g => new AccountEspaceDto(g.Id, g.Nom, g.Mode, IsOwner: true))
+            .Concat(administered.Select(g => new AccountEspaceDto(g.Id, g.Nom, g.Mode, IsOwner: false)))
+            .OrderBy(e => e.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList());
     }
 
     private static async ValueTask<object?> RequireEnabledAsync(
@@ -99,7 +162,7 @@ public static class RegistrationEndpoints
         if (!limiter.TryAcquire(address, ip))
         {
             return Results.Json(
-                new ApiError("Trop de tentatives. Réessayez dans une heure."),
+                new ApiError("Trop de tentatives. Réessayez dans 30 minutes."),
                 statusCode: StatusCodes.Status429TooManyRequests);
         }
 
@@ -290,7 +353,7 @@ public static class RegistrationEndpoints
         if (!limiter.TryAcquire(email, http.Connection.RemoteIpAddress?.ToString()))
         {
             return Results.Json(
-                new ApiError("Trop de tentatives. Réessayez dans une heure."),
+                new ApiError("Trop de tentatives. Réessayez dans 30 minutes."),
                 statusCode: StatusCodes.Status429TooManyRequests);
         }
 

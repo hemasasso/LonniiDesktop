@@ -868,6 +868,16 @@ public class LonniiApiClient
         PostAsync<ApplyCredentialsResponse>("api/setup/register/activate", new SetupActivatePendingRequest(
             password, DeviceIdentity.Current, DeviceIdentity.FriendlyName, AppVersion), ct);
 
+    /// <summary>The approved espaces an existing Lonnii account administers, asked of the licence server through this host.</summary>
+    public Task<List<AccountEspaceDto>> GetAccountEspacesAsync(string email, string password, CancellationToken ct = default) =>
+        PostAsync<List<AccountEspaceDto>>("api/setup/account/espaces", new AccountEspacesRequest(email, password), ct);
+
+    /// <summary>Installs one of those espaces on this host.</summary>
+    public Task<ApplyCredentialsResponse> InstallAccountEspaceAsync(
+        string email, string password, string groupId, CancellationToken ct = default) =>
+        PostAsync<ApplyCredentialsResponse>("api/setup/account/install", new SetupInstallEspaceRequest(
+            email, password, groupId, DeviceIdentity.Current, DeviceIdentity.FriendlyName, AppVersion), ct);
+
     public Task CancelPendingRegistrationAsync(CancellationToken ct = default) =>
         SendAsync(HttpMethod.Delete, "api/setup/register/pending", null, ct);
 

@@ -115,7 +115,7 @@ public static class PasswordResetEndpoints
         if (!limiter.TryAcquire(address, http.Connection.RemoteIpAddress?.ToString()))
         {
             return Results.Json(
-                new ApiError("Trop de tentatives. Réessayez dans une heure."),
+                new ApiError("Trop de tentatives. Réessayez dans 30 minutes."),
                 statusCode: StatusCodes.Status429TooManyRequests);
         }
 

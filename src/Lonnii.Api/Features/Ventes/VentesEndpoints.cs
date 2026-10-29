@@ -435,6 +435,9 @@ public static class VentesEndpoints
     private static async Task<IResult> CancelVenteAsync(
         string id, CancelVenteRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
+        // One stock-moving write at a time for this shop (see ShopWriteLock).
+        using var turn = await ShopWriteLock.AcquireAsync(scope.GroupId, ct);
+
         if (string.IsNullOrWhiteSpace(request.Motif))
             return Results.BadRequest(new ApiError("Le motif d'annulation est requis"));
 
@@ -556,6 +559,9 @@ public static class VentesEndpoints
     private static async Task<IResult> CreateVenteAsync(
         CreateVenteRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
+        // One stock-moving write at a time for this shop (see ShopWriteLock).
+        using var turn = await ShopWriteLock.AcquireAsync(scope.GroupId, ct);
+
         // An empty cart is allowed only for a standalone avoir: a zero-amount sale whose whole
         // payment is kept as a credit (MonnaieEnAvoir), with no purchase behind it.
         var standaloneAvoir = request.Items is { Count: 0 } && request.MonnaieEnAvoir && request.MontantPaye > 0;
@@ -793,10 +799,20 @@ public static class VentesEndpoints
     /// (backend/routes/ventes.js), so a receipt printed from either looks consistent.</summary>
     private static async Task<string> NextNumeroVenteAsync(LonniiDbContext db, string groupId, CancellationToken ct)
     {
-        var now = DateTime.UtcNow;
-        var monthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-        var count = await db.Ventes.CountAsync(v => v.GroupId == groupId && v.DateVente >= monthStart, ct);
-        return $"VNT-{now:yyyyMM}-{count + 1:D8}";
+        // The highest number this month, not a count of sales: a deleted sale would make a count
+        // hand out a number that still exists. Fixed-width digits, so text order is number order.
+        // Called inside ShopWriteLock, so two tills never read the same highest number.
+        var prefix = $"VNT-{DateTime.UtcNow:yyyyMM}-";
+        var last = await db.Ventes
+            .Where(v => v.GroupId == groupId && v.NumeroVente.StartsWith(prefix))
+            .OrderByDescending(v => v.NumeroVente)
+            .Select(v => v.NumeroVente)
+            .FirstOrDefaultAsync(ct);
+
+        // Leading digits only: a number de-duplicated on import carries a suffix ("...00000042-2").
+        var digits = new string((last?[prefix.Length..] ?? "").TakeWhile(char.IsAsciiDigit).ToArray());
+        var next = long.TryParse(digits, out var n) ? n + 1 : 1;
+        return $"{prefix}{next:D8}";
     }
 
     internal static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

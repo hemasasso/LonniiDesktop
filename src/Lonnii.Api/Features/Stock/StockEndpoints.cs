@@ -291,6 +291,9 @@ public static class StockEndpoints
     internal static async Task<IResult> AdjustStockAsync(
         string id, AdjustStockRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
+        // One stock-moving write at a time for this shop (see ShopWriteLock).
+        using var turn = await ShopWriteLock.AcquireAsync(scope.GroupId, ct);
+
         if (request.QuantityChanged == 0)
             return Results.BadRequest(new ApiError("La quantité doit être différente de zéro"));
 

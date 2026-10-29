@@ -165,11 +165,10 @@ public class DeviceEnforcementTests : IAsyncLifetime
             db.SaveChanges();
         }
 
-        // The workspace now has no bound machines at all, so the check would be skipped -
-        // except that skipping is meant for a workspace that was never licensed, not one
-        // whose machines were all revoked. Registering again is the way back.
+        // A removed machine is locked (423, the lock screen with "Réessayer"), even when it was
+        // the workspace's only one. Registering it again is the way back.
         var response = await OpenSessionAsync(BoundDevice);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Locked, response.StatusCode);
     }
 
     [Fact]

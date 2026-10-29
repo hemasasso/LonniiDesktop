@@ -133,7 +133,7 @@ public class LicenceEnforcementTests : IAsyncLifetime
         return await db.Groupes.AsNoTracking().FirstAsync(g => g.Id == GroupId);
     }
 
-    private async Task<HttpResponseMessage> OpenSessionAsync()
+    private async Task<HttpResponseMessage> OpenSessionAsync(string device = Device)
     {
         var login = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest(AdminEmail, AdminPassword));
         var token = (await login.Content.ReadFromJsonAsync<LoginResponse>())!.AccessToken;
@@ -143,7 +143,7 @@ public class LicenceEnforcementTests : IAsyncLifetime
             Content = JsonContent.Create(new { }),
         };
         message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        message.Headers.Add("x-device-id", Device);
+        message.Headers.Add("x-device-id", device);
         return await _client.SendAsync(message);
     }
 
@@ -261,6 +261,51 @@ public class LicenceEnforcementTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.PaymentRequired, sync.StatusCode);
         Assert.Equal(HttpStatusCode.Locked, (await OpenSessionAsync()).StatusCode);
+    }
+
+    // --- Blocked, or this computer removed, from the dashboard ---
+
+    [Fact]
+    public async Task A_blocked_shop_is_locked_with_its_reason_in_local_mode_too()
+    {
+        await Mutate(g =>
+        {
+            g.Mode = DeploymentModes.Local;
+            g.IsBlocked = true;
+            g.BlockReason = "Impayé depuis deux mois";
+        });
+
+        var response = await OpenSessionAsync();
+
+        // A lock (with "Réessayer"), not a plain refusal: lifting the block lets the shop back in.
+        Assert.Equal(HttpStatusCode.Locked, response.StatusCode);
+        Assert.Contains("Impayé", (await response.Content.ReadFromJsonAsync<ApiError>())!.Error);
+    }
+
+    [Fact]
+    public async Task A_computer_removed_on_the_server_locks_itself_and_not_the_others()
+    {
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+            db.Devices.Add(new Device { GroupId = GroupId, DeviceId = "till-2", DeviceName = "Caisse 2" });
+            await db.SaveChangesAsync();
+        }
+
+        await Mutate(g => g.Mode = DeploymentModes.Local);
+        _licences.Refuse = new ActivationRefusedException("Cet ordinateur a été retiré de l'espace.", HttpStatusCode.Gone);
+
+        var sync = await SyncAsync();
+        Assert.Equal(HttpStatusCode.OK, sync.StatusCode);
+        Assert.True((await sync.Content.ReadFromJsonAsync<LicenceStatusDto>())!.Expired);
+
+        Assert.Equal(HttpStatusCode.Locked, (await OpenSessionAsync()).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await OpenSessionAsync("till-2")).StatusCode);
+
+        // Re-authorised on the dashboard: the next check-in lets it back in.
+        _licences.Refuse = null;
+        Assert.Equal(HttpStatusCode.OK, (await SyncAsync()).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await OpenSessionAsync()).StatusCode);
     }
 
     [Fact]

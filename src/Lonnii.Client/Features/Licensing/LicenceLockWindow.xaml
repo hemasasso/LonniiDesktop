@@ -1,7 +1,7 @@
 <Window x:Class="Lonnii.Client.Features.Licensing.LicenceLockWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Lonnii — Licence expirée"
+        Title="Lonnii — Accès suspendu"
         Height="360" Width="500"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
@@ -16,7 +16,7 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Margin="0,0,0,16">
-            <TextBlock Text="Licence expirée" Style="{StaticResource PageTitle}" />
+            <TextBlock Text="Accès suspendu" Style="{StaticResource PageTitle}" />
             <TextBlock x:Name="MessageText" Style="{StaticResource PageSubtitle}" TextWrapping="Wrap" />
         </StackPanel>
 

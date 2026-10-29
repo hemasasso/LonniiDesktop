@@ -45,6 +45,12 @@ public class LicenceGuard(LonniiDbContext db)
 
     public async Task<LicenceStatusDto> CheckAsync(Groupe groupe, CancellationToken ct)
     {
+        // Blocked from the dashboard, or this machine removed: stops the workspace on the next
+        // request, in both modes. Only for a shop's own host - on our server a block is applied
+        // where sessions open, and this guard never runs for it.
+        if (groupe.IsBlocked && !string.IsNullOrWhiteSpace(groupe.LicenceServerUrl))
+            return Locked(groupe.BlockReason ?? "Cet espace est bloqué. Contactez le support.", groupe.LicenceDeadline);
+
         if (!IsEnforced(groupe)) return NotEnforced();
 
         var now = DateTime.UtcNow;
@@ -84,11 +90,51 @@ public class LicenceGuard(LonniiDbContext db)
             Message: expired ? ExpiredMessage : null);
     }
 
+    /// <summary>The status that puts the lock screen up with <paramref name="message"/>.</summary>
+    public static LicenceStatusDto Locked(string message, DateTime? deadline) =>
+        new(Enforced: true, Expired: true, Deadline: deadline, DaysLeft: 0, Message: message);
+
+    /// <summary>
+    /// Why this machine may not use the workspace - it was removed from the shop on our server -
+    /// or null when it may. Per machine: the shop's other computers are not affected.
+    /// </summary>
+    public async Task<string?> DeviceRemovedAsync(string groupId, string? deviceId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId)) return null;
+
+        var device = await db.Devices.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.GroupId == groupId && d.DeviceId == deviceId && d.RevokedAt != null, ct);
+
+        return device is null ? null : device.RevokedReason ?? "Cet ordinateur a été retiré de l'espace.";
+    }
+
+    /// <summary>Records on this host that our server removed a machine, so it is refused here too.</summary>
+    public async Task MarkDeviceRemovedAsync(string groupId, string deviceId, string reason, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId)) return;
+
+        var device = await db.Devices.FirstOrDefaultAsync(d => d.GroupId == groupId && d.DeviceId == deviceId, ct);
+        if (device is null) db.Devices.Add(device = new Device { GroupId = groupId, DeviceId = deviceId });
+
+        device.RevokedAt ??= DateTime.UtcNow;
+        device.RevokedReason = reason;
+        await db.SaveChangesAsync(ct);
+    }
+
     /// <summary>Applies the server's answer: a fresh deadline, and the server's view of the workspace.</summary>
     public async Task ApplyRefreshAsync(
         Groupe groupe, LicenceRefreshResponse response, string deviceId, CancellationToken ct)
     {
         StoreBackupToken(db, groupe.Id, deviceId, response.BackupToken);
+
+        // The server accepted this machine, so it is authorised again (re-added after a removal).
+        var removed = await db.Devices.FirstOrDefaultAsync(
+            d => d.GroupId == groupe.Id && d.DeviceId == deviceId && d.RevokedAt != null, ct);
+        if (removed is not null)
+        {
+            removed.RevokedAt = null;
+            removed.RevokedReason = null;
+        }
 
         // The server is the authority: it overrides whatever this installation believed.
         if (DeploymentModes.All.Contains(response.Mode)) groupe.Mode = response.Mode;

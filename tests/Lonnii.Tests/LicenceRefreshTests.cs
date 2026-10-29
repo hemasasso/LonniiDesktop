@@ -201,7 +201,7 @@ public class LicenceRefreshTests : IAsyncLifetime
             db.SaveChanges();
         }
 
-        Assert.Equal(HttpStatusCode.Forbidden, (await RefreshAsync()).StatusCode);
+        Assert.Equal(HttpStatusCode.Gone, (await RefreshAsync()).StatusCode);
     }
 
     [Fact]

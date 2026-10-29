@@ -334,7 +334,10 @@ public static class GroupEndpoints
             return Results.Json(new ApiError("Accès refusé à ce groupe"), statusCode: StatusCodes.Status403Forbidden);
 
         var groupe = await db.Groupes.FirstAsync(g => g.Id == groupId, ct);
-        if (groupe.IsBlocked)
+        // On our server a block is final here. On a shop's host it goes through the licence check
+        // below instead, as a lock (423) with "Réessayer" - so lifting the block on the dashboard
+        // lets the shop back in without anyone reinstalling.
+        if (groupe.IsBlocked && string.IsNullOrWhiteSpace(groupe.LicenceServerUrl))
             return Results.Json(new ApiError(groupe.BlockReason ?? "Ce groupe est bloqué."),
                 statusCode: StatusCodes.Status403Forbidden);
 
@@ -344,6 +347,11 @@ public static class GroupEndpoints
             return Results.Json(new ApiError(licenceStatus.Message ?? LicenceGuard.ExpiredMessage),
                 statusCode: StatusCodes.Status423Locked);
         }
+
+        // This computer was removed from the shop on our server: a lock, with "Réessayer", so
+        // re-authorising it lets it back in.
+        if (await licence.DeviceRemovedAsync(groupId, http.Request.Headers["x-device-id"].ToString(), ct) is { } removed)
+            return Results.Json(new ApiError(removed), statusCode: StatusCodes.Status423Locked);
 
         // --- Machine check ---------------------------------------------------------
         // This is what stops a copied installation. A copy runs on different hardware, so

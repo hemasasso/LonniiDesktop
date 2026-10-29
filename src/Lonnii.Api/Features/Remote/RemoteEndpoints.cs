@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Lonnii.Api.Features.Auth;
+using Lonnii.Api.Features.Backup;
 using Lonnii.Api.Features.Images;
 using Lonnii.Api.Features.Live;
 using Lonnii.Api.Features.Members;
@@ -96,6 +97,8 @@ public static class RemoteEndpoints
         LonniiDbContext db,
         RemoteSessionTokens tokens,
         ReplicaStore replicas,
+        BackupStore backups,
+        LiveSnapshotBuilder live,
         CancellationToken ct)
     {
         var userId = principal.FindFirstValue(TokenService.UserIdClaim)!;
@@ -128,6 +131,13 @@ public static class RemoteEndpoints
             return Results.Json(
                 new ApiError("Abonnement inactif ou expiré. Contactez le support pour réactiver cet espace."),
                 statusCode: StatusCodes.Status402PaymentRequired);
+        }
+
+        // A shop no host has ever uploaded for - created online, used from phones - is read from a
+        // copy built from our live data, refreshed each time a session opens (see LiveSnapshotBuilder).
+        using (await backups.LockAsync(groupId, ct))
+        {
+            await live.TryBuildAsync(groupId, ct);
         }
 
         var replica = await replicas.EnsureAsync(groupId, ct);

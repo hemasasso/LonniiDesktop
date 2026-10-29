@@ -91,6 +91,11 @@ public class GroupScopeFilter(
                 statusCode: StatusCodes.Status423Locked);
         }
 
+        // A computer removed from the shop on our server stops at its next request; the shop's
+        // other computers carry on.
+        if (await licence.DeviceRemovedAsync(session.GroupId, http.Request.Headers["x-device-id"].ToString(), ct) is { } removed)
+            return Results.Json(new ApiError(removed), statusCode: StatusCodes.Status423Locked);
+
         // The session's user: the caller's own id, except in a remote session, where it is the id the
         // shop gave the same person (see RemoteSession).
         scope.UserId = session.UserId;

@@ -74,35 +74,37 @@ public partial class MainWindow : Window
 
     // --- Licence (offline deadline) ---
 
-    /// <summary>Every three hours: far inside the 14-day deadline, so a shop that is simply
-    /// online never comes near it, and one that lost its connection for a weekend recovers
-    /// without anyone noticing.</summary>
-    private readonly System.Windows.Threading.DispatcherTimer _licenceTimer = new() { Interval = TimeSpan.FromHours(3) };
+    /// <summary>Every five minutes: a block or a removed computer on the dashboard reaches a
+    /// connected shop within minutes. The call is a few hundred bytes, so this costs nothing.</summary>
+    private static readonly TimeSpan LicenceSyncInterval = TimeSpan.FromMinutes(5);
+    private readonly System.Windows.Threading.DispatcherTimer _licenceTimer = new() { Interval = LicenceSyncInterval };
 
     private DateTime _lastLicenceSync = DateTime.MinValue;
 
     /// <summary>
     /// Asks the host to renew the licence. Never surfaces an error: no connection is the
     /// normal case for an hour or a day, and the deadline - not this call - is what stops
-    /// the till. A refused renewal (unpaid, revoked) shows up as the lock screen when the
-    /// deadline passes, with the server's reason on "Réessayer".
+    /// the till. A block or a removed computer, though, is shown at once: the host answers
+    /// with a locked status and the lock screen comes up with the reason.
     /// </summary>
     private async Task SyncLicenceAsync(bool onlyIfStale = false)
     {
         if (_session.Groupe is not { } groupe || _session.IsRemote) return;
-        if (onlyIfStale && DateTime.UtcNow - _lastLicenceSync < TimeSpan.FromMinutes(30)) return;
+        if (onlyIfStale && DateTime.UtcNow - _lastLicenceSync < TimeSpan.FromMinutes(5)) return;
 
         _lastLicenceSync = DateTime.UtcNow;
         try
         {
-            await _session.Api.SyncLicenceAsync(groupe.Id);
-            _licenceTimer.Interval = TimeSpan.FromHours(3);
+            var status = await _session.Api.SyncLicenceAsync(groupe.Id);
+            _licenceTimer.Interval = LicenceSyncInterval;
+
+            if (status.Expired) ShowLicenceLock(status.Message ?? "L'accès à cet espace est suspendu.");
         }
         catch (Exception ex) when (ex is ApiException or System.Net.Http.HttpRequestException or TaskCanceledException)
         {
-            // Missed (internet down, or a request that timed out as it came back): try again
-            // soon, so "Serveur central" does not stay red for three hours after a blip.
-            _licenceTimer.Interval = TimeSpan.FromMinutes(10);
+            // Missed (internet down, or a request that timed out as it came back): the timer
+            // simply tries again at its next tick.
+            _licenceTimer.Interval = LicenceSyncInterval;
         }
     }
 

@@ -75,6 +75,21 @@ public static class LicenceEndpoints
 
             await guard.ApplyRefreshAsync(groupe, response, deviceId, ct);
         }
+        catch (ActivationRefusedException e) when (e.Status == System.Net.HttpStatusCode.Gone)
+        {
+            // The server's final word: this machine was removed from the shop. Only this machine
+            // locks - the shop's other computers check in through here too and carry on. Both modes,
+            // local included. Lifted by the next refresh that succeeds, after re-authorising.
+            await guard.MarkDeviceRemovedAsync(groupe.Id, deviceId, e.Message, ct);
+            return Results.Ok(LicenceGuard.Locked(e.Message, groupe.LicenceDeadline));
+        }
+        catch (ActivationRefusedException e) when (e.Status == System.Net.HttpStatusCode.NotFound)
+        {
+            // The shop itself was deleted on our side: every computer stops.
+            groupe.IsBlocked = true;
+            groupe.BlockReason = e.Message;
+            await db.SaveChangesAsync(ct);
+        }
         catch (ActivationRefusedException) when (!enforced)
         {
             // A local shop works offline for ever: being unreachable, or not (yet) recognised by the server,
@@ -108,11 +123,20 @@ public static class LicenceEndpoints
 
         var groupe = await db.Groupes.FirstOrDefaultAsync(g => g.Id == request.GroupId, ct);
 
-        if (groupe is null || groupe.IsDeleted)
+        if (groupe is null)
         {
             return Results.Json(
                 new ApiError("Espace introuvable. Contactez le support."),
                 statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        // 404, not 403: a deleted shop is a final answer the installation acts on (it locks the
+        // whole shop), unlike a refusal it could be wrong about - see SyncAsync.
+        if (groupe.IsDeleted)
+        {
+            return Results.Json(
+                new ApiError("Cet espace a été supprimé. Contactez le support."),
+                statusCode: StatusCodes.Status404NotFound);
         }
 
         if (groupe.ApprovalStatus != ApprovalStatuses.Approved)
@@ -122,8 +146,17 @@ public static class LicenceEndpoints
             d => d.GroupId == groupe.Id && d.DeviceId == request.DeviceId, ct);
 
         // An unbound or revoked machine must not be able to keep itself alive by refreshing.
-        // Revoking a stolen laptop has to actually reach it, and this is how.
-        if (device is null || device.RevokedAt is not null)
+        // Revoking a stolen laptop has to actually reach it, and this is how: a revoked one is told
+        // with 410, which makes it lock itself. An unknown one keeps 403 - it may simply predate
+        // the device list, and locking a shop for our gap would be wrong.
+        if (device is { RevokedAt: not null })
+        {
+            return Results.Json(
+                new ApiError("Cet ordinateur a été retiré de l'espace. Demandez à l'administrateur de l'autoriser à nouveau."),
+                statusCode: StatusCodes.Status410Gone);
+        }
+
+        if (device is null)
         {
             return Results.Json(
                 new ApiError("Ce poste n'est pas autorisé. Réactivez-le depuis le fichier d'identifiants."),

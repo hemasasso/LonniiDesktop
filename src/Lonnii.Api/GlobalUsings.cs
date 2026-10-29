@@ -17,3 +17,4 @@ global using Lonnii.Api.Features.Backup;
 global using Lonnii.Api.Features.Registration;
 global using Lonnii.Api.Features.Infrastructure;
 global using Lonnii.Api.Features.Admin;
+global using Lonnii.Api.Features.Updates;

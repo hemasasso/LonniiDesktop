@@ -134,6 +134,7 @@ builder.Services.AddSingleton(new ImageStorageService(dataDirectory));
 // Exporting or importing a whole espace builds its .db file here first - beside the
 // database, not in the system temp folder, since it can be hundreds of megabytes.
 builder.Services.AddSingleton(new EspaceTransferPaths(dataDirectory));
+builder.Services.AddSingleton(new Lonnii.Api.Features.Updates.UpdatePaths(dataDirectory));
 builder.Services.AddSingleton(new Lonnii.Api.Features.Auth.PendingEspaceStore(dataDirectory));
 builder.Services.AddScoped<EspaceTransferService>();
 
@@ -287,6 +288,7 @@ app.MapPasswordResetEndpoints();
 app.MapCloudBackupEndpoints();
 app.MapImageEndpoints();
 app.MapDesktopAdminEndpoints();
+app.MapUpdateEndpoints();
 
 /// <summary>Lets a client confirm it is talking to a Lonnii host before signing in.</summary>
 app.MapGet("/api/health", () => Results.Ok(new

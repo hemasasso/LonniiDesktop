@@ -1,6 +1,6 @@
 # Builds the Lonnii Desktop test installer: artifacts\installer\LonniiBusiness-Setup-<version>.exe
 #
-#   powershell -File deploy\windows\build-installer.ps1 [-Version 0.1.0]
+#   powershell -File deploy\windows\build-installer.ps1 [-Version 1.0.0]
 #
 # Publishes self-contained win-x64, so test machines need no .NET runtime.
 #
@@ -9,7 +9,7 @@
 # the code is release-grade; only the licence check is dodged. Fine for testing, NOT for customers -
 # add the ImageSharp licence (SixLaborsLicenseKey) and switch to Release before shipping.
 param(
-    [string]$Version = "0.1.0"
+    [string]$Version = "1.0.0"
 )
 
 $ErrorActionPreference = "Stop"

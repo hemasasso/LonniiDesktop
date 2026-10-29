@@ -8,5 +8,6 @@ return args.FirstOrDefault() switch
     "repair-keygen" => RepairCommand.Keygen(args[1..]),
     "repair-code" => RepairCommand.Issue(args[1..]),
     "reset-code" => RepairCommand.IssueReset(args[1..]),
+    "release" => ReleaseCommand.Run(args[1..]),
     _ => SetupCommand.Run(args),
 };

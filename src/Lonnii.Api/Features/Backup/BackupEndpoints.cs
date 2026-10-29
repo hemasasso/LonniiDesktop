@@ -62,6 +62,10 @@ public static class BackupEndpoints
         group.MapPut("/name", PutNameAsync);
         group.MapGet("/snapshot", GetSnapshot);
 
+        // The shop's members, so whoever is added on its computer can sign in here too.
+        group.MapPut("/accounts", (AccountSyncRequest request, HttpContext http, LonniiDbContext db, CancellationToken ct) =>
+            AccountSync.ApplyAsync(db, GroupOf(http), request, ct));
+
         // New versions of the app: behind the same checks as the backup, so only a computer of an
         // online shop, not blocked and paid up, is given one. The files are those our own
         // /api/updates serves, which on this server is never exposed outside.

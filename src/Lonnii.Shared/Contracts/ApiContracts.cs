@@ -2013,6 +2013,32 @@ public sealed record BackupBeginRequest(string? Epoch);
 
 public sealed record BackupBeginResponse(string Epoch, bool Created);
 
+/// <summary>
+/// One member of an online shop as its own computer knows them, sent to our server so the same
+/// person can sign in there too (another computer, remote access, the phone). Privileges travel
+/// by name: their ids differ between databases.
+/// </summary>
+public sealed record AccountSyncMember(
+    string IdUser,
+    string Email,
+    string? Username,
+    string? FirstName,
+    string? LastName,
+    string? Phone,
+    string? PasswordHash,
+    DateTime? PasswordChangedAt,
+    string Role,
+    DateTime RoleAssignedAt,
+    IReadOnlyList<string> CorePrivileges,
+    IReadOnlyList<string> OptionPrivileges,
+    IReadOnlyList<string> GestionPrivileges);
+
+/// <summary>Body of <c>PUT /api/backup/accounts</c>.</summary>
+public sealed record AccountSyncRequest(IReadOnlyList<AccountSyncMember> Members);
+
+/// <summary>What our server did with an <see cref="AccountSyncRequest"/>.</summary>
+public sealed record AccountSyncResponse(int Created, int Joined, int Updated);
+
 public sealed record BackupImagesRequest(IReadOnlyList<BackupImageRef> Images);
 
 /// <summary>The photos the server does not hold yet - the only ones worth uploading.</summary>

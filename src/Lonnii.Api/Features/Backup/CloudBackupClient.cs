@@ -185,6 +185,12 @@ public sealed class CloudBackupClient(IHttpClientFactory factory)
         await response.Content.CopyToAsync(file, ct);
     }
 
+    /// <summary>Gives our server this shop's members, so they can sign in there too.</summary>
+    public async Task PutAccountsAsync(AccountSyncRequest request, CancellationToken ct)
+    {
+        using var _ = await SendAsync(Request(HttpMethod.Put, "accounts", JsonContent.Create(request)), ct);
+    }
+
     /// <summary>The newest version we published, or null when there is none to offer.</summary>
     public async Task<Lonnii.Shared.Security.UpdateManifest?> LatestUpdateAsync(CancellationToken ct)
     {

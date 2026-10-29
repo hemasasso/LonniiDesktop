@@ -82,6 +82,10 @@ public sealed class CloudBackupRunner(
 
         if (WhyNotApplicable(groupe, state) is { } reason) return new CloudBackupOutcome(false, false, reason);
 
+        // The people first, and even for a shop with no sales yet: a member added on this computer
+        // must be able to sign in elsewhere (another computer, from afar) as soon as possible.
+        await PushAccountsAsync(groupe!, state!, ct);
+
         // An empty workspace has nothing worth keeping, and uploading it can only do harm: on a
         // freshly installed computer whose restore failed or was declined, it would replace the
         // shop's real copy - or start a line that stops the server building one from live data.
@@ -160,6 +164,24 @@ public sealed class CloudBackupRunner(
 
             // Even on failure: the error and the attempt time are what Paramètres shows.
             await db.SaveChangesAsync(CancellationToken.None);
+        }
+    }
+
+    /// <summary>
+    /// Sends this shop's members to our server (see <see cref="AccountSync"/>). Never fails the
+    /// backup: an older server has no such address, and the next pass simply tries again.
+    /// </summary>
+    private async Task PushAccountsAsync(Groupe groupe, CloudBackupState state, CancellationToken ct)
+    {
+        try
+        {
+            var request = await AccountSync.BuildAsync(db, groupe.Id, ct);
+            client.For(groupe.LicenceServerUrl!, groupe.Id, state.DeviceId!, state.DeviceToken!, state.Epoch);
+            await client.PutAccountsAsync(request, ct);
+        }
+        catch (CloudBackupException e)
+        {
+            logger.LogWarning("Membres de {GroupId} non envoyés au serveur Lonnii : {Message}", groupe.Id, e.Message);
         }
     }
 

@@ -723,6 +723,12 @@ public partial class StockView : UserControl
     /// left to scroll, so without this the user has to move off the table entirely (e.g. onto
     /// a chart) just to keep scrolling the page.
     /// </summary>
+    private void IconGrid_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        IconScrollViewer.ScrollToVerticalOffset(IconScrollViewer.VerticalOffset - e.Delta);
+        e.Handled = true;
+    }
+
     private void AnalyseGrid_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
         if (FindAncestorScrollViewer((DependencyObject)sender) is { } scrollViewer)

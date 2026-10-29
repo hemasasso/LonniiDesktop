@@ -318,8 +318,12 @@
             </DataGrid>
 
             <ScrollViewer x:Name="IconScrollViewer" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                <!-- The ListBox's own inner ScrollViewer is switched off and the wheel handed to
+                     IconScrollViewer: left on, it took the wheel over a product and did nothing. -->
                 <ListBox x:Name="IconGrid" Background="Transparent" BorderThickness="0"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                         PreviewMouseWheel="IconGrid_PreviewMouseWheel"
                          SelectionChanged="IconGrid_SelectionChanged"
                          MouseDoubleClick="IconGrid_MouseDoubleClick"
                          PreviewMouseRightButtonDown="IconGrid_PreviewMouseRightButtonDown">

@@ -748,6 +748,21 @@ public partial class VentesView : UserControl
     /// disabled (see the ItemsPanel comment) so ProductScroll owns the viewport, but a
     /// ListBoxItem under the mouse can still intercept the wheel event before it naturally
     /// bubbles there, leaving the page unresponsive to scrolling while hovering a product.</summary>
+    /// <summary>A page of 8 cards fits but for the cards' own bottom margin, which put up a scroll
+    /// bar for a few pixels of nothing. Within that slack the bar stays hidden; a real overflow
+    /// (more cards per page, a smaller window) still shows it.</summary>
+    private const double ProductScrollSlack = 28;
+
+    private void ProductScroll_ScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        if (e.ExtentHeightChange == 0 && e.ViewportHeightChange == 0) return;
+
+        var overflow = ProductScroll.ExtentHeight - ProductScroll.ViewportHeight;
+        ProductScroll.VerticalScrollBarVisibility = overflow > ProductScrollSlack
+            ? ScrollBarVisibility.Auto
+            : ScrollBarVisibility.Hidden;
+    }
+
     private void ProductGrid_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
         ProductScroll.ScrollToVerticalOffset(ProductScroll.VerticalOffset - e.Delta);

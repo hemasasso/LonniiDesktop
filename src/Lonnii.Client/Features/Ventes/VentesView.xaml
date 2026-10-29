@@ -343,6 +343,8 @@
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="Par page" Style="{StaticResource PageSubtitle}" VerticalAlignment="Center" Margin="0,0,8,0" />
                             <ComboBox x:Name="VentePageSizeCombo" Width="70" SelectionChanged="VentePageSize_Changed">
+                                <!-- 8 fits a small screen without scrolling. -->
+                                <ComboBoxItem Content="8" />
                                 <ComboBoxItem Content="10" IsSelected="True" />
                                 <ComboBoxItem Content="15" />
                                 <ComboBoxItem Content="20" />
@@ -354,8 +356,9 @@
 
                 <Grid>
                     <ScrollViewer x:Name="VenteListScroll" VerticalScrollBarVisibility="Auto">
-                        <StackPanel Margin="14,10">
-                            <Grid x:Name="VenteListHeaderRow" Margin="0,0,0,6" />
+                        <!-- Tight at the top so 8 rows fit a small screen without scrolling. -->
+                        <StackPanel Margin="14,2,14,6">
+                            <Grid x:Name="VenteListHeaderRow" Margin="0,0,0,2" />
                             <ItemsControl x:Name="VenteListRows" />
                         </StackPanel>
                     </ScrollViewer>
@@ -437,7 +440,8 @@
                          to scroll the rest into view. Disabling it here hands all vertical
                          scrolling to ProductScroll, so a row is either fully shown or fully
                          scrolled past, never sliced in half. -->
-                    <ScrollViewer x:Name="ProductScroll" VerticalScrollBarVisibility="Auto">
+                    <ScrollViewer x:Name="ProductScroll" VerticalScrollBarVisibility="Auto"
+                                  ScrollChanged="ProductScroll_ScrollChanged">
                         <ListBox x:Name="ProductGrid" Background="Transparent" BorderThickness="0"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  ScrollViewer.VerticalScrollBarVisibility="Disabled"

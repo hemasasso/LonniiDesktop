@@ -11,7 +11,8 @@ namespace Lonnii.Client.Features.Auth;
 /// </summary>
 internal static class SetupRestore
 {
-    public static async Task OfferAsync(Window owner, AppSession session, BackupInfoDto backup, Action<bool, string?> setBusy)
+    public static async Task OfferAsync(
+        Window owner, AppSession session, BackupInfoDto backup, Action<bool, string?> setBusy, string? groupId = null)
     {
         var when = backup.SnapshotAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm");
 
@@ -27,7 +28,7 @@ internal static class SetupRestore
         setBusy(true, "Restauration en cours… (peut durer quelques minutes)");
         try
         {
-            var restored = await session.Api.RestoreFromCloudAtSetupAsync();
+            var restored = await session.Api.RestoreFromCloudAtSetupAsync(groupId);
 
             MessageBox.Show(owner,
                 $"Restauration terminée : {restored.RecordCount} enregistrements, {restored.ImageCount} images.",

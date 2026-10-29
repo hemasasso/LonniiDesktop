@@ -129,6 +129,17 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
             // The live column is jsonb; Npgsql would otherwise send the string as text and be refused.
             b.Entity<GroupePayment>().Property(x => x.FacturesData).HasColumnType("jsonb");
 
+            // Lonnii Business's live data leaves text empty that the desktop requires (a sale line
+            // with no product name, for one), and reading a NULL into a required string throws.
+            // On PostgreSQL text is read as optional; whoever copies it to a desktop fills the gap.
+            // Keys stay required. The desktop's own SQLite model is untouched.
+            foreach (var entity in b.Model.GetEntityTypes())
+            foreach (var property in entity.GetProperties())
+            {
+                if (property.ClrType == typeof(string) && !property.IsNullable && !property.IsKey() && !property.IsForeignKey())
+                    property.IsNullable = true;
+            }
+
         }
 
         // Integer-keyed tables also carry a GUID that live sync matches rows by (see ISyncable).

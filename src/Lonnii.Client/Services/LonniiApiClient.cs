@@ -899,8 +899,10 @@ public class LonniiApiClient
 
     /// <summary>First launch only: restores a freshly set-up host from the cloud copy,
     /// before anyone has signed in.</summary>
-    public Task<EspaceImportResultDto> RestoreFromCloudAtSetupAsync(CancellationToken ct = default) =>
-        PostTransferAsync("api/setup/restore", ct);
+    /// <summary>Restores an espace just installed on this computer. <paramref name="groupId"/> names it
+    /// when the computer already has others.</summary>
+    public Task<EspaceImportResultDto> RestoreFromCloudAtSetupAsync(string? groupId = null, CancellationToken ct = default) =>
+        PostTransferAsync(groupId is null ? "api/setup/restore" : $"api/setup/restore?groupId={Uri.EscapeDataString(groupId)}", ct);
 
     private async Task<EspaceImportResultDto> PostTransferAsync(string url, CancellationToken ct)
     {

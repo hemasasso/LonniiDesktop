@@ -121,7 +121,10 @@ public static class SetupEndpoints
         // Everything below is local. The server's answer is the authority for mode,
         // max_devices and the currency - never the file, which the customer holds and
         // could have edited before we started checking signatures on it.
-        var admin = new User
+        // A second shop added to this computer by the same person: their account is already here.
+        var knownUser = await db.Users.FirstOrDefaultAsync(u => u.Email == adminEmail, ct);
+
+        var admin = knownUser ?? new User
         {
             Email = adminEmail,
             Password = BCrypt.Net.BCrypt.HashPassword(adminPassword),
@@ -145,8 +148,11 @@ public static class SetupEndpoints
             LastLicenceCheckAt = activation.ActivatedAt,
         };
 
-        db.Users.Add(admin);
-        db.PasswordHistories.Add(new PasswordHistory { IdUser = admin.IdUser, PasswordHash = admin.Password! });
+        if (knownUser is null)
+        {
+            db.Users.Add(admin);
+            db.PasswordHistories.Add(new PasswordHistory { IdUser = admin.IdUser, PasswordHash = admin.Password! });
+        }
         db.Groupes.Add(groupe);
         db.GroupMembers.Add(new GroupMember { IdGroupe = groupe.Id, IdUser = admin.IdUser });
         db.UserRoles.Add(new UserRole
@@ -199,18 +205,27 @@ public static class SetupEndpoints
     }
 
     private static async Task<IResult> RestoreAsync(
-        LonniiDbContext db, CloudRestoreService restore, CancellationToken ct)
+        LonniiDbContext db, CloudRestoreService restore, string? groupId, CancellationToken ct)
     {
-        // A host with several espaces is not a fresh install, and restoring "the" workspace
-        // would be a guess.
-        var ids = await db.Groupes.Select(g => g.Id).Take(2).ToListAsync(ct);
-        if (ids.Count != 1)
+        // An espace just added to a computer that has others names itself; on a fresh install the
+        // only espace is meant. Either way the restore only ever loads into an empty espace (see
+        // EspaceTransferService.RestoreAsync), so it cannot overwrite a shop's data.
+        if (string.IsNullOrWhiteSpace(groupId))
         {
-            return Results.Json(
-                new ApiError("La restauration au premier lancement ne s'applique qu'à une installation avec un seul espace."),
-                statusCode: StatusCodes.Status409Conflict);
+            var ids = await db.Groupes.Select(g => g.Id).Take(2).ToListAsync(ct);
+            if (ids.Count != 1)
+            {
+                return Results.Json(
+                    new ApiError("Précisez l'espace à restaurer."),
+                    statusCode: StatusCodes.Status409Conflict);
+            }
+            groupId = ids[0];
+        }
+        else if (!await db.Groupes.AnyAsync(g => g.Id == groupId, ct))
+        {
+            return Results.NotFound(new ApiError("Espace introuvable."));
         }
 
-        return CloudBackupEndpoints.ToResult(await restore.RestoreAsync(ids[0], ct));
+        return CloudBackupEndpoints.ToResult(await restore.RestoreAsync(groupId, ct));
     }
 }

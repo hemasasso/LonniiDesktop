@@ -54,6 +54,9 @@ internal sealed class EspaceCopier(
     private readonly Dictionary<string, string> _venteIds = new(StringComparer.Ordinal);
     private Dictionary<int, int> _caisseIds = [];
 
+    // Old product id -> its name, for a sale line the source left without one.
+    private readonly Dictionary<string, string> _productNames = new(StringComparer.Ordinal);
+
     /// <summary>How many rows were copied per table, in the order they were copied.</summary>
     public IReadOnlyList<EspaceTransferSectionDto> Sections => _sections;
 
@@ -111,6 +114,7 @@ internal sealed class EspaceCopier(
             row.Supplier = null;
             row.CategoryId = Lookup(_categoryIds, row.CategoryId);
             row.SupplierId = Lookup(_supplierIds, row.SupplierId);
+            _productNames[row.Id] = row.Name;
             row.Id = Renew(row.Id, _productIds);
 
             // After the new id: the stored filename is built from it, and that is what
@@ -218,6 +222,14 @@ internal sealed class EspaceCopier(
 
             row.Vente = null;
             row.VenteId = venteId;
+
+            // Lonnii Business's live data has lines with no name: take the product's, which is
+            // what the receipt shows - as its own desktop export does.
+            if (string.IsNullOrEmpty(row.NomProduit) && row.ProductId is { } productId
+                && _productNames.TryGetValue(productId, out var name))
+            {
+                row.NomProduit = name;
+            }
 
             // Null when the product was deleted before the export; NomProduit carries the
             // name, which is what the receipt prints either way.
@@ -486,6 +498,18 @@ internal sealed class EspaceCopier(
         _sections.Add(new EspaceTransferSectionDto(label, rows.Count));
 
         if (rows.Count == 0) return;
+
+        // Text the desktop requires but the source left empty (read as null on our server, see
+        // LonniiDbContext) is written as empty text rather than failing the whole copy.
+        var required = target.Model.FindEntityType(typeof(T))!.GetProperties()
+            .Where(p => p.ClrType == typeof(string) && !p.IsNullable && p.PropertyInfo is not null)
+            .Select(p => p.PropertyInfo!)
+            .ToList();
+        foreach (var row in rows)
+        foreach (var property in required)
+        {
+            if (property.GetValue(row) is null) property.SetValue(row, string.Empty);
+        }
 
         // A copy is a new row, like its renumbered key: keeping the original's sync id would
         // collide with it on the same host, and live sync would take one for the other.

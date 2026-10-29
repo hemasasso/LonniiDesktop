@@ -107,6 +107,44 @@ public class HostRegistrationTests : IAsyncLifetime
     private async Task<PendingRegistrationDto> PendingAsync() =>
         (await _client.GetFromJsonAsync<PendingRegistrationDto>("/api/setup/register/pending"))!;
 
+    private Task<HttpResponseMessage> Install(string groupId, string? bearer = null)
+    {
+        var message = new HttpRequestMessage(HttpMethod.Post, "/api/setup/account/install")
+        {
+            Content = JsonContent.Create(new SetupInstallEspaceRequest(Email, Password, groupId, "machine-1", "poste")),
+        };
+        if (bearer is not null) message.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearer);
+        return _client.SendAsync(message);
+    }
+
+    /// <summary>
+    /// "J'ai déjà un compte" installs every shop the account runs, one after another - but once the
+    /// computer has a shop, adding another needs someone signed in here: anonymous calls on the
+    /// shop's network must not graft an espace onto it.
+    /// </summary>
+    [Fact]
+    public async Task More_shops_can_be_added_but_only_by_someone_signed_in()
+    {
+        _licences.Approved = true;
+        const string second = "7d1f0c2e-3b4a-4c5d-8e9f-0a1b2c3d4e5f";
+
+        Assert.Equal(HttpStatusCode.OK, (await Install(GroupId)).StatusCode);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Install(second)).StatusCode);
+
+        var login = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest(Email, Password));
+        var token = (await login.Content.ReadFromJsonAsync<LoginResponse>())!.AccessToken;
+
+        Assert.Equal(HttpStatusCode.OK, (await Install(second, token)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await Install(second, token)).StatusCode);
+
+        // The same person on both shops: one account, not two.
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+        Assert.Equal(1, await db.Users.CountAsync(u => u.Email == Email));
+        Assert.Equal(2, await db.Groupes.CountAsync());
+    }
+
     [Fact]
     public async Task Registration_goes_to_the_licence_server_named_in_configuration()
     {

@@ -68,11 +68,32 @@ public static class HostRegistrationEndpoints
         account.MapPost("/install", InstallAsync);
     }
 
+    /// <summary>
+    /// "J'ai déjà un compte" works on a fresh computer, and again to add more of the account's
+    /// shops to one already set up. That second case grafts an espace onto a running host, so it
+    /// needs someone signed in here as well as the shop's own admin password, which our server checks.
+    /// </summary>
+    private static async Task<IResult?> AccountGuardAsync(
+        LonniiDbContext db, IConfiguration config, HttpContext http, CancellationToken ct)
+    {
+        if (await db.Groupes.AnyAsync(ct) && http.User.Identity?.IsAuthenticated != true)
+            return Refuse("Connectez-vous d'abord pour ajouter un espace à cet ordinateur.", StatusCodes.Status401Unauthorized);
+
+        if (string.IsNullOrWhiteSpace(ServerUrl(config)))
+        {
+            return Refuse(
+                "Cette installation ne connaît pas l'adresse du serveur Lonnii.",
+                StatusCodes.Status503ServiceUnavailable);
+        }
+
+        return null;
+    }
+
     private static async Task<IResult> AccountEspacesAsync(
         AccountEspacesRequest request, LonniiDbContext db, ILicenceServer licences,
-        IConfiguration config, CancellationToken ct)
+        IConfiguration config, HttpContext http, CancellationToken ct)
     {
-        if (await GuardAsync(db, config, ct) is { } refusal) return refusal;
+        if (await AccountGuardAsync(db, config, http, ct) is { } refusal) return refusal;
 
         try
         {
@@ -91,9 +112,12 @@ public static class HostRegistrationEndpoints
     /// </summary>
     private static async Task<IResult> InstallAsync(
         SetupInstallEspaceRequest request, LonniiDbContext db, ILicenceServer licences,
-        CloudBackupClient backups, IConfiguration config, CancellationToken ct)
+        CloudBackupClient backups, IConfiguration config, HttpContext http, CancellationToken ct)
     {
-        if (await GuardAsync(db, config, ct) is { } refusal) return refusal;
+        if (await AccountGuardAsync(db, config, http, ct) is { } refusal) return refusal;
+
+        if (await db.Groupes.AnyAsync(g => g.Id == request.GroupId, ct))
+            return Refuse("Cet espace est déjà installé sur cet ordinateur.", StatusCodes.Status409Conflict);
 
         if (string.IsNullOrWhiteSpace(request.DeviceId))
             return Results.BadRequest(new ApiError("Identifiant de poste manquant."));

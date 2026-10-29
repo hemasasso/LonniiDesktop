@@ -64,6 +64,10 @@ public partial class GroupPickerWindow : Window
                 return;
             }
 
+            // Any of the account's other shops can be brought here; who may is checked by our server.
+            AddExistingButton.Visibility = _session.IsRemote ? Visibility.Collapsed : Visibility.Visible;
+            _installedIds = groupes.Select(g => g.Id).ToList();
+
             // Only an admin of an espace may open another one, confirming with their own password.
             CreateButton.Visibility = !_session.IsRemote
                                       && groupes.Any(g => g.IsAdminGeneral || GroupRoles.IsAdminRole(g.Role))
@@ -208,6 +212,18 @@ public partial class GroupPickerWindow : Window
 
     // -----------------------------------------------------------------------
     // Create
+
+    private List<string> _installedIds = [];
+
+    /// <summary>Installs another of the account's existing shops on this computer, with its data.</summary>
+    private async void AddExisting_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new ExistingAccountWindow(_session.User?.Email, _installedIds) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        HideError();
+        await LoadAsync();
+    }
 
     /// <summary>Creates a group. The creator becomes its Admin Général.</summary>
     private async void Create_Click(object sender, RoutedEventArgs e)

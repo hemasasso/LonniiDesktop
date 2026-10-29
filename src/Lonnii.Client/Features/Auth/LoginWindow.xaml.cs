@@ -201,24 +201,6 @@ public partial class LoginWindow : Window
     }
 
     /// <summary>
-    /// The supplied path: the credentials file creates the workspace and its administrator,
-    /// after our licence server confirms the shop is one we registered.
-    /// </summary>
-    private async void Activate_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new FirstLaunchWindow { Owner = this };
-        if (dialog.ShowDialog() != true) return;
-
-        PasswordBox.Clear();
-        HideError();
-
-        await CheckSetupStateAsync();
-
-        IdentifierBox.Focus();
-        HostHint.Text = "Espace activé. Connectez-vous avec le compte administrateur.";
-    }
-
-    /// <summary>
     /// Someone who already has a Lonnii account installs one of their espaces on this computer.
     /// </summary>
     private async void ExistingAccount_Click(object sender, RoutedEventArgs e)

@@ -652,12 +652,12 @@
                             </StackPanel>
                         </Border>
 
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                            <CheckBox x:Name="VenteRapideCheck" Content="Paiement"
-                                      Margin="0,0,16,0" />
-                            <CheckBox x:Name="AvecFactureCheck" Content="Facture"
+                        <!-- Paiement on the left, Facture on the right edge. -->
+                        <DockPanel Margin="0,0,0,6" LastChildFill="False">
+                            <CheckBox x:Name="AvecFactureCheck" Content="Facture" DockPanel.Dock="Right"
                                       Checked="AvecFacture_Checked" Unchecked="AvecFacture_Unchecked" />
-                        </StackPanel>
+                            <CheckBox x:Name="VenteRapideCheck" Content="Paiement" DockPanel.Dock="Left" />
+                        </DockPanel>
 
                         <!-- Shown instead of the checkboxes above for a user without
                              can_add_payment: their cart can only produce an unpaid facture. -->

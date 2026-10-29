@@ -11,7 +11,7 @@ namespace Lonnii.Client.Features.Auth;
 /// registration. If the espace has an online backup, it is offered straight away.
 ///
 /// <para>
-/// As in <see cref="FirstLaunchWindow"/>, nothing is decided here: the host asks our licence
+/// Nothing is decided here: the host asks our licence
 /// server, which checks the password and the account's right to the espace.
 /// </para>
 /// </summary>
@@ -22,9 +22,13 @@ public partial class ExistingAccountWindow : Window
     /// <summary>The address used, so sign-in can be pre-filled with it.</summary>
     public string? SignedInEmail { get; private set; }
 
-    public ExistingAccountWindow(string? email = null)
+    // Espaces already on this computer, left out of the list when adding another.
+    private readonly HashSet<string> _installed;
+
+    public ExistingAccountWindow(string? email = null, IEnumerable<string>? installed = null)
     {
         InitializeComponent();
+        _installed = new HashSet<string>(installed ?? [], StringComparer.OrdinalIgnoreCase);
         EmailBox.Text = email ?? string.Empty;
         Loaded += (_, _) =>
         {
@@ -50,14 +54,18 @@ public partial class ExistingAccountWindow : Window
         SetBusy(true, "Recherche de vos espaces…");
         try
         {
-            var espaces = await _session.Api.GetAccountEspacesAsync(email, PasswordBox.Password);
+            var espaces = (await _session.Api.GetAccountEspacesAsync(email, PasswordBox.Password))
+                .Where(x => !_installed.Contains(x.GroupId))
+                .ToList();
             HideError();
 
             if (espaces.Count == 0)
             {
                 EspacePanel.Visibility = Visibility.Collapsed;
-                ShowError("Ce compte n'administre aucun espace approuvé. Un membre qui n'est pas administrateur " +
-                          "demande à son administrateur d'installer l'espace.");
+                ShowError(_installed.Count > 0
+                    ? "Tous les espaces que ce compte administre sont déjà sur cet ordinateur."
+                    : "Ce compte n'administre aucun espace approuvé. Un membre qui n'est pas administrateur " +
+                      "demande à son administrateur d'installer l'espace.");
                 return;
             }
 
@@ -100,7 +108,7 @@ public partial class ExistingAccountWindow : Window
                 "Installation réussie", MessageBoxButton.OK, MessageBoxImage.Information);
 
             if (result.CloudBackup is { } backup)
-                await SetupRestore.OfferAsync(this, _session, backup, SetBusy);
+                await SetupRestore.OfferAsync(this, _session, backup, SetBusy, result.GroupId);
 
             DialogResult = true;
         }

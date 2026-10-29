@@ -210,6 +210,9 @@
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                 <Button x:Name="CreateButton" Content="Créer un espace…" Visibility="Collapsed"
                         Style="{StaticResource SecondaryButton}" Click="Create_Click" />
+                <!-- Another of your shops that already exists online, brought onto this computer. -->
+                <Button x:Name="AddExistingButton" Content="Ajouter un espace existant…" Visibility="Collapsed"
+                        Margin="8,0,0,0" Style="{StaticResource SecondaryButton}" Click="AddExisting_Click" />
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">

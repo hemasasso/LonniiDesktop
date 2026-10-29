@@ -27,6 +27,7 @@ public static class GroupEndpoints
         groups.MapDelete("/pending/{groupId}", DismissPendingAsync);
         groups.MapPost("/{groupId}/session", OpenSessionAsync);
         groups.MapDelete("/{groupId}", DeleteAsync).RequireAuthorization();
+        groups.MapPost("/{groupId}/remove-local", RemoveFromComputerAsync).RequireAuthorization();
         groups.MapGet("/{groupId}/photo", GetPhotoAsync);
 
         var scoped = app.MapGroup("/api/groupe").WithTags("Groupes");
@@ -684,72 +685,156 @@ public static class GroupEndpoints
         // deleted, and the dashboard can remove it by hand.
         await cloud.PushDeletedAsync(groupId, ct);
 
+        await RemoveEspaceDataAsync(db, images, groupe, ct);
+
+        return Results.NoContent();
+    }
+
+    /// <summary>
+    /// Takes an espace off this computer without deleting it: the shop lives on in the Lonnii
+    /// server, its other computers and phones, and "Ajouter un espace existant" brings it back.
+    ///
+    /// <para>
+    /// Only for an online-mode shop, and only once a last backup has reached the server, so nothing
+    /// sold here is lost. A local-mode shop's only copy is this computer: removing it would be
+    /// deleting it, which is what "Supprimer l'espace" is for. Any admin of the shop may do this,
+    /// with their own password.
+    /// </para>
+    /// </summary>
+    private static async Task<IResult> RemoveFromComputerAsync(
+        string groupId,
+        DeleteGroupeRequest request,
+        ClaimsPrincipal principal,
+        LonniiDbContext db,
+        ImageStorageService images,
+        Lonnii.Api.Features.Backup.CloudBackupRunner cloud,
+        Lonnii.Api.Features.Parametres.EspaceTransferService transfers,
+        CancellationToken ct)
+    {
+        var userId = principal.FindFirstValue(TokenService.UserIdClaim)!;
+
+        var groupe = await db.Groupes.FirstOrDefaultAsync(g => g.Id == groupId, ct);
+        if (groupe is null) return Results.NotFound(new ApiError("Espace introuvable."));
+
+        var roles = await db.UserRoles
+            .Where(r => r.UserId == userId && r.GroupId == groupId && r.IsActive)
+            .Select(r => r.Role)
+            .ToListAsync(ct);
+        if (groupe.IdUserAdmin != userId && !roles.Any(GroupRoles.IsAdminRole))
+        {
+            return Results.Json(
+                new ApiError("Seul un administrateur de l'espace peut le retirer de cet ordinateur."),
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        var user = await db.Users.FirstOrDefaultAsync(u => u.IdUser == userId, ct);
+        if (string.IsNullOrEmpty(request?.Password))
+            return Results.BadRequest(new ApiError("Votre mot de passe est requis pour retirer l'espace."));
+        if (user?.Password is null || !BCrypt.Net.BCrypt.Verify(request.Password, user.Password))
+            return Results.Json(new ApiError("Mot de passe incorrect"), statusCode: StatusCodes.Status403Forbidden);
+
+        if (!DeploymentModes.RequiresSubscription(groupe.Mode) || string.IsNullOrWhiteSpace(groupe.LicenceServerUrl))
+        {
+            return Results.Json(
+                new ApiError("Cet espace est en mode local : cet ordinateur en détient la seule copie. " +
+                             "Exportez-le d'abord (Paramètres → Données de l'espace), ou supprimez-le."),
+                statusCode: StatusCodes.Status409Conflict);
+        }
+
+        // Everything sold here must be on the server before this copy goes.
+        if (await transfers.HasBusinessDataAsync(groupId, ct))
+        {
+            var last = await cloud.RunAsync(groupId, ct);
+            if (!last.Succeeded)
+            {
+                return Results.Json(
+                    new ApiError("La dernière sauvegarde en ligne a échoué, l'espace n'a pas été retiré. " +
+                                 (last.Message ?? "Vérifiez la connexion Internet, puis réessayez.")),
+                    statusCode: StatusCodes.Status409Conflict);
+            }
+        }
+
+        await RemoveEspaceDataAsync(db, images, groupe, ct);
+
+        return Results.NoContent();
+    }
+
+    /// <summary>
+    /// Removes an espace and everything in it from this computer's database, and its photos from
+    /// this disk. Says nothing to the Lonnii server: deleting the shop and only taking it off this
+    /// computer both use it, and only deleting tells the server.
+    /// </summary>
+    private static async Task RemoveEspaceDataAsync(LonniiDbContext db, ImageStorageService images, Groupe groupe, CancellationToken ct)
+    {
         // --- Children first (FK order) ---
 
         // Ventes children - VenteItem and PaiementVente have no GroupId; they are joined
         // through VenteId, so we filter via a subquery on the parent.
-        var venteIds = db.Ventes.Where(v => v.GroupId == groupId).Select(v => v.Id);
+        var venteIds = db.Ventes.Where(v => v.GroupId == groupe.Id).Select(v => v.Id);
         await db.VenteItems.Where(x => venteIds.Contains(x.VenteId)).ExecuteDeleteAsync(ct);
         await db.PaiementsVentes.Where(x => venteIds.Contains(x.VenteId)).ExecuteDeleteAsync(ct);
-        await db.VentesUserActivities.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.GroupePayments.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.Ventes.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.VentesUserActivities.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.GroupePayments.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.Ventes.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
 
         // Caisse children
-        await db.CaisseTransactions.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.Caisses.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.CaisseTransactions.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.Caisses.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
 
         // Stock children
-        await db.StockHistories.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.StockSnapshots.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.StockUserActivities.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.Products.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.Categories.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.Suppliers.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.StockSettings.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.StockHistories.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.StockSnapshots.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.StockUserActivities.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.Products.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.Categories.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.Suppliers.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.StockSettings.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
 
         // Charges
-        await db.Charges.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.ChargeCategories.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.Charges.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.ChargeCategories.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
 
         // Bilan / Comptabilite children
-        await db.AmortissementEcheances.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.Immobilisations.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.BilanEcritures.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.BilanComptes.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.ResultatComptes.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.ComptabiliteParametres.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.AmortissementEcheances.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.Immobilisations.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.BilanEcritures.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.BilanComptes.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.ResultatComptes.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.ComptabiliteParametres.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
 
         // Programme
-        await db.ProgrammeEntries.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.ProgrammeAnnouncements.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.ProgrammeEntries.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.ProgrammeAnnouncements.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
 
         // Audit
-        await db.MemberWorkLogs.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.MemberWorkLogs.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
 
         // Clients
-        await db.Clients.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.Clients.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
 
         // Receipt settings (images deleted below)
-        var parametres = await db.VentesParametres.FirstOrDefaultAsync(p => p.GroupeId == groupId, ct);
+        var parametres = await db.VentesParametres.FirstOrDefaultAsync(p => p.GroupeId == groupe.Id, ct);
 
         // Devices
-        await db.Devices.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
+        await db.Devices.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
 
         // Memberships and privileges
-        await db.OptionPrivilegeAudits.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.GestionPrivilegeAudits.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.PrivilegeAudits.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.OptionUserPrivileges.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.GestionUserPrivileges.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.GestionUserRoles.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.UserPrivileges.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.UserRoles.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.GroupeSessions.Where(x => x.GroupId == groupId).ExecuteDeleteAsync(ct);
-        await db.GroupMembers.Where(x => x.IdGroupe == groupId).ExecuteDeleteAsync(ct);
+        await db.OptionPrivilegeAudits.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.GestionPrivilegeAudits.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.PrivilegeAudits.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.OptionUserPrivileges.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.GestionUserPrivileges.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.GestionUserRoles.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.UserPrivileges.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.UserRoles.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.GroupeSessions.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.GroupMembers.Where(x => x.IdGroupe == groupe.Id).ExecuteDeleteAsync(ct);
 
         // Receipt settings row
         if (parametres is not null) db.VentesParametres.Remove(parametres);
+
+        // Its online-backup bookkeeping (the key and line it backed up on)
+        await db.CloudBackupStates.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
 
         // The espace itself
         db.Groupes.Remove(groupe);
@@ -759,8 +844,6 @@ public static class GroupEndpoints
         images.DeleteIfOwned(parametres?.LogoPath);
         images.DeleteIfOwned(parametres?.QrCodePath);
         images.DeleteIfOwned(groupe.PhotoUrl);
-
-        return Results.NoContent();
     }
 
     // --- Espace photo ------------------------------------------------------------

@@ -208,6 +208,13 @@ public class LonniiApiClient
     public Task DeleteGroupeAsync(string groupId, string password, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Delete, $"api/groupes/{groupId}", new DeleteGroupeRequest(password), ct);
 
+    /// <summary>
+    /// Takes an espace off this computer without deleting it - online-mode shops only, after a last
+    /// backup. Any admin of the espace, with their own password.
+    /// </summary>
+    public Task RemoveGroupeFromComputerAsync(string groupId, string password, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, $"api/groupes/{groupId}/remove-local", new DeleteGroupeRequest(password), ct);
+
     /// <summary>Closes the current group session (the x-group-session token).</summary>
     public Task CloseGroupSessionAsync(CancellationToken ct = default) =>
         SendAsync(HttpMethod.Delete, "api/groupe/session", null, ct);

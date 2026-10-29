@@ -1,8 +1,12 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using Lonnii.Data;
 using Lonnii.Shared.Contracts;
+using Lonnii.Shared.Security;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Lonnii.Tests;
 
@@ -105,6 +109,46 @@ public class DeleteEspaceTests : IAsyncLifetime
         var response = await DeleteAsync(OwnerPassword);
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.False(await EspaceExistsAsync());
+    }
+
+    // --- Taking it off this computer only ---
+
+    private async Task<HttpResponseMessage> RemoveLocalAsync(string password)
+    {
+        var request = Authorized(HttpMethod.Post, $"/api/groupes/{_groupId}/remove-local");
+        request.Content = JsonContent.Create(new DeleteGroupeRequest(password));
+        return await _client.SendAsync(request);
+    }
+
+    /// <summary>A local-mode shop's only copy is this computer: "removing" it would be deleting it.</summary>
+    [Fact]
+    public async Task A_local_mode_espace_cannot_be_taken_off_this_computer()
+    {
+        var response = await RemoveLocalAsync(OwnerPassword);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("mode local", (await response.Content.ReadFromJsonAsync<ApiError>())!.Error);
+        Assert.True(await EspaceExistsAsync());
+    }
+
+    [Fact]
+    public async Task An_online_espace_is_taken_off_this_computer_with_the_right_password()
+    {
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+            var groupe = await db.Groupes.SingleAsync(g => g.Id == _groupId);
+            groupe.Mode = DeploymentModes.Online;
+            groupe.LicenceServerUrl = "https://licences.lonnii.test";
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await RemoveLocalAsync("pas-le-bon")).StatusCode);
+        Assert.True(await EspaceExistsAsync());
+
+        // Empty, so no last backup is needed before it goes.
+        Assert.Equal(HttpStatusCode.NoContent, (await RemoveLocalAsync(OwnerPassword)).StatusCode);
         Assert.False(await EspaceExistsAsync());
     }
 }

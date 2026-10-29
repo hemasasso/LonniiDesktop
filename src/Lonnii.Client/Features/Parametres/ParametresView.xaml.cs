@@ -53,6 +53,9 @@ public partial class ParametresView : UserControl
 
         // Deleting is the creator's alone, as on the API.
         DeleteEspacePanel.Visibility = _session.IsAdminGeneral ? Visibility.Visible : Visibility.Collapsed;
+        // From a distance there is no "this computer" to take the shop off.
+        RemoveLocalPanel.Visibility = !_session.IsRemote && (_session.IsAdminGeneral || _session.IsAdmin)
+            ? Visibility.Visible : Visibility.Collapsed;
 
         // The API only lets an admin change the photo, so only an admin is offered it.
         PhotoPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
@@ -235,6 +238,40 @@ public partial class ParametresView : UserControl
         catch (ApiException ex)
         {
             DeleteEspaceStatusText.Text = ex.Message;
+        }
+    }
+
+    // --- Take the espace off this computer ------------------------------------------
+
+    private async void RemoveLocal_Click(object sender, RoutedEventArgs e)
+    {
+        var groupe = _session.Groupe;
+        if (groupe is null) return;
+
+        var password = Lonnii.Client.Common.PasswordPromptDialog.Show(
+            Window.GetWindow(this)!, "Retirer de cet ordinateur",
+            $"« {groupe.Nom} » sera retiré de cet ordinateur, après une dernière sauvegarde en ligne. " +
+            "Il n'est pas supprimé.\n\nEntrez votre mot de passe pour confirmer.");
+        if (password is null) return;
+
+        RemoveLocalStatusText.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondary");
+        RemoveLocalStatusText.Text = "Dernière sauvegarde en cours…";
+        Cursor = System.Windows.Input.Cursors.Wait;
+        try
+        {
+            await _session.Api.RemoveGroupeFromComputerAsync(groupe.Id, password);
+            RemoveLocalStatusText.Text = string.Empty;
+            // Same as a deletion for this window: the espace is gone from here, choose another.
+            EspaceDeleted?.Invoke(this, EventArgs.Empty);
+        }
+        catch (ApiException ex)
+        {
+            RemoveLocalStatusText.Foreground = (System.Windows.Media.Brush)FindResource("Danger");
+            RemoveLocalStatusText.Text = ex.Message;
+        }
+        finally
+        {
+            Cursor = null;
         }
     }
 

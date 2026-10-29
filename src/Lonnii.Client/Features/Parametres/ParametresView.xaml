@@ -129,6 +129,25 @@
                     </Border>
                 </StackPanel>
 
+                <!-- Take the espace off this computer only (admins; online-mode shops, the API checks). -->
+                <StackPanel x:Name="RemoveLocalPanel" Visibility="Collapsed">
+                    <TextBlock Text="RETIRER DE CET ORDINATEUR" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12">
+                        <StackPanel>
+                            <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource TextSecondary}" FontSize="12"
+                                       Text="Retire cet espace de cet ordinateur sans le supprimer : il reste en ligne, sur ses autres postes et téléphones. Une dernière sauvegarde est envoyée d'abord. Vous pourrez le réinstaller avec « Ajouter un espace existant »." />
+                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                <Button Content="Retirer de cet ordinateur…" Style="{StaticResource SecondaryButton}"
+                                        Click="RemoveLocal_Click" />
+                                <TextBlock x:Name="RemoveLocalStatusText" Margin="12,0,0,0"
+                                           VerticalAlignment="Center" FontSize="12" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource Danger}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
                 <!-- Delete the espace (Admin Général only: the API refuses anyone else). -->
                 <StackPanel x:Name="DeleteEspacePanel" Visibility="Collapsed">
                     <TextBlock Text="SUPPRIMER L'ESPACE" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />

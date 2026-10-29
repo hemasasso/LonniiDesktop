@@ -744,12 +744,15 @@ public partial class MainWindow : Window
     private void About_Click(object sender, RoutedEventArgs e)
     {
         // No web address on screen: from afar it is simply "Lonnii"; at the shop, the server's machine.
+        // 127.0.0.1 means nothing to a shop: on the main computer, say so in words.
         var server = _session.IsRemote
             ? "Lonnii"
-            : Uri.TryCreate(_session.Api.BaseAddress, UriKind.Absolute, out var address) ? address.Host : _session.Api.BaseAddress;
+            : AppUpdater.ServerIsThisComputer(_session.Api.BaseAddress)
+                ? "cet ordinateur (ordinateur principal)"
+                : Uri.TryCreate(_session.Api.BaseAddress, UriKind.Absolute, out var address) ? address.Host : _session.Api.BaseAddress;
 
         MessageBox.Show(this,
-            "Lonnii Business — poste Windows\n\n" +
+            $"Lonnii Business {AppUpdater.CurrentVersion} — poste Windows\n\n" +
             $"Serveur : {server}\n" +
             $"Espace : {_session.Groupe?.Nom}\n" +
             $"Utilisateur : {_session.DisplayName}\n\n" +

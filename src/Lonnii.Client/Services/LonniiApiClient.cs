@@ -1107,6 +1107,39 @@ public class LonniiApiClient
             response.StatusCode, error?.Required);
     }
 
+    // --- Updates ---
+
+    /// <summary>
+    /// The newest version the shop's main computer holds for its tills, or null when it has none
+    /// (a local-mode shop, nothing published, or a host too old to know about updates).
+    /// </summary>
+    public async Task<Lonnii.Shared.Security.UpdateManifest?> LatestUpdateAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await SendTransferAsync(HttpMethod.Get, "api/updates/latest", null, ct);
+            if (response.StatusCode == HttpStatusCode.NoContent) return null;
+            return await response.Content.ReadFromJsonAsync<Lonnii.Shared.Security.UpdateManifest>(JsonOptions, ct);
+        }
+        catch (ApiException e) when (e.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Saves the installer the main computer holds to <paramref name="path"/>.</summary>
+    public async Task DownloadUpdateAsync(string fileName, string path, CancellationToken ct = default)
+    {
+        using var response = await SendTransferAsync(
+            HttpMethod.Get, "api/updates/files/" + Uri.EscapeDataString(fileName), null, ct);
+        await using var file = File.Create(path);
+        await response.Content.CopyToAsync(file, ct);
+    }
+
+    /// <summary>Asks the main computer to install the update on itself, silently, as its service.</summary>
+    public Task InstallServerUpdateAsync(CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, "api/updates/install", new { }, ct);
+
     // --- Images ---
 
     /// <summary>Uploads a product photo, replacing whatever was there before.</summary>

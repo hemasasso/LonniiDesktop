@@ -109,6 +109,18 @@
                        Foreground="{DynamicResource TextPrimary}" />
         </Border>
 
+        <!-- A new version held by the shop's main computer; admins only. -->
+        <Border x:Name="UpdateBanner" DockPanel.Dock="Top" Visibility="Collapsed"
+                Background="{DynamicResource AccentLight}"
+                BorderBrush="{DynamicResource Accent}" BorderThickness="0,0,0,1" Padding="14,5">
+            <DockPanel>
+                <Button x:Name="UpdateInstallButton" DockPanel.Dock="Right" Content="Installer maintenant"
+                        Padding="12,3" Margin="12,0,0,0" Click="UpdateInstall_Click" />
+                <TextBlock x:Name="UpdateBannerText" TextWrapping="Wrap" FontSize="12" VerticalAlignment="Center"
+                           Foreground="{DynamicResource TextPrimary}" />
+            </DockPanel>
+        </Border>
+
         <!--
           Top navigation. Replaces the old menu bar and left sidebar: every module the
           user can reach now lives in this one bar, either as a direct pill (Chat,

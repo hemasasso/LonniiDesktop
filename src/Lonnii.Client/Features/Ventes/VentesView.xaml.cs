@@ -34,6 +34,9 @@ public partial class VentesView : UserControl
     private readonly List<CartLine> _cart = [];
     private string _modePaiement = "cash";
 
+    /// <summary>True while the cart holds something: a sale is being rung up on this computer.</summary>
+    public bool SaleInProgress => _cart.Count > 0;
+
     private string _activeTab = "nouvelle";
 
     // --- Liste des Ventes ---

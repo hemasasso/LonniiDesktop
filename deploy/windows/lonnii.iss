@@ -52,6 +52,10 @@ Source: "{#PublishDir}\Api\*"; DestDir: "{app}\Api"; Components: api; Flags: rec
 Type: files; Name: "{autodesktop}\Lonnii.lnk"
 Type: filesandordirs; Name: "{autoprograms}\Lonnii"
 
+[UninstallDelete]
+; The verified copy of an update the API last launched (see UpdateInstallEndpoints).
+Type: filesandordirs; Name: "{app}\Api\update-run"
+
 [Icons]
 Name: "{group}\Lonnii Business"; Filename: "{app}\Client\Lonnii.Client.exe"
 Name: "{autodesktop}\Lonnii Business"; Filename: "{app}\Client\Lonnii.Client.exe"

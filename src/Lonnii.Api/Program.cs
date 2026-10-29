@@ -158,6 +158,7 @@ builder.Services.AddScoped<CloudBackupClient>();
 builder.Services.AddScoped<CloudBackupRunner>();
 builder.Services.AddScoped<CloudRestoreService>();
 builder.Services.AddScoped<Lonnii.Api.Features.Updates.UpdateDownloader>();
+builder.Services.AddSingleton<Lonnii.Api.Features.Updates.IUpdateLauncher, Lonnii.Api.Features.Updates.ScheduledTaskLauncher>();
 // On the licence server: a shop with no host gets its backup built from the live data (see LiveSnapshotBuilder).
 builder.Services.AddScoped<LiveSnapshotBuilder>();
 // The sending side of the backup belongs to a shop's own host (SQLite). The licence server runs on
@@ -292,6 +293,8 @@ app.MapCloudBackupEndpoints();
 app.MapImageEndpoints();
 app.MapDesktopAdminEndpoints();
 app.MapUpdateEndpoints();
+// Installing is a shop computer's business; the licence server never installs anything.
+if (!databaseOptions.IsPostgres) app.MapUpdateInstallEndpoints();
 
 /// <summary>Lets a client confirm it is talking to a Lonnii host before signing in.</summary>
 app.MapGet("/api/health", () => Results.Ok(new

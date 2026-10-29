@@ -62,6 +62,11 @@ public partial class MainWindow : Window
         _licenceTimer.Tick += async (_, _) => await SyncLicenceAsync();
         _licenceTimer.Start();
         _session.Changed += (_, _) => _ = SyncLicenceAsync(onlyIfStale: true);
+
+        _updateTimer.Tick += async (_, _) => await CheckForUpdateAsync();
+        _updateTimer.Start();
+        Loaded += async (_, _) => await CheckForUpdateAsync();
+        _session.Changed += async (_, _) => await CheckForUpdateAsync();
         Closing += (_, _) =>
         {
             EndPresence();
@@ -69,7 +74,91 @@ public partial class MainWindow : Window
         };
 
         // After a sign-out the app lives on, so a closed shell must not keep polling.
-        Closed += (_, _) => _licenceTimer.Stop();
+        Closed += (_, _) =>
+        {
+            _licenceTimer.Stop();
+            _updateTimer.Stop();
+        };
+    }
+
+    // --- Updates ---
+
+    /// <summary>Hourly: the main computer itself only looks for new versions every six hours.</summary>
+    private readonly System.Windows.Threading.DispatcherTimer _updateTimer = new() { Interval = TimeSpan.FromHours(1) };
+
+    private Lonnii.Shared.Security.UpdateManifest? _update;
+
+    /// <summary>
+    /// Shows the banner when the shop's main computer holds a newer version. Admins only: the
+    /// install closes the app (and, on the main computer, briefly the tills' server), so it is
+    /// theirs to time. Quiet on any failure - an update can always wait for the next check.
+    /// </summary>
+    private async Task CheckForUpdateAsync()
+    {
+        if (_session.IsRemote || !(_session.IsAdmin || _session.IsAdminGeneral))
+        {
+            UpdateBanner.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        try
+        {
+            var manifest = await _session.Api.LatestUpdateAsync();
+            _update = manifest is not null && manifest.IsNewerThan(AppUpdater.CurrentVersion) ? manifest : null;
+        }
+        catch (Exception ex) when (ex is ApiException or System.Net.Http.HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            return;
+        }
+
+        if (_update is null)
+        {
+            UpdateBanner.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        UpdateBannerText.Text = $"Nouvelle version de Lonnii disponible : {_update.Version} (vous avez {AppUpdater.CurrentVersion})."
+            + (string.IsNullOrWhiteSpace(_update.Notes) ? "" : " " + _update.Notes.Trim());
+        UpdateBanner.Visibility = Visibility.Visible;
+    }
+
+    private async void UpdateInstall_Click(object sender, RoutedEventArgs e)
+    {
+        if (_update is not { } update) return;
+
+        // Installing closes the app: a cart being rung up would be lost.
+        if (_openModules.Values.OfType<Features.Ventes.VentesView>().Any(v => v.SaleInProgress))
+        {
+            MessageBox.Show(this,
+                "Une vente est en cours sur cet ordinateur. Terminez-la ou videz le panier, puis installez la mise à jour.",
+                "Mise à jour de Lonnii", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var onServer = AppUpdater.ServerIsThisComputer(_session.Api.BaseAddress);
+        var message = $"Installer la version {update.Version} maintenant ?\n\n"
+            + "Lonnii va se fermer pendant l'installation (quelques minutes), puis se rouvrir tout seul.";
+        if (onServer)
+            message += "\n\nC'est l'ordinateur principal : les caisses reliées seront déconnectées pendant l'installation.";
+
+        if (MessageBox.Show(this, message, "Mise à jour de Lonnii", MessageBoxButton.YesNo, MessageBoxImage.Question)
+            != MessageBoxResult.Yes)
+            return;
+
+        UpdateInstallButton.IsEnabled = false;
+        UpdateBannerText.Text = "Préparation de la mise à jour…";
+
+        var error = await AppUpdater.InstallAsync(_session.Api, update);
+        if (error is null)
+        {
+            EndPresence();
+            Application.Current.Shutdown();
+            return;
+        }
+
+        UpdateInstallButton.IsEnabled = true;
+        await CheckForUpdateAsync();
+        MessageBox.Show(this, error, "Mise à jour de Lonnii", MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 
     // --- Licence (offline deadline) ---

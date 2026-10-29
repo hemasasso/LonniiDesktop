@@ -12,6 +12,7 @@ using Lonnii.Shared.Security;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Lonnii.Tests;
@@ -48,12 +49,14 @@ public class UpdateDownloaderTests : IAsyncLifetime
         _server = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseSetting("Lonnii:DataDirectory", _serverData);
+            builder.ConfigureServices(NoBackgroundJobs);
             builder.ConfigureServices(services =>
                 services.Replace(ServiceDescriptor.Singleton(new UpdatePaths(_serverData, publicKey))));
         });
         _host = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseSetting("Lonnii:DataDirectory", _hostData);
+            builder.ConfigureServices(NoBackgroundJobs);
             builder.ConfigureServices(services =>
             {
                 services.Replace(ServiceDescriptor.Singleton(new UpdatePaths(_hostData, publicKey)));
@@ -109,6 +112,13 @@ public class UpdateDownloaderTests : IAsyncLifetime
             catch (IOException) { }
         }
     }
+
+    /// <summary>
+    /// The backup, update and discovery jobs would otherwise run a pass of their own a minute in,
+    /// alongside the one the test runs - on a slow machine, in the middle of it.
+    /// </summary>
+    private static void NoBackgroundJobs(IServiceCollection services) =>
+        services.RemoveAll<IHostedService>();
 
     private static string NewDirectory()
     {

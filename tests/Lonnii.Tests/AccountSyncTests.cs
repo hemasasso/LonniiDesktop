@@ -9,6 +9,8 @@ using Lonnii.Shared.Security;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 
 namespace Lonnii.Tests;
 
@@ -34,10 +36,15 @@ public class AccountSyncTests : IAsyncLifetime
         _serverData = NewDirectory();
         _hostData = NewDirectory();
 
-        _server = new WebApplicationFactory<Program>().WithWebHostBuilder(b => b.UseSetting("Lonnii:DataDirectory", _serverData));
+        _server = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
+        {
+            b.UseSetting("Lonnii:DataDirectory", _serverData);
+            b.ConfigureServices(NoBackgroundJobs);
+        });
         _host = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
         {
             b.UseSetting("Lonnii:DataDirectory", _hostData);
+            b.ConfigureServices(NoBackgroundJobs);
             b.ConfigureServices(s => s.AddHttpClient(CloudBackupClient.HttpClientName)
                 .ConfigurePrimaryHttpMessageHandler(() => _server.Server.CreateHandler()));
         });
@@ -85,6 +92,13 @@ public class AccountSyncTests : IAsyncLifetime
             catch (IOException) { }
         }
     }
+
+    /// <summary>
+    /// The backup, update and discovery jobs would otherwise run a pass of their own a minute in,
+    /// alongside the one the test runs - on a slow machine, in the middle of it.
+    /// </summary>
+    private static void NoBackgroundJobs(IServiceCollection services) =>
+        services.RemoveAll<IHostedService>();
 
     private static string NewDirectory()
     {
@@ -204,6 +218,87 @@ public class AccountSyncTests : IAsyncLifetime
         var user = await FromServerAsync(db => db.Users.SingleAsync(u => u.Email == "partage@boutique-sync.bf"));
         Assert.True(BCrypt.Net.BCrypt.Verify("SonVraiMotdepasse1", user.Password));
         Assert.True(await FromServerAsync(db => db.GroupMembers.AnyAsync(m => m.IdGroupe == GroupId && m.IdUser == user.IdUser)));
+    }
+
+    /// <summary>A member added on our server - from the phone, the web, another computer.</summary>
+    private async Task<User> AddOnServerAsync(string email, string role)
+    {
+        var user = NewUser(email);
+        await OnServerAsync(db =>
+        {
+            db.Users.Add(user);
+            db.GroupMembers.Add(new GroupMember { IdGroupe = GroupId, IdUser = user.IdUser });
+            db.UserRoles.Add(new UserRole { UserId = user.IdUser, GroupId = GroupId, Role = role });
+            var viewAll = db.GestionPrivileges.Single(p => p.Name == Priv.Gestion.ViewAllVentes);
+            db.GestionUserPrivileges.Add(new GestionUserPrivilege { UserId = user.IdUser, GroupId = GroupId, PrivilegeId = viewAll.Id });
+        });
+        return user;
+    }
+
+    private async Task<T> FromHostAsync<T>(Func<LonniiDbContext, Task<T>> read)
+    {
+        using var scope = _host.Services.CreateScope();
+        return await read(scope.ServiceProvider.GetRequiredService<LonniiDbContext>());
+    }
+
+    [Fact]
+    public async Task A_member_added_on_our_server_arrives_on_the_computer_with_their_password()
+    {
+        var remote = await AddOnServerAsync("vendeur@boutique-sync.bf", GroupRoles.Member);
+
+        await SyncAsync();
+
+        var user = await FromHostAsync(db => db.Users.SingleAsync(u => u.Email == "vendeur@boutique-sync.bf"));
+        Assert.Equal(remote.IdUser, user.IdUser);
+        Assert.True(BCrypt.Net.BCrypt.Verify(Password, user.Password));
+        Assert.True(await FromHostAsync(db => db.GroupMembers.AnyAsync(m => m.IdGroupe == GroupId && m.IdUser == remote.IdUser)));
+        Assert.True(await FromHostAsync(async db => (await db.GestionUserPrivileges
+            .Where(p => p.UserId == remote.IdUser && p.GroupId == GroupId).CountAsync()) == 1));
+    }
+
+    [Fact]
+    public async Task Someone_the_computer_knows_under_another_id_takes_the_server_s_id()
+    {
+        // Created on both sides separately, before any sync: two ids for one person.
+        var remote = await AddOnServerAsync("double@boutique-sync.bf", GroupRoles.Member);
+        var local = NewUser("double@boutique-sync.bf");
+        await OnHostAsync(db =>
+        {
+            db.Users.Add(local);
+            db.Groupes.Add(new Groupe { Id = OtherGroupId, Nom = "Dépôt", IdUserAdmin = local.IdUser, Mode = DeploymentModes.Local });
+            db.GroupMembers.Add(new GroupMember { IdGroupe = OtherGroupId, IdUser = local.IdUser });
+        });
+
+        await SyncAsync();
+
+        Assert.Single(await FromHostAsync(db => db.Users.Where(u => u.Email == "double@boutique-sync.bf").ToListAsync()));
+        Assert.False(await FromHostAsync(db => db.Users.AnyAsync(u => u.IdUser == local.IdUser)));
+        // Everything that pointed at the old id follows: the other espace still has its owner.
+        Assert.Equal(remote.IdUser, await FromHostAsync(db => db.Groupes.Where(g => g.Id == OtherGroupId).Select(g => g.IdUserAdmin).SingleAsync()));
+    }
+
+    [Fact]
+    public async Task Adding_a_member_known_only_to_our_server_needs_no_password()
+    {
+        var remote = await AddOnServerAsync("nouveau@boutique-sync.bf", GroupRoles.Member);
+
+        var host = _host.CreateClient();
+        var login = (await (await host.PostAsJsonAsync("/api/auth/login", new LoginRequest(OwnerEmail, Password)))
+            .Content.ReadFromJsonAsync<LoginResponse>())!;
+        using var open = new HttpRequestMessage(HttpMethod.Post, $"/api/groupes/{GroupId}/session");
+        open.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", login.AccessToken);
+        var session = (await (await host.SendAsync(open)).Content.ReadFromJsonAsync<GroupSessionResponse>())!;
+
+        using var add = new HttpRequestMessage(HttpMethod.Post, "/api/groupe/members")
+        {
+            Content = JsonContent.Create(new AddMemberRequest("nouveau@boutique-sync.bf")),
+        };
+        add.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", login.AccessToken);
+        add.Headers.Add("x-group-session", session.SessionToken);
+        var response = await host.SendAsync(add);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(await FromHostAsync(db => db.GroupMembers.AnyAsync(m => m.IdGroupe == GroupId && m.IdUser == remote.IdUser)));
     }
 
     [Fact]

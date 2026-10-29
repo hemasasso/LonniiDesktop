@@ -39,6 +39,7 @@ public sealed class CloudBackupRunner(
     EspaceTransferPaths paths,
     ImageStorageService images,
     CloudBackupClient client,
+    IServiceScopeFactory scopes,
     ILogger<CloudBackupRunner> logger)
 {
     /// <summary>One backup at a time on this host: the schedule and the "Sauvegarder maintenant"
@@ -84,7 +85,7 @@ public sealed class CloudBackupRunner(
 
         // The people first, and even for a shop with no sales yet: a member added on this computer
         // must be able to sign in elsewhere (another computer, from afar) as soon as possible.
-        await PushAccountsAsync(groupe!, state!, ct);
+        await SyncAccountsAsync(groupe!, state!, ct);
 
         // An empty workspace has nothing worth keeping, and uploading it can only do harm: on a
         // freshly installed computer whose restore failed or was declined, it would replace the
@@ -168,20 +169,55 @@ public sealed class CloudBackupRunner(
     }
 
     /// <summary>
-    /// Sends this shop's members to our server (see <see cref="AccountSync"/>). Never fails the
+    /// This shop's members both ways (see <see cref="AccountSync"/>): ours to our server, then our
+    /// server's back here - so someone added on either side signs in on both. Never fails the
     /// backup: an older server has no such address, and the next pass simply tries again.
     /// </summary>
-    private async Task PushAccountsAsync(Groupe groupe, CloudBackupState state, CancellationToken ct)
+    private async Task SyncAccountsAsync(Groupe groupe, CloudBackupState state, CancellationToken ct)
     {
         try
         {
-            var request = await AccountSync.BuildAsync(db, groupe.Id, ct);
+            // A context of its own: merging clears what it tracks, and this pass's state row (the
+            // epoch above all) must survive to be saved at the end.
+            using var scope = scopes.CreateScope();
+            var accounts = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+
             client.For(groupe.LicenceServerUrl!, groupe.Id, state.DeviceId!, state.DeviceToken!, state.Epoch);
-            await client.PutAccountsAsync(request, ct);
+            await client.PutAccountsAsync(await AccountSync.BuildAsync(accounts, groupe.Id, ct), ct);
+
+            var theirs = await client.GetAccountsAsync(ct);
+            await AccountSync.ApplyAsync(accounts, groupe.Id, theirs, ct, fromServer: true);
         }
         catch (CloudBackupException e)
         {
-            logger.LogWarning("Membres de {GroupId} non envoyés au serveur Lonnii : {Message}", groupe.Id, e.Message);
+            logger.LogWarning("Membres de {GroupId} non synchronisés avec le serveur Lonnii : {Message}", groupe.Id, e.Message);
+        }
+    }
+
+    /// <summary>
+    /// Brings this shop's members from our server now, for "Ajouter un membre" naming someone who
+    /// exists there but not yet here. False when this is not an online shop or the server cannot
+    /// be reached.
+    /// </summary>
+    public async Task<bool> PullAccountsAsync(string groupId, CancellationToken ct)
+    {
+        var groupe = await db.Groupes.AsNoTracking().FirstOrDefaultAsync(g => g.Id == groupId, ct);
+        var state = await db.CloudBackupStates.AsNoTracking().FirstOrDefaultAsync(s => s.GroupId == groupId, ct);
+        if (WhyNotApplicable(groupe, state) is not null) return false;
+
+        try
+        {
+            using var scope = scopes.CreateScope();
+            var accounts = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+
+            client.For(groupe!.LicenceServerUrl!, groupId, state!.DeviceId!, state.DeviceToken!, state.Epoch);
+            await AccountSync.ApplyAsync(accounts, groupId, await client.GetAccountsAsync(ct), ct, fromServer: true);
+            return true;
+        }
+        catch (CloudBackupException e)
+        {
+            logger.LogWarning("Membres de {GroupId} non récupérés du serveur Lonnii : {Message}", groupId, e.Message);
+            return false;
         }
     }
 

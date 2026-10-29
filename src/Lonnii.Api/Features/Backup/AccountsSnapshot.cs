@@ -208,7 +208,7 @@ internal static class AccountsSnapshot
     };
 
     /// <summary>Moves an account from one id to another, along with every row that names it.</summary>
-    private static async Task RenumberAsync(LonniiDbContext db, string from, string to, CancellationToken ct)
+    internal static async Task RenumberAsync(LonniiDbContext db, string from, string to, CancellationToken ct)
     {
         var columns = db.Model.GetEntityTypes()
             .Where(t => t.GetTableName() is not null)

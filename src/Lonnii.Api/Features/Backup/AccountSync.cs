@@ -73,8 +73,14 @@ internal static class AccountSync
 
     // --- Our server: what it takes from it ------------------------------------------------------
 
+    /// <param name="fromServer">
+    /// False on our server, taking a shop's word: the protections above apply. True on the shop's
+    /// computer, taking our server's: it is the authority for accounts, so its values are taken as
+    /// they come (newest still wins), and a person the computer knows under another id is moved
+    /// onto ours - the id the phones and every other computer use.
+    /// </param>
     public static async Task<AccountSyncResponse> ApplyAsync(
-        LonniiDbContext db, string groupId, AccountSyncRequest request, CancellationToken ct)
+        LonniiDbContext db, string groupId, AccountSyncRequest request, CancellationToken ct, bool fromServer = false)
     {
         int created = 0, joined = 0, updated = 0;
 
@@ -87,6 +93,11 @@ internal static class AccountSync
         // foreign keys the model does not describe (see RegistrationEndpoints.VerifyAsync).
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
 
+        // Moving an account to another id changes a primary key that rows point at: SQLite allows
+        // it only with the foreign-key checks left until the commit (see AccountsSnapshot.RestoreAsync).
+        if (fromServer && !db.Database.IsNpgsql())
+            await db.Database.ExecuteSqlRawAsync("PRAGMA defer_foreign_keys = ON;", ct);
+
         foreach (var m in request.Members)
         {
             var email = m.Email?.Trim().ToLowerInvariant() ?? string.Empty;
@@ -97,6 +108,15 @@ internal static class AccountSync
 
             var user = await db.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == email, ct);
             var isNew = false;
+
+            if (fromServer && user is not null && user.IdUser != m.IdUser
+                && !await db.Users.AnyAsync(u => u.IdUser == m.IdUser, ct))
+            {
+                await AccountsSnapshot.RenumberAsync(db, user.IdUser, m.IdUser, ct);
+                db.ChangeTracker.Clear();
+                user = await db.Users.FirstAsync(u => u.IdUser == m.IdUser, ct);
+                groupe = await db.Groupes.AsNoTracking().FirstAsync(g => g.Id == groupId, ct);
+            }
 
             if (user is null)
             {
@@ -125,7 +145,7 @@ internal static class AccountSync
                 isNew = true;
                 created++;
             }
-            else if (user.IdUser != groupe.IdUserAdmin && await BelongsOnlyToAsync(db, user.IdUser, groupId, ct))
+            else if (fromServer || (user.IdUser != groupe.IdUserAdmin && await BelongsOnlyToAsync(db, user.IdUser, groupId, ct)))
             {
                 var changed = false;
 

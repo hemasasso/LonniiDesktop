@@ -454,8 +454,37 @@ public static class GroupEndpoints
         LonniiDbContext db,
         DatabaseSeeder seeder,
         ShopChangeNotifier changes,
+        Lonnii.Api.Features.Backup.CloudBackupRunner cloud,
         CancellationToken ct) =>
-        AddMemberCoreAsync(request, passwordHash: null, scope, db, seeder, changes, ct);
+        AddMemberFromHereAsync(request, scope, db, seeder, changes, cloud, ct);
+
+    /// <summary>
+    /// Someone this computer does not know, named without a password, may already be a member of
+    /// this online shop on our server (added from the phone, the web, another computer): their
+    /// account is fetched from there rather than a password asked for.
+    /// </summary>
+    private static async Task<IResult> AddMemberFromHereAsync(
+        AddMemberRequest request, GroupScope scope, LonniiDbContext db, DatabaseSeeder seeder,
+        ShopChangeNotifier changes, Lonnii.Api.Features.Backup.CloudBackupRunner cloud, CancellationToken ct)
+    {
+        var identifier = request.Identifier.Trim();
+        var email = identifier.ToLowerInvariant();
+
+        if (string.IsNullOrEmpty(request.Password)
+            && !await db.Users.AnyAsync(u => u.Email == email || u.Username == identifier, ct)
+            && await cloud.PullAccountsAsync(scope.GroupId, ct))
+        {
+            var fetched = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email == email || u.Username == identifier, ct);
+            if (fetched is not null
+                && await db.GroupMembers.AnyAsync(m => m.IdGroupe == scope.GroupId && m.IdUser == fetched.IdUser, ct))
+            {
+                changes.Bump(scope.GroupId);
+                return Results.Ok(AuthEndpoints.ToDto(fetched));
+            }
+        }
+
+        return await AddMemberCoreAsync(request, passwordHash: null, scope, db, seeder, changes, ct);
+    }
 
     /// <summary>Adds a member - shared with a member added from afar (<c>MemberCommands</c>), whose
     /// new account comes with its password already hashed.</summary>

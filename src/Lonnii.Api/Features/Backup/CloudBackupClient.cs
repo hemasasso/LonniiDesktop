@@ -191,6 +191,13 @@ public sealed class CloudBackupClient(IHttpClientFactory factory)
         using var _ = await SendAsync(Request(HttpMethod.Put, "accounts", JsonContent.Create(request)), ct);
     }
 
+    /// <summary>This shop's members as our server knows them.</summary>
+    public async Task<AccountSyncRequest> GetAccountsAsync(CancellationToken ct)
+    {
+        using var response = await SendAsync(Request(HttpMethod.Get, "accounts"), ct);
+        return (await response.Content.ReadFromJsonAsync<AccountSyncRequest>(ct))!;
+    }
+
     /// <summary>The newest version we published, or null when there is none to offer.</summary>
     public async Task<Lonnii.Shared.Security.UpdateManifest?> LatestUpdateAsync(CancellationToken ct)
     {

@@ -115,6 +115,7 @@
                 BorderBrush="{DynamicResource Accent}" BorderThickness="0,0,0,1" Padding="14,5">
             <DockPanel>
                 <Button x:Name="UpdateInstallButton" DockPanel.Dock="Right" Content="Installer maintenant"
+                        Style="{StaticResource PrimaryButton}"
                         Padding="12,3" Margin="12,0,0,0" Click="UpdateInstall_Click" />
                 <TextBlock x:Name="UpdateBannerText" TextWrapping="Wrap" FontSize="12" VerticalAlignment="Center"
                            Foreground="{DynamicResource TextPrimary}" />

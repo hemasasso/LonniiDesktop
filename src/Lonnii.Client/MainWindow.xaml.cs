@@ -151,6 +151,15 @@ public partial class MainWindow : Window
         var error = await AppUpdater.InstallAsync(_session.Api, update);
         if (error is null)
         {
+            // Said before closing, so a window vanishing is not taken for a crash.
+            UpdateInstallButton.Visibility = Visibility.Collapsed;
+            UpdateBannerText.FontWeight = FontWeights.SemiBold;
+            UpdateBannerText.Text = $"Installation de la version {update.Version} en cours… "
+                + "Lonnii va se fermer, puis se rouvrir automatiquement dans quelques minutes.";
+            Mouse.OverrideCursor = Cursors.Wait;
+            await Task.Delay(TimeSpan.FromSeconds(4));
+
+            Mouse.OverrideCursor = null;
             EndPresence();
             Application.Current.Shutdown();
             return;

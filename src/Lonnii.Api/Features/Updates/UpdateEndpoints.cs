@@ -4,12 +4,12 @@ using Lonnii.Shared.Security;
 namespace Lonnii.Api.Features.Updates;
 
 /// <summary>Where published versions sit: the installer and the signed notice naming it.</summary>
-public sealed class UpdatePaths(string dataDirectory, string publicKey = RepairCode.PublicKey)
+public sealed class UpdatePaths(string dataDirectory, string? publicKey = null)
 {
     public string Directory { get; } = Path.Combine(dataDirectory, "updates");
 
-    /// <summary>The key a notice must be signed with: ours, except in the tests.</summary>
-    public string PublicKey { get; } = publicKey;
+    /// <summary>The key a notice must be signed with; null for ours (main or spare), set by the tests.</summary>
+    public string? PublicKey { get; } = publicKey;
 
     public string Manifest => Path.Combine(Directory, "latest.json");
 }

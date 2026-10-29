@@ -36,18 +36,14 @@ public sealed record UpdateManifest(
             Convert.ToBase64String(signature));
     }
 
-    /// <summary>True when we signed exactly this version, file, size and hash.</summary>
-    public bool IsGenuine(string publicKey = RepairCode.PublicKey)
+    /// <summary>True when we signed exactly this version, file, size and hash, with the main or the spare key.</summary>
+    public bool IsGenuine(string? publicKey = null)
     {
         if (!System.Version.TryParse(Version, out _) || !IsInstallerName(FileName)) return false;
 
         try
         {
-            using var key = ECDsa.Create();
-            key.ImportSubjectPublicKeyInfo(Convert.FromBase64String(publicKey), out _);
-            return key.VerifyData(
-                Payload(Version, FileName, Size, Sha256), Convert.FromBase64String(Signature),
-                HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+            return RepairCode.Verify(Payload(Version, FileName, Size, Sha256), Convert.FromBase64String(Signature), publicKey);
         }
         catch (FormatException)
         {

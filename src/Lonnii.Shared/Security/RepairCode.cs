@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -38,6 +38,37 @@ public static class RepairCode
     public const string PublicKey =
         "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEkrj97cqUIvGj4lwR+JqMYVFvseU7TuMQ3e/H7V7SudrCxrD2+LUPGYpG831QXJF206SikUP7SLuRfPE/ZRyLDQ==";
 
+    /// <summary>
+    /// The public half of a spare key, made at the same time and kept only offline (never used day
+    /// to day). If the main private key is ever lost, codes and updates signed with the spare are
+    /// still accepted everywhere - and the first such update can ship a new spare.
+    /// </summary>
+    public const string SpareKey =
+        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEiEzaz3f5CIRVXV3Z8ZOQowJbCr1ljByWIMcSaTRAaj6i93Q/G5RFde1pYhmQ3ojyWWjIN0CzSRGh5CopPi8g2A==";
+
+    /// <summary>Every key whose signature this build accepts.</summary>
+    public static readonly IReadOnlyList<string> TrustedKeys = [PublicKey, SpareKey];
+
+    /// <summary>
+    /// True when one of <paramref name="publicKey"/> (or, when null, one of <see cref="TrustedKeys"/>) signed
+    /// <paramref name="payload"/>.
+    /// </summary>
+    internal static bool Verify(byte[] payload, byte[] signature, string? publicKey)
+    {
+        foreach (var candidate in publicKey is null ? TrustedKeys : [publicKey])
+        {
+            try
+            {
+                using var key = ECDsa.Create();
+                key.ImportSubjectPublicKeyInfo(Convert.FromBase64String(candidate), out _);
+                if (key.VerifyData(payload, signature, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation))
+                    return true;
+            }
+            catch (CryptographicException) { }
+        }
+        return false;
+    }
+
     private const byte Version = 1;
     private const int TagLength = 8;
     private const int PayloadLength = 1 + TagLength + TagLength + 4;
@@ -76,7 +107,7 @@ public static class RepairCode
     /// </summary>
     public static RepairCodeResult Check(
         string? code, string deviceId, string address, DateTimeOffset now, bool checkExpiry,
-        string publicKey = PublicKey)
+        string? publicKey = null)
     {
         if (string.IsNullOrWhiteSpace(code)) return RepairCodeResult.Malformed;
 
@@ -89,17 +120,7 @@ public static class RepairCode
         var payload = raw[..PayloadLength];
         var signature = raw[PayloadLength..];
 
-        try
-        {
-            using var key = ECDsa.Create();
-            key.ImportSubjectPublicKeyInfo(Convert.FromBase64String(publicKey), out _);
-            if (!key.VerifyData(payload, signature, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation))
-                return RepairCodeResult.BadSignature;
-        }
-        catch (CryptographicException)
-        {
-            return RepairCodeResult.BadSignature;
-        }
+        if (!Verify(payload, signature, publicKey)) return RepairCodeResult.BadSignature;
 
         if (!payload.AsSpan(1, TagLength).SequenceEqual(Hash("dev|" + deviceId)[..TagLength]))
             return RepairCodeResult.WrongDevice;

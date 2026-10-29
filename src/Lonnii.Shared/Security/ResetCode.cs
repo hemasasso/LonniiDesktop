@@ -63,7 +63,7 @@ public static class ResetCode
 
     /// <summary>Checks a code against the tag this server computes for the account right now.</summary>
     public static ResetCodeResult Check(
-        string? code, string accountTag, DateTimeOffset now, string publicKey = RepairCode.PublicKey)
+        string? code, string accountTag, DateTimeOffset now, string? publicKey = null)
     {
         if (string.IsNullOrWhiteSpace(code)) return ResetCodeResult.Malformed;
 
@@ -76,17 +76,7 @@ public static class ResetCode
         var payload = raw[..PayloadLength];
         var signature = raw[PayloadLength..];
 
-        try
-        {
-            using var key = ECDsa.Create();
-            key.ImportSubjectPublicKeyInfo(Convert.FromBase64String(publicKey), out _);
-            if (!key.VerifyData(payload, signature, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation))
-                return ResetCodeResult.BadSignature;
-        }
-        catch (CryptographicException)
-        {
-            return ResetCodeResult.BadSignature;
-        }
+        if (!RepairCode.Verify(payload, signature, publicKey)) return ResetCodeResult.BadSignature;
 
         if (!payload.AsSpan(1, TagLength).SequenceEqual(ParseTag(accountTag)))
             return ResetCodeResult.WrongAccount;

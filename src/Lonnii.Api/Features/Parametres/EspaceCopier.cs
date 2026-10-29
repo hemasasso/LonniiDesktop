@@ -92,6 +92,7 @@ internal sealed class EspaceCopier(
             row.ParentId = Lookup(_categoryIds, row.ParentId);
             row.ImageUrl = await images.TransferAsync(row.ImageUrl, row.Id, lossless: false, ct);
         }
+        Unique(categories, c => c.Name, (c, v) => c.Name = v!, Suffixed);
         await InsertAsync("Catégories", categories, ct);
 
         var suppliers = await LoadAsync(source.Suppliers.Where(x => x.GroupId == sourceGroupId), ct);
@@ -116,6 +117,9 @@ internal sealed class EspaceCopier(
             // ImageEndpoints reads back to check the photo belongs to this espace.
             row.ImageUrl = await images.TransferAsync(row.ImageUrl, row.Id, lossless: false, ct);
         }
+        // A code that only scans or identifies one product is useless on two: the second loses it.
+        Unique(products, p => p.Sku, (p, v) => p.Sku = v, (_, _) => null);
+        Unique(products, p => p.Barcode, (p, v) => p.Barcode = v, (_, _) => null);
         await InsertAsync("Produits", products, ct);
 
         var settings = await LoadAsync(source.StockSettings.Where(x => x.GroupId == sourceGroupId), ct);
@@ -124,6 +128,7 @@ internal sealed class EspaceCopier(
             row.GroupId = targetGroupId;
             row.Id = Renew(row.Id);
         }
+        settings = settings.DistinctBy(x => x.SettingName).ToList();
         await InsertAsync("Paramètres stock", settings, ct);
 
         var snapshots = await LoadAsync(source.StockSnapshots.Where(x => x.GroupId == sourceGroupId), ct);
@@ -178,6 +183,14 @@ internal sealed class EspaceCopier(
             row.GroupId = targetGroupId;
             row.Id = 0;
         }
+        // One open register per person: an older one left open is taken as closed.
+        foreach (var stale in caisses.Where(c => c.Status == CaisseStatus.Open)
+                     .GroupBy(c => c.UserId)
+                     .SelectMany(g => g.OrderByDescending(c => c.DateOuverture).Skip(1)))
+        {
+            stale.Status = CaisseStatus.Closed;
+            stale.DateFermeture ??= stale.DateOuverture;
+        }
         await InsertAsync("Sessions caisse", caisses, ct);
         _caisseIds = MapIds(caisseIds, caisses.Select(c => c.Id));
 
@@ -190,6 +203,8 @@ internal sealed class EspaceCopier(
                 : null;
             row.Id = Renew(row.Id, _venteIds);
         }
+        Unique(ventes, v => v.NumeroVente, (v, n) => v.NumeroVente = n!, Suffixed);
+        Unique(ventes, v => v.IdempotencyKey, (v, k) => v.IdempotencyKey = k, (_, _) => null);
         await InsertAsync("Ventes", ventes, ct);
 
         // Neither of the next two tables carries a group id: they are reached through the
@@ -324,6 +339,8 @@ internal sealed class EspaceCopier(
             row.GroupId = targetGroupId;
             row.Id = 0;
         }
+        // Charges point at a category by name, so a duplicate name is the same category.
+        categories = categories.DistinctBy(x => x.Nom).ToList();
         await InsertAsync("Catégories de charges", categories, ct);
 
         var charges = await LoadAsync(source.Charges.Where(x => x.GroupId == sourceGroupId), ct);
@@ -436,6 +453,28 @@ internal sealed class EspaceCopier(
 
     private static Task<List<T>> LoadAsync<T>(IQueryable<T> query, CancellationToken ct) where T : class =>
         query.AsNoTracking().ToListAsync(ct);
+
+    /// <summary>
+    /// Makes a value unique within the copied rows, where the desktop requires it and the source
+    /// did not - Lonnii Business's live data holds, for one, sales sharing a number. The first row
+    /// keeps its value; each repeat gets <paramref name="rename"/>'s answer (null clears it).
+    /// Nothing is dropped. A copy between two desktops never has repeats, so changes nothing.
+    /// </summary>
+    private static void Unique<T>(List<T> rows, Func<T, string?> get, Action<T, string?> set, Func<string, int, string?> rename)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var row in rows)
+        {
+            if (get(row) is not { } value || seen.Add(value)) continue;
+
+            var n = 2;
+            var replacement = rename(value, n);
+            while (replacement is not null && !seen.Add(replacement)) replacement = rename(value, ++n);
+            set(row, replacement);
+        }
+    }
+
+    private static string Suffixed(string value, int n) => $"{value}-{n}";
 
     /// <summary>
     /// Inserts one table's rows and records the count for the summary. The tracker is cleared

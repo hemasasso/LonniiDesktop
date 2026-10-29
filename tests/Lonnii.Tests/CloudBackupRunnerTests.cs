@@ -17,6 +17,7 @@ namespace Lonnii.Tests;
 /// the snapshot. One in-process app plays both the shop's host and the licence server, with
 /// the backup HTTP client wired straight to it, so the real protocol runs without a network.
 /// </summary>
+[Collection(BackupGateCollection.Name)]
 public class CloudBackupRunnerTests : IAsyncLifetime
 {
     private WebApplicationFactory<Program> _factory = null!;

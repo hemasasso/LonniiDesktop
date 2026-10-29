@@ -27,13 +27,30 @@ internal static class AccountSync
 {
     // --- The shop's computer: what it knows ---------------------------------------------------
 
-    public static async Task<AccountSyncRequest> BuildAsync(LonniiDbContext db, string groupId, CancellationToken ct)
+    /// <param name="forAShop">
+    /// True on our server, answering a shop's computer: a password hash is only handed over for
+    /// someone who belongs to this shop alone. Anyone can add an existing email to their shop;
+    /// that must not earn them the person's hash to try to crack. Such a member arrives without a
+    /// password, and that computer's admin gives them one there ("Mot de passe...") - which stays
+    /// on that computer, since our server keeps a shared account's password as it is.
+    /// </param>
+    public static async Task<AccountSyncRequest> BuildAsync(
+        LonniiDbContext db, string groupId, CancellationToken ct, bool forAShop = false)
     {
         var members = await (
             from m in db.GroupMembers.AsNoTracking()
             where m.IdGroupe == groupId
             join u in db.Users.AsNoTracking() on m.IdUser equals u.IdUser
             select new { User = u, m.JoinedAt }).ToListAsync(ct);
+
+        var shared = new HashSet<string>(StringComparer.Ordinal);
+        if (forAShop)
+        {
+            foreach (var x in members)
+            {
+                if (!await BelongsOnlyToAsync(db, x.User.IdUser, groupId, ct)) shared.Add(x.User.IdUser);
+            }
+        }
 
         var roles = (await db.UserRoles.AsNoTracking()
                 .Where(r => r.GroupId == groupId && r.IsActive)
@@ -63,7 +80,8 @@ internal static class AccountSync
             var role = roles.GetValueOrDefault(u.IdUser);
             return new AccountSyncMember(
                 u.IdUser, u.Email, u.Username, u.FirstName, u.LastName, u.Phone,
-                u.Password, u.PasswordChangedAt,
+                shared.Contains(u.IdUser) ? null : u.Password,
+                shared.Contains(u.IdUser) ? null : u.PasswordChangedAt,
                 role?.Role ?? GroupRoles.Member, role?.AssignedAt ?? x.JoinedAt,
                 core.Where(p => p.UserId == u.IdUser).Select(p => p.Name).ToList(),
                 option.Where(p => p.UserId == u.IdUser).Select(p => p.Name).ToList(),
@@ -120,7 +138,9 @@ internal static class AccountSync
 
             if (user is null)
             {
-                if (hash is null) continue;
+                // A shop names someone new only with a password. Our server may send a member
+                // without one (shared with another shop, see BuildAsync): they still belong here.
+                if (hash is null && !fromServer) continue;
 
                 var username = string.IsNullOrWhiteSpace(m.Username) ? null : m.Username.Trim();
                 if (username is not null && await db.Users.AnyAsync(u => u.Username == username, ct)) username = null;
@@ -141,11 +161,11 @@ internal static class AccountSync
                 db.Users.Add(user);
                 await db.SaveChangesAsync(ct);
 
-                db.PasswordHistories.Add(new PasswordHistory { IdUser = user.IdUser, PasswordHash = hash });
+                if (hash is not null) db.PasswordHistories.Add(new PasswordHistory { IdUser = user.IdUser, PasswordHash = hash });
                 isNew = true;
                 created++;
             }
-            else if (fromServer || (user.IdUser != groupe.IdUserAdmin && await BelongsOnlyToAsync(db, user.IdUser, groupId, ct)))
+            else if (fromServer || (user.IdUser != groupe.IdUserAdmin && await SpeaksForAsync(db, user.IdUser, groupId, ct)))
             {
                 var changed = false;
 
@@ -196,7 +216,17 @@ internal static class AccountSync
         return true;
     }
 
-    /// <summary>True when this person is in no other shop and owns none: the shop may then speak for them.</summary>
+    /// <summary>
+    /// Whether a shop may change this person's password and profile on our server: they must
+    /// already be its member here, and nobody else's. "Nobody else's" alone is not enough - an
+    /// account in no shop at all (registered and never added, or one that has left) would pass,
+    /// and any shop could then claim its email and set its password.
+    /// </summary>
+    private static async Task<bool> SpeaksForAsync(LonniiDbContext db, string userId, string groupId, CancellationToken ct) =>
+        await db.GroupMembers.AnyAsync(x => x.IdUser == userId && x.IdGroupe == groupId, ct)
+        && await BelongsOnlyToAsync(db, userId, groupId, ct);
+
+    /// <summary>True when this person is in no other shop and owns none.</summary>
     private static async Task<bool> BelongsOnlyToAsync(LonniiDbContext db, string userId, string groupId, CancellationToken ct) =>
         !await db.GroupMembers.AnyAsync(x => x.IdUser == userId && x.IdGroupe != groupId, ct)
         && !await db.Groupes.AnyAsync(g => g.IdUserAdmin == userId && g.Id != groupId, ct);

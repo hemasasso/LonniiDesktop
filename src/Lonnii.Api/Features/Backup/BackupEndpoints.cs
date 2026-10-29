@@ -67,7 +67,7 @@ public static class BackupEndpoints
             AccountSync.ApplyAsync(db, GroupOf(http), request, ct));
         // And the other way: everyone this shop has here, for its computer to know them too.
         group.MapGet("/accounts", (HttpContext http, LonniiDbContext db, CancellationToken ct) =>
-            AccountSync.BuildAsync(db, GroupOf(http), ct));
+            AccountSync.BuildAsync(db, GroupOf(http), ct, forAShop: true));
 
         // New versions of the app: behind the same checks as the backup, so only a computer of an
         // online shop, not blocked and paid up, is given one. The files are those our own

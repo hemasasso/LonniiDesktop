@@ -19,6 +19,7 @@ namespace Lonnii.Tests;
 /// pull the shop onto another computer nor open it from afar. Two apps: our server and the shop's
 /// computer, each with its own database.
 /// </summary>
+[Collection(BackupGateCollection.Name)]
 public class AccountSyncTests : IAsyncLifetime
 {
     private const string OwnerEmail = "patron@boutique-sync.bf";
@@ -299,6 +300,40 @@ public class AccountSyncTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.True(await FromHostAsync(db => db.GroupMembers.AnyAsync(m => m.IdGroupe == GroupId && m.IdUser == remote.IdUser)));
+    }
+
+    [Fact]
+    public async Task An_account_in_no_shop_cannot_be_taken_over_by_naming_its_email()
+    {
+        // Registered on our server, member of nothing (never added, or has left).
+        await OnServerAsync(db => db.Users.Add(NewUser("seul@boutique-sync.bf", "SonVraiMotdepasse1")));
+
+        await AddOnHostAsync("seul@boutique-sync.bf", GroupRoles.Member, "VolDeCompte123", DateTime.UtcNow);
+        await SyncAsync();
+
+        var hash = await FromServerAsync(db => db.Users.Where(u => u.Email == "seul@boutique-sync.bf").Select(u => u.Password).SingleAsync());
+        Assert.True(BCrypt.Net.BCrypt.Verify("SonVraiMotdepasse1", hash));
+    }
+
+    [Fact]
+    public async Task A_member_shared_with_another_shop_arrives_without_their_password_hash()
+    {
+        var shared = NewUser("partage2@boutique-sync.bf", "SonVraiMotdepasse1");
+        await OnServerAsync(db =>
+        {
+            var otherOwner = NewUser("autre-patron2@boutique-sync.bf");
+            db.Users.AddRange(shared, otherOwner);
+            db.Groupes.Add(new Groupe { Id = OtherGroupId, Nom = "Autre boutique", IdUserAdmin = otherOwner.IdUser, Mode = DeploymentModes.Online });
+            db.GroupMembers.Add(new GroupMember { IdGroupe = OtherGroupId, IdUser = shared.IdUser });
+            // ...and someone added them to this shop too.
+            db.GroupMembers.Add(new GroupMember { IdGroupe = GroupId, IdUser = shared.IdUser });
+        });
+
+        await SyncAsync();
+
+        var onHost = await FromHostAsync(db => db.Users.SingleAsync(u => u.Email == "partage2@boutique-sync.bf"));
+        Assert.Null(onHost.Password);
+        Assert.True(await FromHostAsync(db => db.GroupMembers.AnyAsync(m => m.IdGroupe == GroupId && m.IdUser == shared.IdUser)));
     }
 
     [Fact]

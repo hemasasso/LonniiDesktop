@@ -130,10 +130,27 @@ public partial class GroupPickerWindow : Window
 
     private async void List_DoubleClick(object sender, MouseButtonEventArgs e) => await OpenSelectedAsync();
 
+    // Opening can take seconds (a remote shop's copy is built first). A double-click on the card
+    // during that wait started a second open, whose DialogResult then landed on a closed window.
+    private bool _opening;
+
     private async Task OpenSelectedAsync()
     {
-        if (GroupList.SelectedItem is not GroupeItem item) return;
+        if (_opening || GroupList.SelectedItem is not GroupeItem item) return;
 
+        _opening = true;
+        try
+        {
+            await OpenAsync(item);
+        }
+        finally
+        {
+            _opening = false;
+        }
+    }
+
+    private async Task OpenAsync(GroupeItem item)
+    {
         OpenButton.IsEnabled = false;
         Cursor = Cursors.Wait;
         try
@@ -154,7 +171,7 @@ public partial class GroupPickerWindow : Window
             if (RegisterDeviceDialog.Show(this, App.Settings.LastIdentifier))
             {
                 HideError();
-                await OpenSelectedAsync();
+                await OpenAsync(item);
                 return;
             }
 
@@ -171,7 +188,7 @@ public partial class GroupPickerWindow : Window
             if (Licensing.LicenceLockWindow.ShowLocked(this, item.Groupe.Id, ex.Message))
             {
                 HideError();
-                await OpenSelectedAsync();
+                await OpenAsync(item);
                 return;
             }
 

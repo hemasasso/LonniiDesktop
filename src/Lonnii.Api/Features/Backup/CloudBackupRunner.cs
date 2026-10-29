@@ -82,6 +82,12 @@ public sealed class CloudBackupRunner(
 
         if (WhyNotApplicable(groupe, state) is { } reason) return new CloudBackupOutcome(false, false, reason);
 
+        // An empty workspace has nothing worth keeping, and uploading it can only do harm: on a
+        // freshly installed computer whose restore failed or was declined, it would replace the
+        // shop's real copy - or start a line that stops the server building one from live data.
+        if (!await transfers.HasBusinessDataAsync(groupId, ct))
+            return new CloudBackupOutcome(false, false, "Rien à sauvegarder : l'espace est encore vide.");
+
         state!.LastAttemptAt = DateTime.UtcNow;
 
         string? snapshot = null, gz = null;

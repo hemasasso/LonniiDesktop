@@ -78,9 +78,13 @@ public partial class ExistingAccountWindow : Window
 
     private void EspaceList_DoubleClick(object sender, MouseButtonEventArgs e) => Install_Click(sender, e);
 
+    // A double-click during the install would start a second one and close the window twice.
+    private bool _installing;
+
     private async void Install_Click(object sender, RoutedEventArgs e)
     {
-        if (EspaceList.SelectedItem is not EspaceItem item) return;
+        if (_installing || EspaceList.SelectedItem is not EspaceItem item) return;
+        _installing = true;
 
         var email = EmailBox.Text.Trim();
 
@@ -104,6 +108,7 @@ public partial class ExistingAccountWindow : Window
         {
             // Our licence server's own words: wrong password, machine limit reached, subscription expired.
             ShowError(ex.Message);
+            _installing = false;
         }
         finally
         {

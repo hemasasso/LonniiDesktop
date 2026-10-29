@@ -289,6 +289,10 @@ public sealed class EspaceTransferService(
     /// see <see cref="ClearReplaceableAsync"/>.
     /// </para>
     /// </summary>
+    /// <summary>True when the workspace holds any business data - products, sales, charges and so on.</summary>
+    internal async Task<bool> HasBusinessDataAsync(string groupId, CancellationToken ct) =>
+        (await FindConflictsAsync(groupId, ct)).Count > 0;
+
     private async Task<List<EspaceTransferSectionDto>> FindConflictsAsync(string g, CancellationToken ct)
     {
         (string Label, int Count)[] counts =

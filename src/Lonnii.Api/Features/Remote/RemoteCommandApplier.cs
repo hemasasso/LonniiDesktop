@@ -36,6 +36,7 @@ public sealed class RemoteCommandApplier(
     CloudBackupRunner backups,
     ImageStorageService images,
     DatabaseSeeder seeder,
+    RemoteRequestReplayer replayer,
     ILogger<RemoteCommandApplier> logger)
 {
     /// <summary>Requests already applied whose report has not reached the server yet. A lost reply
@@ -77,7 +78,8 @@ public sealed class RemoteCommandApplier(
                     catch (CloudBackupException) { continue; }
                 }
 
-                result = await ApplyAsync(groupId, command, ct, photo);
+                try { result = await ApplyAsync(groupId, command, ct, photo); }
+                catch (RemoteReplayDeferredException) { break; } // keep the order: the rest waits too
                 Unreported[command.Id] = result;
                 if (result.Status == RemoteCommandStatuses.Applied) applied++;
             }
@@ -123,6 +125,10 @@ public sealed class RemoteCommandApplier(
 
         PrivilegeChangeResult outcome;
 
+        // Any other screen's change: replayed through this host's own API as the sender.
+        if (command.Type == RemoteCommandTypes.Request)
+            return await replayer.RunAsync(groupId, command, ct);
+
         switch (command.Type)
         {
             case RemoteCommandTypes.Privilege when command.PrivilegeName is not null && command.Granted is not null:
@@ -158,6 +164,17 @@ public sealed class RemoteCommandApplier(
                     type, command.UserId, command.Member, command.PasswordHash,
                     new GroupScope { UserId = command.RequestedBy, GroupId = groupId, Privileges = sender },
                     db, seeder, changes, ct);
+                break;
+
+            case RemoteCommandTypes.EspaceRename:
+                outcome = RemoteEndpoints.EspaceRenameCheck(command.Name);
+                if (outcome.Ok)
+                {
+                    var groupe = await db.Groupes.FirstAsync(g => g.Id == groupId, ct);
+                    groupe.Nom = command.Name!.Trim();
+                    await db.SaveChangesAsync(ct);
+                    await backups.PushNameAsync(groupId, ct);
+                }
                 break;
 
             default:

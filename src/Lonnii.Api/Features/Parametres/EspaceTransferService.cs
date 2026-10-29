@@ -209,6 +209,19 @@ public sealed class EspaceTransferService(
                        $"{EspaceArchive.FormatVersion}). Mettez l'application à jour.");
         }
 
+        // A file exported by an older version lacks the columns added since (conversion_factor
+        // was the first to bite).
+        try
+        {
+            await archive.UpgradeAsync(ct);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            logger.LogError(e, "Mise à niveau du fichier importé impossible");
+            return new EspaceImportOutcome(
+                Error: "Ce fichier n'est pas une sauvegarde d'espace Lonnii, ou il est endommagé.");
+        }
+
         if (await FindConflictsAsync(groupId, ct) is { Count: > 0 } conflicts)
             return new EspaceImportOutcome(Conflict: conflicts);
 
@@ -350,6 +363,9 @@ public sealed class EspaceTransferService(
             // A backup of one workspace must never be poured into another.
             if (!string.Equals(file.Manifest.SourceGroupId, groupId, StringComparison.OrdinalIgnoreCase))
                 return new EspaceImportOutcome(Error: "Cette sauvegarde appartient à un autre espace.");
+
+            // A snapshot taken before the host's last update lacks the columns added since.
+            await archive.UpgradeAsync(ct);
 
             if (await FindConflictsAsync(groupId, ct) is { Count: > 0 } conflicts)
                 return new EspaceImportOutcome(Conflict: conflicts);

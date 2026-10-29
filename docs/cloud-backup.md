@@ -5,10 +5,30 @@ licence **and, since this feature, a recent copy of that data and its photos**. 
 and the shop's history is no longer lost.
 
 It is a backup and restore, **not a live sync**: the host stays the one place the shop writes
-to, and the cloud copy is at most one interval behind (15 minutes, `Lonnii:CloudBackup:IntervalMinutes`).
-Row-level sync (needed for Expo and several independent caches) is a separate, later piece:
-the live tables use integer keys that are unique per database, so two shops cannot share them
-without renumbering.
+to. A snapshot goes up once the shop has been quiet for a minute after a change
+(`Lonnii:CloudBackup:QuietSeconds`, 60), and never later than five minutes after the first unsent
+change (`Lonnii:CloudBackup:MaxDelayMinutes`, 5). The same five minutes is the retry delay after a
+failure and the period of a fallback check for writes made with raw SQL.
+
+What wakes it is `DataChangeSignal` (`Features/Sync/DataChanges.cs`): an EF Core interceptor reports
+every saved row - table, key, added/modified/deleted - in one place.
+
+Row-level sync (needed for Expo and several independent caches) is a separate, later piece
+(planned within 1-2 years). It plugs into that same signal:
+1. An outbox table, written by the interceptor in the same transaction as the change.
+2. A sender that pushes the outbox to OCI within seconds, retried until acknowledged.
+3. An endpoint on OCI that applies the rows in order to the shop's copy.
+4. Snapshots drop to a daily safety copy.
+
+Keys (checked 2026-10-28): the core tables (products, ventes, items, payments, clients,
+stock_history, categories, suppliers) already use GUID keys. Caisses, charges, immobilisations,
+bilan and privilege tables use integers. Phones will save on OCI directly (and OCI passes the
+change on to the shop's host, if there is one), so OCI and the host both create rows. The
+integer-keyed tables phones write - caisses, caisse_transactions, charges, charges_categories,
+immobilisations, amortissement_echeances - therefore carry a `sync_id` GUID (`ISyncable`, migration
+`AddSyncIds`, `db/postgres/021_sync_ids.sql`), added alongside the integer key, not replacing it,
+since they mirror live Postgres. Live sync matches these rows by `sync_id`; a link between them
+(e.g. `caisse_transactions.caisse_id`) must be translated through the parent's `sync_id`.
 
 ## How it works
 

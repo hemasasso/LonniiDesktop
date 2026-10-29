@@ -84,7 +84,7 @@ public static class ProgrammeEndpoints
         if (string.IsNullOrWhiteSpace(request.UserId))
             return Results.BadRequest(new ApiError("Le membre est requis"));
 
-        if (request.Type is not (ProgrammeEntryTypes.Travail or ProgrammeEntryTypes.Reunion or ProgrammeEntryTypes.Repos))
+        if (request.Type is not (ProgrammeEntryTypes.Travail or ProgrammeEntryTypes.Reunion or ProgrammeEntryTypes.Repos or ProgrammeEntryTypes.Autre))
             return Results.BadRequest(new ApiError("Type de journée invalide"));
 
         var isMember = await db.GroupMembers

@@ -127,17 +127,22 @@ public partial class RegistrationWindow : Window
     {
         var shop = ShopBox.Text.Trim();
         var email = EmailBox.Text.Trim();
+        var username = UsernameBox.Text.Trim();
+        var phone = PhoneBox.Text.Trim();
         var password = PasswordBox.Password;
 
         if (shop.Length < 2) { Fail("Indiquez le nom de la boutique."); ShopBox.Focus(); return; }
         if (!email.Contains('@')) { Fail("Indiquez une adresse email valide."); EmailBox.Focus(); return; }
+        // The server checks both properly; these only catch an empty field before a round trip.
+        if (username.Length < 3) { Fail("Choisissez un nom d'utilisateur (3 caractères au moins)."); UsernameBox.Focus(); return; }
+        if (phone.Count(char.IsDigit) < 8) { Fail("Indiquez votre numéro de téléphone."); PhoneBox.Focus(); return; }
         if (password.Length < 8) { Fail("Le mot de passe doit contenir au moins 8 caractères."); PasswordBox.Focus(); return; }
         if (password != ConfirmBox.Password) { Fail("Les deux mots de passe ne correspondent pas."); ConfirmBox.Focus(); return; }
 
         await RunAsync("Envoi du code…", async () =>
         {
             var started = await _session.Api.RegistrationStartAsync(new RegistrationStartRequest(
-                shop, email, password, DeviceIdentity.Current, DeviceIdentity.FriendlyName));
+                shop, email, password, DeviceIdentity.Current, DeviceIdentity.FriendlyName, username, phone));
 
             _requestId = started.RequestId;
             _email = email.ToLowerInvariant();

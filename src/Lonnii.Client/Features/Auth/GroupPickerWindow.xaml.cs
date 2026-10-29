@@ -7,6 +7,7 @@ using System.Windows.Media.Imaging;
 using Lonnii.Client.Features;
 using Lonnii.Client.Services;
 using Lonnii.Shared.Contracts;
+using Lonnii.Shared.Security;
 
 namespace Lonnii.Client.Features.Auth;
 
@@ -35,7 +36,17 @@ public partial class GroupPickerWindow : Window
             var groupes = await _session.Api.GetGroupesAsync();
             var hasAny = groupes.Count > 0;
 
-            await LoadPendingAsync();
+            // Remote access only opens shops that exist; creating or activating one is done at the shop.
+            if (_session.IsRemote)
+            {
+                CreateButton.Visibility = Visibility.Collapsed;
+                EmptyText.Text = "Aucun espace en ligne n'est lié à ce compte Lonnii. L'accès à distance " +
+                                 "est réservé aux administrateurs d'un espace en mode en ligne.";
+            }
+            else
+            {
+                await LoadPendingAsync();
+            }
 
             GroupList.Visibility = hasAny ? Visibility.Visible : Visibility.Collapsed;
             EmptyPanel.Visibility = hasAny ? Visibility.Collapsed : Visibility.Visible;
@@ -49,12 +60,14 @@ public partial class GroupPickerWindow : Window
                 // ask to be added, so a way to create one must be offered or the person is stuck.
                 // Who may actually create one is decided where espaces are registered: the licence
                 // server accepts only the Admin Général of an approved shop and says so otherwise.
-                CreateButton.Visibility = Visibility.Visible;
+                if (!_session.IsRemote) CreateButton.Visibility = Visibility.Visible;
                 return;
             }
 
-            // Only someone who already runs an espace may open another one.
-            CreateButton.Visibility = groupes.Any(g => g.IsAdminGeneral) ? Visibility.Visible : Visibility.Collapsed;
+            // Only an admin of an espace may open another one, confirming with their own password.
+            CreateButton.Visibility = !_session.IsRemote
+                                      && groupes.Any(g => g.IsAdminGeneral || GroupRoles.IsAdminRole(g.Role))
+                ? Visibility.Visible : Visibility.Collapsed;
 
             // Wrap each DTO in a lightweight VM so photos can be pushed in async.
             var items = groupes.Select(g => new GroupeItem(g)).ToList();

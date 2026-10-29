@@ -60,7 +60,7 @@ public class HostRegistrationTests : IAsyncLifetime
             return Task.FromResult(new ActivationResponse(
                 request.GroupId, "Pharmacie Sud", DeploymentModes.Local, 3, 1, "FCFA",
                 SubscriptionRequired: false, SubscriptionStatus: null, SubscriptionExpiresAt: null,
-                ActivatedAt: DateTime.UtcNow));
+                ActivatedAt: DateTime.UtcNow, AdminUsername: "pharmasud", AdminPhone: "+226 70 12 34 56"));
         }
     }
 
@@ -94,7 +94,7 @@ public class HostRegistrationTests : IAsyncLifetime
 
     private Task<HttpResponseMessage> Start() =>
         _client.PostAsJsonAsync("/api/setup/register/start",
-            new RegistrationStartRequest("Pharmacie Sud", Email, Password, "machine-1", "poste"));
+            new RegistrationStartRequest("Pharmacie Sud", Email, Password, "machine-1", "poste", "pharmasud", "+226 70 12 34 56"));
 
     private Task<HttpResponseMessage> Verify(string code = "123456") =>
         _client.PostAsJsonAsync("/api/setup/register/verify",
@@ -185,6 +185,8 @@ public class HostRegistrationTests : IAsyncLifetime
         Assert.Equal(Email, admin.Email);
         Assert.True(BCrypt.Net.BCrypt.Verify(Password, admin.Password));
         Assert.Equal(admin.IdUser, groupe.IdUserAdmin);
+        Assert.Equal("pharmasud", admin.Username); // signs in at the till by username too
+        Assert.Equal("+226 70 12 34 56", admin.Phone);
 
         Assert.False((await PendingAsync()).Pending);
     }

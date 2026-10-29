@@ -99,7 +99,7 @@
                 -->
                 <controls:RevealPasswordBox x:Name="PasswordBox" />
 
-                <TextBlock Margin="0,10,0,0" FontSize="12">
+                <TextBlock x:Name="ForgotPasswordLink" Margin="0,10,0,0" FontSize="12">
                     <Hyperlink Click="ForgotPassword_Click">Mot de passe oublié ?</Hyperlink>
                 </TextBlock>
 
@@ -151,5 +151,27 @@
                         Style="{StaticResource PrimaryButton}" Click="SignIn_Click" />
             </StackPanel>
         </Grid>
+
+        <!-- Away from the shop: switches to the Lonnii online server (remote access). Deliberately
+             unlabelled - only administrators are told what it does. Click again to come back. -->
+        <Button x:Name="RemoteToggle" Grid.Column="1" Click="ToggleRemote_Click"
+                HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10,0,0,6"
+                Width="22" Height="22" Cursor="Hand" Focusable="False">
+            <Button.Template>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Circle" CornerRadius="11" BorderThickness="1"
+                            BorderBrush="{DynamicResource BorderStrong}" Background="Transparent">
+                        <TextBlock Text="i" FontStyle="Italic" FontWeight="SemiBold" FontSize="12"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextMuted}" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Circle" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Button.Template>
+        </Button>
     </Grid>
 </Window>

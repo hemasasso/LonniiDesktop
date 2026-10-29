@@ -285,9 +285,10 @@ public static class CaisseStatus
 /// session per user, enforced by a filtered unique index in the source schema and
 /// reproduced in <c>LonniiDbContext</c>.
 /// </summary>
-public class Caisse
+public class Caisse : ISyncable
 {
     public int Id { get; set; }
+    public string SyncId { get; set; } = Guid.NewGuid().ToString();
     public string GroupId { get; set; } = string.Empty;
     public string UserId { get; set; } = string.Empty;
 
@@ -365,9 +366,10 @@ public class Caisse
 /// <c>entree</c> is money in (settling an older invoice), <c>sortie</c> is money out
 /// (refunding an avoir).
 /// </summary>
-public class CaisseTransaction
+public class CaisseTransaction : ISyncable
 {
     public int Id { get; set; }
+    public string SyncId { get; set; } = Guid.NewGuid().ToString();
     public int CaisseId { get; set; }
     public string GroupId { get; set; } = string.Empty;
 

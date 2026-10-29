@@ -100,6 +100,14 @@ internal sealed class EspaceArchive : IAsyncDisposable
     /// <see cref="ReadManifestAsync"/> has answered.</summary>
     public static EspaceArchive Open(string path) => new(OpenContext(path), path);
 
+    /// <summary>
+    /// Brings a file made by an older version up to today's schema - the same migrations a host
+    /// runs - so the copier, which reads through today's model, finds every column. Only for our
+    /// own temporary copies (an upload, a downloaded snapshot): it changes the file. Call it after
+    /// <see cref="ReadManifestAsync"/> has accepted the file.
+    /// </summary>
+    public Task UpgradeAsync(CancellationToken ct) => Db.Database.MigrateAsync(ct);
+
     private static LonniiDbContext OpenContext(string path)
     {
         var options = new DbContextOptionsBuilder<LonniiDbContext>()

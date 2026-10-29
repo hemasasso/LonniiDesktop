@@ -11,6 +11,9 @@ public class AppSession(LonniiApiClient api)
     public LonniiApiClient Api { get; } = api;
 
     public UserDto? User { get; private set; }
+
+    /// <summary>The user's own profile as just saved, so the name shown everywhere follows it.</summary>
+    public void ApplyProfile(UserDto user) => User = user;
     public GroupeDto? Groupe { get; private set; }
     public MyPrivilegesResponse? Privileges { get; private set; }
     public MenuResponse? Menu { get; private set; }
@@ -25,6 +28,15 @@ public class AppSession(LonniiApiClient api)
     public event EventHandler? Changed;
 
     public bool IsSignedIn => User is not null;
+
+    /// <summary>
+    /// Signed in to the Lonnii online server rather than the shop's own: the espace opened is the
+    /// copy of the shop's last backup, read-only. Set at sign-in, for the whole session.
+    /// </summary>
+    public bool IsRemote { get; private set; }
+
+    /// <summary>When the copy being shown was made, in a remote session.</summary>
+    public DateTime? RemoteSnapshotAt { get; private set; }
     public bool HasGroup => Groupe is not null;
 
     /// <summary>Set by <see cref="SignInAsync"/>; held in memory only, never saved to disk.</summary>
@@ -51,9 +63,11 @@ public class AppSession(LonniiApiClient api)
     }
 
     /// <summary>Signs in and stores the bearer token for later calls.</summary>
-    public async Task SignInAsync(string identifier, string password, CancellationToken ct = default)
+    public async Task SignInAsync(string identifier, string password, bool remote = false, CancellationToken ct = default)
     {
         var response = await Api.LoginAsync(identifier, password, ct);
+        IsRemote = remote;
+        Api.Remote = remote;
         Api.SetAccessToken(response.AccessToken);
         AccessToken = response.AccessToken;
         AccessTokenExpiresAt = response.ExpiresAt;
@@ -67,9 +81,19 @@ public class AppSession(LonniiApiClient api)
     /// </summary>
     public async Task EnterGroupAsync(string groupId, CancellationToken ct = default)
     {
-        var session = await Api.OpenGroupSessionAsync(groupId, ct);
-        Api.SetGroupSession(session.SessionToken);
-        SetGroupe(session.Groupe);
+        if (IsRemote)
+        {
+            var remote = await Api.OpenRemoteSessionAsync(groupId, ct);
+            Api.SetGroupSession(remote.SessionToken);
+            RemoteSnapshotAt = remote.SnapshotAt;
+            SetGroupe(remote.Groupe);
+        }
+        else
+        {
+            var session = await Api.OpenGroupSessionAsync(groupId, ct);
+            Api.SetGroupSession(session.SessionToken);
+            SetGroupe(session.Groupe);
+        }
         ClearReceiptSettings();
 
         Privileges = await Api.GetMyPrivilegesAsync(ct);
@@ -193,6 +217,9 @@ public class AppSession(LonniiApiClient api)
         Api.SetGroupSession(null);
         AccessToken = null;
         User = null;
+        IsRemote = false;
+        Api.Remote = false;
+        RemoteSnapshotAt = null;
         SetGroupe(null);
         Privileges = null;
         Menu = null;
@@ -211,10 +238,10 @@ public class AppSession(LonniiApiClient api)
     }
 
     /// <summary>
-    /// Updates the workspace's currency label after an admin changes it, so every open view
-    /// reflects the new label the moment it takes effect - not just on the next sign-in.
+    /// Applies an admin's change to the workspace (currency, name), so every open view
+    /// reflects it the moment it takes effect - not just on the next sign-in.
     /// </summary>
-    public void ApplyCurrencyChange(GroupeDto updated)
+    public void ApplyGroupeChange(GroupeDto updated)
     {
         SetGroupe(updated);
         Raise();

@@ -23,6 +23,7 @@ public partial class ProgrammeSheetDialog : Window
     private static readonly Brush Accent = new SolidColorBrush(Color.FromRgb(0x4C, 0x3B, 0x9E));
     private static readonly Brush ReunionColor = new SolidColorBrush(Color.FromRgb(0x8B, 0x5C, 0xF6));
     private static readonly Brush ReposColor = new SolidColorBrush(Color.FromRgb(0x8A, 0x92, 0x9E));
+    private static readonly Brush AutreColor = new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B));
 
     public ProgrammeSheetDialog(
         string? groupName, string workerName, DateOnly start, DateOnly end,
@@ -86,6 +87,7 @@ public partial class ProgrammeSheetDialog : Window
             { Type: "travail" } e => (TimeRange(e), Accent),
             { Type: "reunion" } e => ($"Réunion{(TimeRange(e) is { Length: > 0 } t ? $" · {t}" : string.Empty)}", ReunionColor),
             { Type: "repos" } => ("Repos", ReposColor),
+            { Type: "autre" } e => ($"Autre{(TimeRange(e) is { Length: > 0 } t ? $" · {t}" : string.Empty)}", AutreColor),
             _ => ("—", Muted),
         };
 

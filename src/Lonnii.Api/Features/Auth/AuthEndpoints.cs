@@ -17,6 +17,7 @@ public static class AuthEndpoints
         group.MapPost("/register", RegisterAsync);
         group.MapPost("/login", LoginAsync);
         group.MapGet("/me", MeAsync).RequireAuthorization();
+        group.MapPut("/profile", UpdateProfileAsync).RequireAuthorization();
         group.MapPost("/password", ChangeOwnPasswordAsync).RequireAuthorization();
     }
 
@@ -262,6 +263,46 @@ public static class AuthEndpoints
     }
 
     /// <summary>Returns the signed-in user, so a client can restore its session on start.</summary>
+    /// <summary>The signed-in user's own name, username and phone, from the "Mon profil" screen.</summary>
+    private static async Task<IResult> UpdateProfileAsync(
+        UpdateProfileRequest request, ClaimsPrincipal principal, LonniiDbContext db, CancellationToken ct)
+    {
+        var userId = principal.FindFirstValue(TokenService.UserIdClaim);
+        var user = await db.Users.FirstOrDefaultAsync(u => u.IdUser == userId, ct);
+        if (user is null)
+            return Results.Json(new ApiError("Compte introuvable"), statusCode: StatusCodes.Status401Unauthorized);
+
+        static string? Clean(string? value, int max) =>
+            string.IsNullOrWhiteSpace(value) ? null : value.Trim()[..Math.Min(value.Trim().Length, max)];
+
+        var username = Clean(request.Username, 30);
+        var phone = Clean(request.Phone, 20);
+
+        if (username is not null)
+        {
+            if (Registration.RegistrationEndpoints.UsernameProblem(username) is { } problem)
+                return Results.BadRequest(new ApiError(problem));
+            if (await db.Users.AnyAsync(u => u.Username == username && u.IdUser != user.IdUser, ct))
+                return Results.Conflict(new ApiError("Ce nom d'utilisateur est déjà pris"));
+        }
+        else if (user.Username is not null && string.IsNullOrEmpty(user.Email))
+        {
+            // Without an email the username is the only way to sign in: it cannot be removed.
+            return Results.BadRequest(new ApiError("Ce compte se connecte par son nom d'utilisateur : il ne peut pas être vidé."));
+        }
+
+        if (phone is not null && Registration.RegistrationEndpoints.PhoneProblem(phone) is { } phoneProblem)
+            return Results.BadRequest(new ApiError(phoneProblem));
+
+        user.FirstName = Clean(request.FirstName, 100);
+        user.LastName = Clean(request.LastName, 100);
+        user.Username = username;
+        user.Phone = phone;
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(ToDto(user));
+    }
+
     private static async Task<IResult> MeAsync(ClaimsPrincipal principal, LonniiDbContext db, CancellationToken ct)
     {
         var userId = principal.FindFirstValue(TokenService.UserIdClaim);

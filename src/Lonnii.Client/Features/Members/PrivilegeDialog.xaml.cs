@@ -206,9 +206,10 @@ public partial class PrivilegeDialog : Window
             }
 
             StatusText.Foreground = (Brush)Application.Current.Resources["TextSecondary"];
-            StatusText.Text = granted
+            StatusText.Text = (granted
                 ? $"« {privilege.DisplayName} » accordé."
-                : $"« {privilege.DisplayName} » retiré.";
+                : $"« {privilege.DisplayName} » retiré.")
+                + (_session.IsRemote ? " Demande envoyée à la boutique, appliquée dès qu'elle la reçoit." : string.Empty);
         }
         catch (ApiException ex)
         {

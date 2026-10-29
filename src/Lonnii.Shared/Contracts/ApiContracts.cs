@@ -59,6 +59,10 @@ public sealed record UserDto(
     bool IsVerified,
     DateTime? LastLogin);
 
+/// <summary>What a user may change about themselves. Empty fields are cleared; the email is not here,
+/// since it is how the account is known to Lonnii.</summary>
+public sealed record UpdateProfileRequest(string? FirstName, string? LastName, string? Username, string? Phone);
+
 // --- Groups and sessions ---
 
 /// <summary>A group the signed-in user belongs to.</summary>
@@ -85,6 +89,11 @@ public sealed record CreateGroupeRequest(string Nom, bool GestionAccess = true, 
 
 /// <summary>Changes the currency label shown with every amount in this workspace, and
 /// whether it goes before the amount (<c>$ 1 000</c>) or after it (<c>1 000 FCFA</c>).</summary>
+public sealed record RenameGroupeRequest(string Nom);
+
+/// <summary>An online shop telling the Lonnii server its current name.</summary>
+public sealed record BackupNameRequest(string Nom);
+
 public sealed record UpdateCurrencyRequest(string CurrencyLabel, bool CurrencyBefore = false);
 
 /// <summary>
@@ -105,6 +114,10 @@ public static class RemoteCommandTypes
 {
     /// <summary>Grant or revoke one privilege of a member.</summary>
     public const string Privilege = "privilege";
+
+    /// <summary>Any other change made from afar, kept exactly as the app sent it
+    /// (<c>Method</c>, <c>Path</c>, <c>Body</c>) and replayed by the shop's host as the sender.</summary>
+    public const string Request = "request";
 
     /// <summary>Change a member's group role.</summary>
     public const string Role = "role";
@@ -131,6 +144,9 @@ public static class RemoteCommandTypes
     public const string MemberRemove = "member.remove";
 
     public static bool IsMember(string type) => type is MemberAdd or MemberRemove;
+
+    /// <summary>Rename the espace (<c>Name</c>). <c>UserId</c> is the sender.</summary>
+    public const string EspaceRename = "espace.rename";
 }
 
 /// <summary>Where a remote command is: waiting for the shop, done, refused, or given up on.</summary>
@@ -161,7 +177,8 @@ public sealed record RemoteCommandRequest(
     AdjustStockRequest? StockAdjustment = null,
     string? PhotoId = null,
     bool? RemovePhoto = null,
-    AddMemberRequest? Member = null);
+    AddMemberRequest? Member = null,
+    string? Name = null);
 
 /// <summary>A photo uploaded from afar, waiting to travel to the shop with a product request
 /// (<see cref="RemoteCommandRequest.PhotoId"/>).</summary>
@@ -192,7 +209,15 @@ public sealed record RemoteCommandDto(
     string? PhotoId = null,
     bool? RemovePhoto = null,
     AddMemberRequest? Member = null,
-    string? PasswordHash = null);
+    string? PasswordHash = null,
+    string? Name = null,
+    string? Method = null,
+    string? Path = null,
+    string? Body = null);
+
+/// <summary>Answer (202) to a change made from afar on any screen: kept for the shop's host,
+/// which replays it when it next connects.</summary>
+public sealed record RemoteQueuedResponse(string Id, string Message);
 
 /// <summary>What the shop's host reports back for a command it collected.</summary>
 public sealed record RemoteCommandResult(string Status, string? Message = null);
@@ -1216,7 +1241,9 @@ public sealed record ActivationResponse(
     string? SubscriptionStatus,
     DateTime? SubscriptionExpiresAt,
     DateTime ActivatedAt,
-    string? BackupToken = null);
+    string? BackupToken = null,
+    string? AdminUsername = null,
+    string? AdminPhone = null);
 
 // --- Devices ---
 
@@ -2011,7 +2038,9 @@ public sealed record RegistrationStartRequest(
     string Email,
     string Password,
     string DeviceId,
-    string? DeviceName = null);
+    string? DeviceName = null,
+    string? Username = null,
+    string? Phone = null);
 
 public sealed record RegistrationStartResponse(string RequestId, DateTime ExpiresAt);
 

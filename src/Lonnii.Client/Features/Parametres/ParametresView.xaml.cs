@@ -48,6 +48,7 @@ public partial class ParametresView : UserControl
 
 
         // Admin-only, as the API is.
+        RenameEspaceButton.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
         MembersPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
 
         // Deleting is the creator's alone, as on the API.
@@ -78,6 +79,39 @@ public partial class ParametresView : UserControl
         try { await _session.RefreshAsync(); }
         catch (ApiException) { /* best-effort refresh; the dialog already reported any error */ }
         Populate();
+    }
+
+    // --- Rename the espace ------------------------------------------------------------
+
+    private async void RenameEspace_Click(object sender, RoutedEventArgs e)
+    {
+        var groupe = _session.Groupe;
+        if (groupe is null) return;
+
+        var nom = Lonnii.Client.Common.PromptDialog.Show(
+            Window.GetWindow(this)!, "Renommer l'espace", "Nouveau nom de l'espace :", groupe.Nom);
+        if (nom is null || string.IsNullOrWhiteSpace(nom) || nom.Trim() == groupe.Nom) return;
+
+        try
+        {
+            if (_session.IsRemote)
+            {
+                await _session.Api.QueueRenameGroupeAsync(_session.User!.IdUser, nom.Trim());
+                RenameStatusText.Text = $"Demande envoyée : la boutique prendra le nom « {nom.Trim()} » dès qu'elle la recevra.";
+                RenameStatusText.Foreground = (Brush)FindResource("TextSecondary");
+                return;
+            }
+
+            _session.ApplyGroupeChange(await _session.Api.RenameGroupeAsync(nom.Trim()));
+            Populate();
+            RenameStatusText.Text = "Enregistré.";
+            RenameStatusText.Foreground = (Brush)FindResource("TextSecondary");
+        }
+        catch (ApiException ex)
+        {
+            RenameStatusText.Text = ex.Message;
+            RenameStatusText.Foreground = (Brush)FindResource("Danger");
+        }
     }
 
     // --- Espace photo ----------------------------------------------------------------

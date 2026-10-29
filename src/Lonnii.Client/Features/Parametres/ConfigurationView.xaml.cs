@@ -62,13 +62,46 @@ public partial class ConfigurationView : UserControl
 
     // --- Connexion ---
 
-    private async void RefreshConnexion_Click(object sender, RoutedEventArgs e) => await LoadConnexionAsync();
+    /// <summary>Asks the central server again before showing the states, so a shop whose internet
+    /// came back sees "Connecté" now rather than at the next background check.</summary>
+    private async void RefreshConnexion_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button button) button.IsEnabled = false;
+        try
+        {
+            if (_session.Groupe is { } groupe)
+            {
+                try { await _session.Api.SyncLicenceAsync(groupe.Id); }
+                catch (Exception ex) when (ex is ApiException or System.Net.Http.HttpRequestException or TaskCanceledException) { }
+            }
+
+            await LoadConnexionAsync();
+        }
+        finally
+        {
+            if (sender is Button b) b.IsEnabled = true;
+        }
+    }
 
     /// <summary>One row per server the espace depends on: a coloured dot for its state, its
     /// name, what it is for, and when it last answered.</summary>
     private async Task LoadConnexionAsync()
     {
         ConnexionList.Children.Clear();
+
+        // From afar there is no shop server on this network to ask: we are on the Lonnii server,
+        // reading the shop's latest backup. Say that, rather than "Injoignable".
+        if (_session.IsRemote)
+        {
+            MachineText.Text = $"Ce poste : {Environment.MachineName}";
+            var copie = _session.RemoteSnapshotAt is { } at
+                ? $"Copie de la boutique du {at.ToLocalTime():dd/MM/yyyy à HH:mm}"
+                : "Aucune copie de la boutique reçue pour l'instant";
+            ConnexionList.Children.Add(ConnexionRow("Success", "Serveur Lonnii (accès à distance)", "Connecté",
+                copie + " · les modifications sont envoyées à la boutique, qui les applique à sa prochaine connexion."));
+            return;
+        }
+
         ConnexionResponse connexion;
         try
         {
@@ -96,10 +129,10 @@ public partial class ConfigurationView : UserControl
                 _ => ("TextMuted", "Inactif"),
             };
 
-            // The shop's own server is reached at the address this client is using; the
-            // central server is never addressed on screen.
+            // No addresses on screen: the shop's server is named by its computer and reached on
+            // the local network; the central server is never addressed at all.
             var nom = serveur.Role == ConnexionRoles.Boutique
-                ? $"{serveur.Nom} ({serveur.Hote}{(_session.Api.BaseAddress is { } address ? $" · {address.TrimEnd('/')}" : string.Empty)})"
+                ? $"{serveur.Nom} ({serveur.Hote} · Réseau local)"
                 : serveur.Nom;
             var contact = serveur.DernierContact is { } at && serveur.Role != ConnexionRoles.Boutique
                 ? $"Dernier contact : {at.ToLocalTime():dd/MM/yyyy à HH:mm}"
@@ -182,7 +215,7 @@ public partial class ConfigurationView : UserControl
         try
         {
             var updated = await _session.Api.UpdateCurrencyAsync(label, CurrencyBeforeRadio.IsChecked == true);
-            _session.ApplyCurrencyChange(updated);
+            _session.ApplyGroupeChange(updated);
             CurrencyBox.Text = updated.CurrencyLabel;
             CurrencyStatusText.Text = "Enregistré.";
             CurrencyStatusText.Foreground = (Brush)FindResource("TextSecondary");

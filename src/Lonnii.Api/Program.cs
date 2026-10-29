@@ -28,6 +28,10 @@ Directory.CreateDirectory(dataDirectory);
 
 var databasePath = Path.Combine(dataDirectory, "lonnii.db");
 
+// A host's API runs with no console, so the log also goes to a file beside the data.
+builder.Logging.AddProvider(
+    new Lonnii.Api.Features.Infrastructure.FileLoggerProvider(Path.Combine(dataDirectory, "logs")));
+
 // Local mode unless told otherwise, so an existing host laptop keeps working untouched.
 var databaseOptions = new DatabaseOptions();
 builder.Configuration.GetSection(DatabaseOptions.SectionName).Bind(databaseOptions);
@@ -48,6 +52,11 @@ void ConfigureControlDb(DbContextOptionsBuilder options)
 
 builder.Services.AddHttpContextAccessor();
 
+// Every save on this host is reported here (see DataChangeSignal): it wakes the cloud backup today,
+// and is where live sync will listen.
+builder.Services.AddSingleton<Lonnii.Api.Features.Sync.DataChangeSignal>();
+builder.Services.AddSingleton<Lonnii.Api.Features.Sync.DataChangeInterceptor>();
+
 // A remote session (an administrator viewing an online shop from afar) reads the shop's copy of
 // its data instead: RemoteRoutingMiddleware leaves the copy's path on the request, and every
 // context created for that request is pointed at it. Everything else uses the server's database.
@@ -59,7 +68,11 @@ builder.Services.AddDbContext<LonniiDbContext>((services, options) =>
     if (replicaPath is not null)
         options.UseSqlite($"Data Source={replicaPath};Foreign Keys=True");
     else
+    {
         ConfigureControlDb(options);
+        // Only this host's own data: a shop's copy read from afar is not ours to send anywhere.
+        options.AddInterceptors(services.GetRequiredService<Lonnii.Api.Features.Sync.DataChangeInterceptor>());
+    }
 });
 
 var controlOptionsBuilder = new DbContextOptionsBuilder<LonniiDbContext>();
@@ -100,6 +113,13 @@ builder.Services.AddScoped<GroupSessionService>();
 // Who the caller is and whether the shop's licence is current are facts of the server's own
 // database, even when the request's data comes from a shop's copy.
 builder.Services.AddScoped<Lonnii.Api.Features.Remote.RemoteCommandApplier>();
+builder.Services.AddScoped<Lonnii.Api.Features.Remote.RemoteRequestReplayer>();
+// A change made from afar is replayed through this host's own API, so it meets every check it would at the shop.
+builder.Services.AddHttpClient(Lonnii.Api.Features.Remote.RemoteRequestReplayer.HttpClientName, client =>
+{
+    client.BaseAddress = new Uri($"http://127.0.0.1:{builder.Configuration.GetValue("Lonnii:Port", 5280)}/");
+    client.Timeout = TimeSpan.FromMinutes(2);
+});
 builder.Services.AddScoped<LicenceGuard>(services =>
     new LicenceGuard(services.GetRequiredService<Lonnii.Api.Features.Remote.ControlDb>().Db));
 
@@ -172,7 +192,9 @@ builder.Services.AddOpenApi();
 var port = builder.Configuration.GetValue("Lonnii:Port", 5280);
 // On the OCI server set Lonnii__BindAddress=127.0.0.1 so only the reverse proxy in front of it can
 // reach the API; a shop's host keeps the default, since its tills connect over the LAN.
-var bindAddress = builder.Configuration["Lonnii:BindAddress"] is { Length: > 0 } configured ? configured : "0.0.0.0";
+// The default "*" listens on IPv6 and IPv4 together: with IPv4 only, anything asking for
+// "localhost" tried ::1 first and waited ~2 s for Windows to give up on it.
+var bindAddress = builder.Configuration["Lonnii:BindAddress"] is { Length: > 0 } configured ? configured : "*";
 builder.WebHost.UseUrls($"http://{bindAddress}:{port}");
 
 // Behind a reverse proxy every request arrives from the proxy, so the client's real address (which the

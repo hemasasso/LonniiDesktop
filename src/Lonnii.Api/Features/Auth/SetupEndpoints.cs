@@ -125,6 +125,9 @@ public static class SetupEndpoints
         {
             Email = adminEmail,
             Password = BCrypt.Net.BCrypt.HashPassword(adminPassword),
+            // As given at sign-up: the username signs in at the till like the email does.
+            Username = string.IsNullOrWhiteSpace(activation.AdminUsername) ? null : activation.AdminUsername,
+            Phone = activation.AdminPhone,
             IsVerified = true,
         };
 

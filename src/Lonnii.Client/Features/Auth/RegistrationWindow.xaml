@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:Lonnii.Client.Common.Controls"
         Title="Lonnii — Créer mon espace"
-        Height="560" Width="520"
+        Height="630" Width="520"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
@@ -29,6 +29,23 @@
 
             <TextBlock Text="Email de l'administrateur" Style="{StaticResource FieldLabel}" />
             <TextBox x:Name="EmailBox" Margin="0,4,0,12" Padding="8,6" />
+
+            <Grid Margin="0,0,0,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Nom d'utilisateur" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="UsernameBox" Margin="0,4,0,0" Padding="8,6" MaxLength="30"
+                             ToolTip="Pour vous connecter sans taper votre email" />
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Téléphone" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="PhoneBox" Margin="0,4,0,0" Padding="8,6" MaxLength="20" />
+                </StackPanel>
+            </Grid>
 
             <TextBlock Text="Mot de passe" Style="{StaticResource FieldLabel}" />
             <controls:RevealPasswordBox x:Name="PasswordBox" Margin="0,4,0,12" />

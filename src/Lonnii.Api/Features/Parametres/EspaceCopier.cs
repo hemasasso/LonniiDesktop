@@ -448,6 +448,13 @@ internal sealed class EspaceCopier(
 
         if (rows.Count == 0) return;
 
+        // A copy is a new row, like its renumbered key: keeping the original's sync id would
+        // collide with it on the same host, and live sync would take one for the other.
+        if (renewIds)
+        {
+            foreach (var row in rows.OfType<ISyncable>()) row.SyncId = Guid.NewGuid().ToString();
+        }
+
         target.Set<T>().AddRange(rows);
         await target.SaveChangesAsync(ct);
         target.ChangeTracker.Clear();

@@ -175,6 +175,33 @@ public class BackupEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_shop_deleted_on_its_host_is_marked_deleted_even_with_a_lapsed_subscription()
+    {
+        var token = await ActivateAsync();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+            db.DashboardSubscriptions.Single().ContractEndDate = DateTime.UtcNow.AddDays(-1);
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await _client.SendAsync(Req(HttpMethod.Post, "deleted", "not-the-token"))).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await _client.SendAsync(Req(HttpMethod.Post, "deleted", token))).StatusCode);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+            Assert.True(db.Groupes.Single(g => g.Id == GroupId).IsDeleted);
+        }
+
+        // Once deleted, the machine's token opens nothing any more.
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.SendAsync(Req(HttpMethod.Get, "info", token))).StatusCode);
+    }
+
+    [Fact]
     public async Task Snapshot_round_trips_and_info_reports_it()
     {
         var token = await ActivateAsync();

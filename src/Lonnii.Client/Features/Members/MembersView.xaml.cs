@@ -119,12 +119,15 @@ public partial class MembersView : UserControl
         {
             var user = await _session.Api.AddMemberAsync(dialog.Result!);
             await LoadAsync();
+            ShowRemoteQueued();
 
             if (dialog.CreatedPassword is { } password)
             {
                 // Shown once, here, because the password is not recoverable afterwards.
                 MessageBox.Show(owner,
-                    $"Compte créé pour {user.Email}.\n\n" +
+                    (_session.IsRemote
+                        ? "Compte demandé à la boutique : il sera créé dès qu'elle recevra la demande.\n\n"
+                        : $"Compte créé pour {user.Email}.\n\n") +
                     $"Identifiant : {user.Username ?? user.Email}\n" +
                     $"Mot de passe : {password}\n\n" +
                     "Communiquez-les à la personne concernée. Ce mot de passe ne sera plus affiché.",
@@ -166,6 +169,7 @@ public partial class MembersView : UserControl
 
             if (member.IdUser == _session.User?.IdUser) await _session.RefreshAsync();
             await LoadAsync();
+            ShowRemoteQueued();
 
             if (!ReferenceEquals(profile, PrivilegeProfiles.None))
             {
@@ -239,11 +243,21 @@ public partial class MembersView : UserControl
         {
             await _session.Api.RemoveMemberAsync(member.IdUser);
             await LoadAsync();
+            ShowRemoteQueued();
         }
         catch (ApiException ex)
         {
             ShowMessage(ex.Message);
         }
+    }
+
+    /// <summary>From afar the list shows the shop's last copy, so a change just asked for is not in
+    /// it yet: say where it went rather than look as if nothing happened.</summary>
+    private void ShowRemoteQueued()
+    {
+        if (_session.IsRemote)
+            ShowMessage("Demande envoyée à la boutique. Elle sera appliquée dès que le serveur de la boutique " +
+                        "la recevra, et visible ici après sa prochaine sauvegarde.");
     }
 
     private void ShowMessage(string message)

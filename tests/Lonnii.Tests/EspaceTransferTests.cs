@@ -4,7 +4,11 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Lonnii.Shared.Contracts;
+using Lonnii.Data;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace Lonnii.Tests;
 
@@ -234,6 +238,33 @@ public class EspaceTransferTests : IAsyncLifetime
 
         // And the original is untouched.
         Assert.Single(await ProductsAsync(original));
+    }
+
+    [Fact]
+    public async Task AFileExportedByAnOlderVersion_IsBroughtUpToDate_AndImports()
+    {
+        var token = await SignUpOwnerAsync();
+        var original = await NewEspaceAsync(token, "Boutique");
+        await FillAsync(original);
+
+        // Roll the export back to the schema from before products.conversion_factor existed -
+        // the column whose absence made a real shop's import fail.
+        var path = Path.Combine(_dataDirectory, "ancien.db");
+        await File.WriteAllBytesAsync(path, await ExportAsync(original));
+
+        await using (var old = new LonniiDbContext(new DbContextOptionsBuilder<LonniiDbContext>()
+            .UseSqlite($"Data Source={path};Pooling=False").Options))
+        {
+            await old.GetService<IMigrator>().MigrateAsync("20261004173644_RenameUserNameColumns");
+        }
+
+        var fresh = await NewEspaceAsync(token, "Boutique 2");
+
+        var response = await ImportAsync(fresh, await File.ReadAllBytesAsync(path));
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+
+        var copied = Assert.Single(await ProductsAsync(fresh));
+        Assert.Equal("Café", copied.Name);
     }
 
     [Fact]

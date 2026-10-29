@@ -206,6 +206,7 @@ public partial class ProgrammeView : UserControl
             { Type: "travail" } e => (TimeRange(e) is { Length: > 0 } t ? $"Travail · {t}" : "Travail", (Brush)FindResource("Accent")),
             { Type: "reunion" } e => (TimeRange(e) is { Length: > 0 } t ? $"Réunion · {t}" : "Réunion", new SolidColorBrush(Color.FromRgb(0x8B, 0x5C, 0xF6))),
             { Type: "repos" } => ("Repos", (Brush)FindResource("TextMuted")),
+            { Type: "autre" } e => (TimeRange(e) is { Length: > 0 } t ? $"Autre · {t}" : "Autre", new SolidColorBrush(Color.FromRgb(0xF5, 0x9E, 0x0B))),
             _ => (null, (Brush)FindResource("TextMuted")),
         };
 

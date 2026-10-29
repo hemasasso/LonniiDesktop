@@ -35,6 +35,7 @@ public static class GroupEndpoints
         scoped.MapDelete("/members/{userId}", RemoveMemberAsync).RequireGroupScope().RequireGroupAdmin();
         scoped.MapPost("/members/{userId}/password", ResetMemberPasswordAsync)
             .RequireGroupScope().RequireGroupAdmin();
+        scoped.MapPut("/name", RenameAsync).RequireGroupScope().RequireGroupAdmin();
         scoped.MapPut("/currency", UpdateCurrencyAsync).RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageDevise);
         scoped.MapDelete("/session", CloseSessionAsync).RequireGroupScope();
 
@@ -606,6 +607,28 @@ public static class GroupEndpoints
         return Results.Ok(ToDto(groupe, scope.Privileges.Role, scope.IsAdminGeneral, memberCount));
     }
 
+    /// <summary>Renames the espace. Group-admin only, as the photo is. In online mode the
+    /// Lonnii server is told too.</summary>
+    private static async Task<IResult> RenameAsync(
+        RenameGroupeRequest request, GroupScope scope, LonniiDbContext db,
+        Lonnii.Api.Features.Backup.CloudBackupRunner cloud, CancellationToken ct)
+    {
+        var nom = request.Nom?.Trim() ?? string.Empty;
+        if (nom.Length == 0 || nom.Length > 100)
+            return Results.BadRequest(new ApiError("Le nom de l'espace doit contenir entre 1 et 100 caractères."));
+
+        var groupe = await db.Groupes.FirstAsync(g => g.Id == scope.GroupId, ct);
+        groupe.Nom = nom;
+        await db.SaveChangesAsync(ct);
+
+        // An online shop's name also lives on the Lonnii server. Best effort: if it cannot be
+        // reached now, the next backup sends it.
+        await cloud.PushNameAsync(scope.GroupId, ct);
+
+        var memberCount = await db.GroupMembers.CountAsync(m => m.IdGroupe == scope.GroupId, ct);
+        return Results.Ok(ToDto(groupe, scope.Privileges.Role, scope.IsAdminGeneral, memberCount));
+    }
+
     // --- Espace deletion ---------------------------------------------------------
 
     /// <summary>
@@ -626,6 +649,7 @@ public static class GroupEndpoints
         ClaimsPrincipal principal,
         LonniiDbContext db,
         ImageStorageService images,
+        Lonnii.Api.Features.Backup.CloudBackupRunner cloud,
         CancellationToken ct)
     {
         var userId = principal.FindFirstValue(TokenService.UserIdClaim)!;
@@ -646,6 +670,11 @@ public static class GroupEndpoints
 
         if (creator?.Password is null || !BCrypt.Net.BCrypt.Verify(request.Password, creator.Password))
             return Results.Json(new ApiError("Mot de passe incorrect"), statusCode: StatusCodes.Status403Forbidden);
+
+        // An online shop is known to the Lonnii server too: tell it first, while this host still
+        // holds the credentials to do so. Best effort - a shop offline right now can still be
+        // deleted, and the dashboard can remove it by hand.
+        await cloud.PushDeletedAsync(groupId, ct);
 
         // --- Children first (FK order) ---
 

@@ -223,6 +223,36 @@ public class DesktopAdminTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_deleted_shop_is_listed_only_under_the_deleted_filter()
+    {
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+            db.Groupes.Single(g => g.Id == LocalShop).IsDeleted = true;
+            await db.SaveChangesAsync();
+        }
+
+        var all = await Get<List<ShopSummaryDto>>("/api/admin/desktop/shops");
+        Assert.DoesNotContain(all, s => s.Id == LocalShop);
+
+        var deleted = await Get<List<ShopSummaryDto>>("/api/admin/desktop/shops?filter=deleted");
+        var shop = Assert.Single(deleted);
+        Assert.Equal(LocalShop, shop.Id);
+        Assert.True(shop.IsDeleted);
+        Assert.Equal(0, shop.AttentionLevel);
+
+        var detail = await Get<ShopDetailDto>($"/api/admin/desktop/shops/{LocalShop}");
+        Assert.True(detail.Shop.IsDeleted);
+
+        async Task<T> Get<T>(string url)
+        {
+            var response = await _client.SendAsync(Request(HttpMethod.Get, url, Viewer()));
+            response.EnsureSuccessStatusCode();
+            return (await response.Content.ReadFromJsonAsync<T>())!;
+        }
+    }
+
+    [Fact]
     public async Task Shop_detail_lists_every_device_including_revoked_ones()
     {
         var response = await _client.SendAsync(Request(HttpMethod.Get, $"/api/admin/desktop/shops/{LocalShop}", Viewer()));
@@ -294,6 +324,64 @@ public class DesktopAdminTests : IAsyncLifetime
         using var scope = _factory.Services.CreateScope();
         var groupe = scope.ServiceProvider.GetRequiredService<LonniiDbContext>().Groupes.Single(g => g.Id == LocalShop);
         Assert.Equal(6, groupe.MaxDevices);
+    }
+
+    [Fact]
+    public async Task Only_owner_or_super_admin_blocks_a_shop_and_a_reason_is_required()
+    {
+        var url = $"/api/admin/desktop/shops/{LocalShop}/block";
+        HttpRequestMessage Put(string token, object body)
+        {
+            var request = Request(HttpMethod.Put, url, token);
+            request.Content = JsonContent.Create(body);
+            return request;
+        }
+
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await _client.SendAsync(Put(DeviceManager(), new { blocked = true, reason = "Impayé" }))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await _client.SendAsync(Put(SuperAdmin(), new { blocked = true, reason = " " }))).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await _client.SendAsync(Put(SuperAdmin(), new { blocked = true, reason = "Impayé" }))).StatusCode);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var groupe = scope.ServiceProvider.GetRequiredService<LonniiDbContext>().Groupes.Single(g => g.Id == LocalShop);
+            Assert.True(groupe.IsBlocked);
+            Assert.Equal("Impayé", groupe.BlockReason);
+        }
+
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await _client.SendAsync(Put(SuperAdmin(), new { blocked = false }))).StatusCode);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var groupe = scope.ServiceProvider.GetRequiredService<LonniiDbContext>().Groupes.Single(g => g.Id == LocalShop);
+            Assert.False(groupe.IsBlocked);
+            Assert.Null(groupe.BlockReason);
+        }
+    }
+
+    [Fact]
+    public async Task Database_download_is_for_super_admins_and_needs_a_backup()
+    {
+        var url = $"/api/admin/desktop/shops/{OnlineShopOffline}/database";
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.SendAsync(Request(HttpMethod.Get, url, Viewer()))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.SendAsync(Request(HttpMethod.Get, url, SuperAdmin()))).StatusCode);
+
+        var database = "SQLite format 3 " + new string('x', 200);
+        using (var packed = new MemoryStream())
+        {
+            using (var gzip = new System.IO.Compression.GZipStream(packed, System.IO.Compression.CompressionLevel.Fastest, leaveOpen: true))
+                gzip.Write(System.Text.Encoding.ASCII.GetBytes(database));
+            var dir = Path.Combine(_dataDirectory, "backups", OnlineShopOffline, "snapshots");
+            Directory.CreateDirectory(dir);
+            await File.WriteAllBytesAsync(Path.Combine(dir, "snapshot-20261027120000000.db.gz"), packed.ToArray());
+        }
+
+        var response = await _client.SendAsync(Request(HttpMethod.Get, url, SuperAdmin()));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(database, System.Text.Encoding.ASCII.GetString(await response.Content.ReadAsByteArrayAsync()));
     }
 
     [Fact]

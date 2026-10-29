@@ -22,6 +22,11 @@ public class RegistrationRequest
     public string Email { get; set; } = string.Empty;
     public string PasswordHash { get; set; } = string.Empty;
 
+    /// <summary>The owner's short sign-in name and phone, asked at sign-up and given to the account
+    /// once the email is confirmed. Null only on requests made by an older app.</summary>
+    public string? Username { get; set; }
+    public string? Phone { get; set; }
+
     public string DeviceId { get; set; } = string.Empty;
     public string? DeviceName { get; set; }
 

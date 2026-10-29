@@ -61,6 +61,11 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("numero_annee");
 
+                    b.Property<string>("SyncId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("sync_id");
+
                     b.Property<long>("ValeurDebutPeriode")
                         .HasColumnType("INTEGER")
                         .HasColumnName("valeur_debut_periode");
@@ -76,6 +81,9 @@ namespace Lonnii.Data.Migrations
                     b.HasIndex("GroupId");
 
                     b.HasIndex("ImmobilisationId");
+
+                    b.HasIndex("SyncId")
+                        .IsUnique();
 
                     b.ToTable("amortissement_echeances");
                 });
@@ -308,6 +316,11 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("status");
 
+                    b.Property<string>("SyncId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("sync_id");
+
                     b.Property<long>("TotalAvoir")
                         .HasColumnType("INTEGER")
                         .HasColumnName("total_avoir");
@@ -347,6 +360,9 @@ namespace Lonnii.Data.Migrations
                     b.HasIndex("GroupId");
 
                     b.HasIndex("Status");
+
+                    b.HasIndex("SyncId")
+                        .IsUnique();
 
                     b.HasIndex("GroupId", "UserId")
                         .IsUnique()
@@ -395,6 +411,11 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("montant");
 
+                    b.Property<string>("SyncId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("sync_id");
+
                     b.Property<string>("Type")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -403,6 +424,9 @@ namespace Lonnii.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CaisseId");
+
+                    b.HasIndex("SyncId")
+                        .IsUnique();
 
                     b.HasIndex("GroupId", "CreatedAt");
 
@@ -525,6 +549,11 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("recurring_source_id");
 
+                    b.Property<string>("SyncId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("sync_id");
+
                     b.Property<string>("TypeCharge")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -539,6 +568,9 @@ namespace Lonnii.Data.Migrations
                     b.HasIndex("GroupId");
 
                     b.HasIndex("RecurringSourceId");
+
+                    b.HasIndex("SyncId")
+                        .IsUnique();
 
                     b.HasIndex("GroupId", "Categorie");
 
@@ -579,7 +611,15 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("nom");
 
+                    b.Property<string>("SyncId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("sync_id");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("SyncId")
+                        .IsUnique();
 
                     b.HasIndex("GroupId", "Nom")
                         .IsUnique();
@@ -1397,6 +1437,11 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("statut");
 
+                    b.Property<string>("SyncId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("sync_id");
+
                     b.Property<long?>("TauxDegressif")
                         .HasColumnType("INTEGER")
                         .HasColumnName("taux_degressif");
@@ -1424,6 +1469,9 @@ namespace Lonnii.Data.Migrations
                     b.HasIndex("GroupId");
 
                     b.HasIndex("Statut");
+
+                    b.HasIndex("SyncId")
+                        .IsUnique();
 
                     b.ToTable("immobilisations");
                 });
@@ -2191,10 +2239,18 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("password_hash");
 
+                    b.Property<string>("Phone")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("phone");
+
                     b.Property<string>("ShopName")
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("shop_name");
+
+                    b.Property<string>("Username")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("username");
 
                     b.HasKey("Id");
 

@@ -78,7 +78,7 @@ public partial class MemberWorkHistoryDialog : Window
         {
             null => "—",
             "repos" => "Repos",
-            var type => (type == "reunion" ? "Réunion" : "Travail")
+            var type => DayTypes.Label(type)
                         + (day.ScheduleStart is { } s && day.ScheduleEnd is { } e ? $" {s:hh\\:mm}-{e:hh\\:mm}" : string.Empty),
         };
 

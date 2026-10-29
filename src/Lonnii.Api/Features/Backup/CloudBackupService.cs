@@ -7,18 +7,25 @@ using Microsoft.EntityFrameworkCore;
 namespace Lonnii.Api.Features.Backup;
 
 /// <summary>
-/// Backs every online-mode workspace on this host up to the licence server on a schedule, and
-/// serves the status and "back up now" controls shown in Paramètres.
+/// Backs every online-mode workspace on this host up to the licence server soon after it changes,
+/// and serves the status and "back up now" controls shown in Paramètres.
+///
+/// <para>
+/// When: once the shop has been quiet for a minute after a change, so a run of sales goes up as one
+/// snapshot - but never more than five minutes after the first unsent change, so a busy shop is not
+/// left behind. A check every five minutes also catches writes made outside EF Core and retries a
+/// failed attempt. Nothing changed, nothing sent.
+/// </para>
 ///
 /// <para>
 /// Idle on the OCI server itself and on local-mode installs: a workspace is only backed up when
-/// it has a licence server to answer to and a backup token from it. Skips a round when nothing
-/// has been written since the last successful one.
+/// it has a licence server to answer to and a backup token from it.
 /// </para>
 /// </summary>
 public sealed class CloudBackupService(
     IServiceScopeFactory scopes,
     CloudBackupPaths dbPaths,
+    Sync.DataChangeSignal changes,
     IConfiguration configuration,
     ILogger<CloudBackupService> logger) : BackgroundService
 {
@@ -26,32 +33,59 @@ public sealed class CloudBackupService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var minutes = Math.Max(1, configuration.GetValue("Lonnii:CloudBackup:IntervalMinutes", 15));
+        var quiet = TimeSpan.FromSeconds(Math.Max(5, configuration.GetValue("Lonnii:CloudBackup:QuietSeconds", 60)));
+        var maxDelay = TimeSpan.FromMinutes(Math.Max(1, configuration.GetValue("Lonnii:CloudBackup:MaxDelayMinutes", 5)));
 
         // Let start-up (migrations, the first licence refresh) finish before the first pass.
         try { await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken); }
         catch (OperationCanceledException) { return; }
 
-        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(minutes));
-        do
+        var lastPass = DateTime.MinValue;
+        // After a failed pass (no internet, server down) wait the full delay before trying again.
+        var retryAt = DateTime.MinValue;
+
+        while (!stoppingToken.IsCancellationRequested)
         {
-            try { await RunAllAsync(stoppingToken); }
-            catch (Exception e) when (e is not OperationCanceledException)
+            var now = DateTime.UtcNow;
+            var due = now - lastPass >= maxDelay
+                || (now >= retryAt && changes.FirstPendingUtc is { } first && changes.LastChangeUtc is { } last
+                    && (now - last >= quiet || now - first >= maxDelay));
+
+            if (due)
             {
-                logger.LogError(e, "Passage de sauvegarde en ligne interrompu");
+                var takenAt = DateTime.UtcNow;
+                lastPass = takenAt;
+                var succeeded = false;
+                try
+                {
+                    succeeded = await RunAllAsync(stoppingToken);
+                }
+                catch (OperationCanceledException) { return; }
+                catch (Exception e)
+                {
+                    logger.LogError(e, "Passage de sauvegarde en ligne interrompu");
+                }
+
+                if (succeeded) changes.MarkSent(takenAt);
+                else retryAt = takenAt + maxDelay;
+                continue;
             }
+
+            // Sleep until the next change, or until the earliest moment a pass could become due.
+            var wait = maxDelay - (now - lastPass);
+            if (now >= retryAt && changes.FirstPendingUtc is { } f && changes.LastChangeUtc is { } l)
+                wait = new[] { wait, quiet - (now - l), maxDelay - (now - f) }.Min();
+
+            try { await changes.WaitAsync(wait < TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : wait, stoppingToken); }
+            catch (OperationCanceledException) { return; }
         }
-        while (await WaitAsync(timer, stoppingToken));
     }
 
-    private static async Task<bool> WaitAsync(PeriodicTimer timer, CancellationToken ct)
+    /// <summary>One pass over every workspace. True when none failed.</summary>
+    private async Task<bool> RunAllAsync(CancellationToken ct)
     {
-        try { return await timer.WaitForNextTickAsync(ct); }
-        catch (OperationCanceledException) { return false; }
-    }
+        var allSucceeded = true;
 
-    private async Task RunAllAsync(CancellationToken ct)
-    {
         using var scope = scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
 
@@ -70,7 +104,10 @@ public sealed class CloudBackupService(
 
             // Taken after the run, which itself writes its result: only later writes count.
             if (outcome.Succeeded) _lastSeenWrite[groupId] = dbPaths.LastWriteUtc();
+            else if (outcome.Ran) allSucceeded = false;
         }
+
+        return allSucceeded;
     }
 }
 

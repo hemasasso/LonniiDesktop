@@ -454,8 +454,20 @@
             <Setter.Value>
                 <ControlTemplate TargetType="DatePickerTextBox">
                     <Border Background="Transparent" Padding="8,6">
-                        <ScrollViewer x:Name="PART_ContentHost" Foreground="{DynamicResource TextPrimary}" />
+                        <Grid>
+                            <!-- Grey guide shown while the field is empty; typed digits replace it
+                                 in the normal text colour, with the slashes put in as you type. -->
+                            <TextBlock x:Name="Guide" Text="jj/mm/aaaa" Visibility="Collapsed"
+                                       Margin="2,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"
+                                       Foreground="{DynamicResource TextMuted}" />
+                            <ScrollViewer x:Name="PART_ContentHost" Foreground="{DynamicResource TextPrimary}" />
+                        </Grid>
                     </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Text" Value="">
+                            <Setter TargetName="Guide" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>

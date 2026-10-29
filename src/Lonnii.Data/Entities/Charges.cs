@@ -63,9 +63,10 @@ public static class RecurringDay
 /// backend/routes/gestionCharges.js and backend/utils/recurringDay.js, both of which read
 /// and write it as a plain string defaulting to <see cref="Entities.RecurringDay.Fin"/>.
 /// </summary>
-public class Charge
+public class Charge : ISyncable
 {
     public int Id { get; set; }
+    public string SyncId { get; set; } = Guid.NewGuid().ToString();
     public string GroupId { get; set; } = string.Empty;
 
     public string Description { get; set; } = string.Empty;
@@ -117,9 +118,10 @@ public class Charge
 /// seeds by iterating every existing <c>groupes</c> row, which a fresh desktop install has
 /// none of yet.
 /// </summary>
-public class ChargeCategory
+public class ChargeCategory : ISyncable
 {
     public int Id { get; set; }
+    public string SyncId { get; set; } = Guid.NewGuid().ToString();
     public string GroupId { get; set; } = string.Empty;
     public string Nom { get; set; } = string.Empty;
     public string? Description { get; set; }

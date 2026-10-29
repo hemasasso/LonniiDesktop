@@ -30,6 +30,13 @@ public partial class App : Application
         System.Globalization.CultureInfo.DefaultThreadCurrentCulture = culture;
     }
 
+    /// <summary>
+    /// The date format is set here, not in <see cref="OnStartup"/>: that method is async, and a
+    /// culture set inside an async method is undone for the rest of the app once it first awaits -
+    /// which is why every date picker still showed 12/1/2026.
+    /// </summary>
+    public App() => UseDayMonthYearDates();
+
     /// <summary>Shared for the lifetime of the process. The app is single-user per machine.</summary>
     public static AppSession Session { get; } = new(new LonniiApiClient());
 
@@ -38,7 +45,7 @@ public partial class App : Application
 
     protected override async void OnStartup(StartupEventArgs e)
     {
-        UseDayMonthYearDates();
+        Services.DateTyping.Register();
         base.OnStartup(e);
 
         // Every window and dialog gets the themed icon unless it set its own, so none falls
@@ -80,25 +87,35 @@ public partial class App : Application
         // hand the next person whoever signed in last. Older builds could save one; drop it.
         SessionStore.Clear();
 
+        SignInAndOpenShell();
+    }
+
+    /// <summary>
+    /// Sign in, choose an espace, then open the shell. Used at start-up and again after a sign-out,
+    /// which comes back here instead of closing the app.
+    /// </summary>
+    public void SignInAndOpenShell()
+    {
+        // Between the sign-in window closing and the shell opening there is no window at all.
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
+        // Cancelling the choice of espace goes back to sign-in rather than leaving a signed-in
+        // user with nowhere to work.
+        while (true)
         {
-            // Sign in, then choose an espace. Cancelling the choice goes back to sign-in rather
-            // than leaving a signed-in user with nowhere to work.
-            while (true)
+            var login = new LoginWindow();
+            if (login.ShowDialog() != true)
             {
-                var login = new LoginWindow();
-                if (login.ShowDialog() != true)
-                {
-                    Shutdown();
-                    return;
-                }
-
-                if (new GroupPickerWindow().ShowDialog() == true)
-                {
-                    break;
-                }
-
-                Session.SignOut();
+                Shutdown();
+                return;
             }
+
+            if (new GroupPickerWindow().ShowDialog() == true)
+            {
+                break;
+            }
+
+            Session.SignOut();
         }
 
         try
@@ -172,6 +189,10 @@ public class ClientSettings
     /// connects. A host presenting a different one is refused, so a till cannot be pointed
     /// at a foreign or fake server. Cleared only by deleting this line from the file.</summary>
     public string? PinnedHostId { get; set; }
+
+    /// <summary>The Lonnii online server, used for remote access to an online shop from away
+    /// from it. Only changed for development.</summary>
+    public string OnlineServerUrl { get; set; } = "https://www.lonnii.com";
 
     /// <summary>The identifier last used to sign in, pre-filled on the next start.</summary>
     public string? LastIdentifier { get; set; }

@@ -54,6 +54,12 @@ public static class DesktopAdminEndpoints
 
         // Raising the limit is what customers pay for, so it stays with owner and super admins.
         group.MapPut("/shops/{id}/max-devices", SetMaxDevicesAsync).RequireDashboardSuperAdmin();
+
+        // Stopping a shop from working is as weighty as what it pays for: owner and super admins.
+        group.MapPut("/shops/{id}/block", SetBlockedAsync).RequireDashboardSuperAdmin();
+
+        // The whole shop - sales, customers, account password hashes: owner and super admins only.
+        group.MapGet("/shops/{id}/database", DownloadDatabaseAsync).RequireDashboardSuperAdmin();
     }
 
     // --- Reading -------------------------------------------------------------------------
@@ -99,6 +105,9 @@ public static class DesktopAdminEndpoints
 
         public IEnumerable<AttentionItemDto> Attention()
         {
+            // A shop its owner deleted is waiting for permanent removal, not for a fix.
+            if (Groupe.IsDeleted) yield break;
+
             var id = Groupe.Id;
             var name = Groupe.Nom;
 
@@ -138,7 +147,8 @@ public static class DesktopAdminEndpoints
             CurrentSubscription?.ContractEndDate,
             Backup?.SnapshotAt,
             Groupe.CreatedAt,
-            Attention().Select(a => SeverityRank(a.Severity)).DefaultIfEmpty(0).Max());
+            Attention().Select(a => SeverityRank(a.Severity)).DefaultIfEmpty(0).Max(),
+            Groupe.IsDeleted);
     }
 
     private static int SeverityRank(string severity) => severity switch
@@ -149,14 +159,16 @@ public static class DesktopAdminEndpoints
         _ => 0,
     };
 
-    /// <summary>Loads every desktop shop with its devices, contract and backup state.</summary>
+    /// <summary>Loads every desktop shop with its devices, contract and backup state. Shops deleted
+    /// by their owner only when asked for: they are listed apart, awaiting permanent removal.</summary>
     private static async Task<List<ShopFacts>> LoadShopsAsync(
-        LonniiDbContext db, BackupStore backups, string? onlyGroupId, CancellationToken ct)
+        LonniiDbContext db, BackupStore backups, string? onlyGroupId, CancellationToken ct,
+        bool includeDeleted = false)
     {
         var now = DateTime.UtcNow;
 
         var groupes = await db.Groupes.AsNoTracking()
-            .Where(g => !g.IsDeleted)
+            .Where(g => includeDeleted || !g.IsDeleted)
             .Where(g => onlyGroupId == null || g.Id == onlyGroupId)
             .Where(g => db.Devices.Any(d => d.GroupId == g.Id)
                         || g.LastLicenceCheckAt != null
@@ -222,7 +234,7 @@ public static class DesktopAdminEndpoints
     private static async Task<IResult> ListShopsAsync(
         string? search, string? filter, LonniiDbContext db, BackupStore backups, CancellationToken ct)
     {
-        var shops = await LoadShopsAsync(db, backups, null, ct);
+        var shops = await LoadShopsAsync(db, backups, null, ct, includeDeleted: filter == "deleted");
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -238,6 +250,7 @@ public static class DesktopAdminEndpoints
             "local" => shops.Where(s => !s.IsOnline).ToList(),
             "pending" => shops.Where(s => s.IsPending).ToList(),
             "blocked" => shops.Where(s => s.Groupe.IsBlocked).ToList(),
+            "deleted" => shops.Where(s => s.Groupe.IsDeleted).ToList(),
             "attention" => shops.Where(s => s.Attention().Any(a => a.Severity != "info")).ToList(),
             _ => shops,
         };
@@ -252,7 +265,7 @@ public static class DesktopAdminEndpoints
     private static async Task<IResult> ShopDetailAsync(
         string id, LonniiDbContext db, BackupStore backups, CancellationToken ct)
     {
-        var shop = (await LoadShopsAsync(db, backups, id, ct)).SingleOrDefault();
+        var shop = (await LoadShopsAsync(db, backups, id, ct, includeDeleted: true)).SingleOrDefault();
         if (shop is null) return Results.NotFound(new ApiError("Boutique introuvable"));
 
         var owner = await db.Users.AsNoTracking()
@@ -355,6 +368,70 @@ public static class DesktopAdminEndpoints
 
         return Results.Ok(new { maxDevices = groupe.MaxDevices });
     }
+
+    /// <summary>
+    /// The shop's database as of its latest cloud backup, unpacked into a plain SQLite file that
+    /// opens in Lonnii's restore or any SQLite tool. Online shops only: a local shop sends us none.
+    /// Product photos are not inside; they are kept beside the snapshot.
+    /// </summary>
+    private static async Task<IResult> DownloadDatabaseAsync(
+        string id,
+        ClaimsPrincipal admin,
+        LonniiDbContext db,
+        BackupStore backups,
+        ILoggerFactory logs,
+        CancellationToken ct)
+    {
+        var groupe = await db.Groupes.AsNoTracking().FirstOrDefaultAsync(g => g.Id == id, ct);
+        if (groupe is null) return Results.NotFound(new ApiError("Boutique introuvable"));
+
+        (string Path, DateTime At)? latest;
+        try { latest = backups.LatestSnapshotFile(id); }
+        catch (ArgumentException) { latest = null; }
+        if (latest is not { } file)
+            return Results.NotFound(new ApiError("Aucune sauvegarde cloud pour cette boutique."));
+
+        logs.CreateLogger("Lonnii.Admin").LogInformation(
+            "Dashboard admin {Admin} downloaded the database of shop {Shop} (snapshot {At:O})",
+            DashboardAdminAuth.AdminId(admin), id, file.At);
+
+        var gzip = new System.IO.Compression.GZipStream(
+            File.OpenRead(file.Path), System.IO.Compression.CompressionMode.Decompress);
+        return Results.Stream(gzip, "application/vnd.sqlite3", $"lonnii-{id}-{file.At:yyyyMMdd-HHmm}.db");
+    }
+
+    /// <summary>
+    /// Blocks or unblocks a shop. Blocked, it can no longer sign in, back up or bind a machine here,
+    /// and each till learns it - with the reason, shown to the shop - at its next licence check.
+    /// </summary>
+    private static async Task<IResult> SetBlockedAsync(
+        string id,
+        SetBlockedRequest request,
+        ClaimsPrincipal admin,
+        LonniiDbContext db,
+        ILoggerFactory logs,
+        CancellationToken ct)
+    {
+        var reason = request.Reason?.Trim();
+        if (request.Blocked && string.IsNullOrEmpty(reason))
+            return Results.BadRequest(new ApiError("Indiquez la raison du blocage : elle sera affichée à la boutique."));
+        if (reason?.Length > 300)
+            return Results.BadRequest(new ApiError("La raison ne doit pas dépasser 300 caractères."));
+
+        var groupe = await db.Groupes.FirstOrDefaultAsync(g => g.Id == id && !g.IsDeleted, ct);
+        if (groupe is null) return Results.NotFound(new ApiError("Boutique introuvable"));
+
+        groupe.IsBlocked = request.Blocked;
+        groupe.BlockReason = request.Blocked ? reason : null;
+        groupe.BlockedAt = request.Blocked ? DateTime.UtcNow : null;
+        await db.SaveChangesAsync(ct);
+
+        logs.CreateLogger("Lonnii.Admin").LogInformation(
+            "Dashboard admin {Admin} {Action} shop {Shop} ({Reason})",
+            DashboardAdminAuth.AdminId(admin), request.Blocked ? "blocked" : "unblocked", id, reason);
+
+        return Results.NoContent();
+    }
 }
 
 // --- Contracts (read by the dashboard's JavaScript, so camelCase JSON) ----------------------
@@ -390,7 +467,8 @@ public sealed record ShopSummaryDto(
     DateTime? SubscriptionEndsAt,
     DateTime? LastBackupAt,
     DateTime CreatedAt,
-    int AttentionLevel);
+    int AttentionLevel,
+    bool IsDeleted);
 
 public sealed record ShopOwnerDto(string Email, string Name, string? Phone);
 
@@ -419,3 +497,5 @@ public sealed record ShopDetailDto(
     IReadOnlyList<AttentionItemDto> Attention);
 
 public sealed record SetMaxDevicesRequest(int MaxDevices);
+
+public sealed record SetBlockedRequest(bool Blocked, string? Reason);

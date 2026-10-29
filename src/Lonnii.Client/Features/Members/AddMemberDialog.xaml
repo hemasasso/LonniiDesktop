@@ -2,7 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Ajouter un membre"
-        Height="590" Width="540"
+        Width="540" SizeToContent="Height"
+        MaxHeight="{Binding Source={x:Static SystemParameters.WorkArea}, Path=Height}"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
@@ -34,6 +35,8 @@
             </Grid>
         </Border>
 
+        <!-- Sized to its content; scrolls only when the screen is too short to show it all. -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="20,16">
 
             <TextBlock Text="Mode" Style="{StaticResource FieldLabel}" />
@@ -105,6 +108,7 @@
                        Text="Le compte sera ajouté à cet espace avec le rôle « membre » et les accès de base. Vous pourrez ensuite lui accorder des privilèges." />
 
         </StackPanel>
+        </ScrollViewer>
 
     </DockPanel>
 </Window>

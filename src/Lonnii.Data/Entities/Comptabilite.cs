@@ -6,9 +6,10 @@ namespace Lonnii.Data.Entities;
 /// <c>groupe_id</c> column name. Columns that are nullable there are nullable here too, so a
 /// row written by the web app with a gap in it still loads.
 /// </summary>
-public class Immobilisation
+public class Immobilisation : ISyncable
 {
     public int Id { get; set; }
+    public string SyncId { get; set; } = Guid.NewGuid().ToString();
     public string GroupId { get; set; } = string.Empty;
 
     public string Nom { get; set; } = string.Empty;
@@ -60,9 +61,10 @@ public class Immobilisation
 /// Rewritten whole whenever the asset is saved. Stored rather than recomputed on read because
 /// the source app stores it and sums it in SQL for the bilan and the compte de résultat.
 /// </summary>
-public class AmortissementEcheance
+public class AmortissementEcheance : ISyncable
 {
     public int Id { get; set; }
+    public string SyncId { get; set; } = Guid.NewGuid().ToString();
     public int ImmobilisationId { get; set; }
     public string GroupId { get; set; } = string.Empty;
 

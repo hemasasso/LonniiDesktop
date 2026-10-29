@@ -277,6 +277,10 @@ public static class RemoteEndpoints
                         type, request.UserId, request.Member, passwordHash: null, scope, db, seeder, changes, ct);
                     break;
 
+                case RemoteCommandTypes.EspaceRename:
+                    check = EspaceRenameCheck(request.Name);
+                    break;
+
                 default:
                     return Results.BadRequest(new ApiError($"Type de demande inconnu : {request.Type}"));
             }
@@ -334,9 +338,20 @@ public static class RemoteEndpoints
             PhotoId: request.PhotoId,
             RemovePhoto: request.RemovePhoto,
             Member: member,
-            PasswordHash: passwordHash));
+            PasswordHash: passwordHash,
+            Name: request.Name?.Trim()));
 
         return Results.Accepted($"/api/remote/commands/{command.Id}", command);
+    }
+
+    /// <summary>The same rule as renaming at the shop (<c>PUT /api/groupe/name</c>).</summary>
+    internal static PrivilegeChangeResult EspaceRenameCheck(string? name)
+    {
+        var nom = name?.Trim() ?? string.Empty;
+        return nom.Length is > 0 and <= 100
+            ? PrivilegeChangeResult.Done
+            : PrivilegeChangeResult.Refused(StatusCodes.Status400BadRequest,
+                "Le nom de l'espace doit contenir entre 1 et 100 caractères.");
     }
 
     /// <summary>What was asked for recently and what became of it, newest first.</summary>

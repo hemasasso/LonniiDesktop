@@ -92,6 +92,14 @@ public sealed class CloudBackupRunner(
             var begun = await client.BeginAsync(ct);
             state.Epoch = begun.Epoch;
 
+            // Catches up a rename made while the server could not be reached. Never fails the
+            // backup: an older server has no such address.
+            try { await client.PutNameAsync(groupe.Nom, ct); }
+            catch (CloudBackupException e)
+            {
+                logger.LogWarning("Nom de {GroupId} non envoyé au serveur Lonnii : {Message}", groupId, e.Message);
+            }
+
             snapshot = paths.NewFile("backup");
             var export = await transfers.ExportSnapshotAsync(groupId, snapshot, ct)
                 ?? throw new CloudBackupException("Espace introuvable.");
@@ -146,6 +154,61 @@ public sealed class CloudBackupRunner(
 
             // Even on failure: the error and the attempt time are what Paramètres shows.
             await db.SaveChangesAsync(CancellationToken.None);
+        }
+    }
+
+    /// <summary>
+    /// Sends the shop's name to the Lonnii server straight away, for an online shop just renamed.
+    /// False when it is not an online shop or the server cannot be reached; the next backup then
+    /// carries the name instead.
+    /// </summary>
+    public async Task<bool> PushNameAsync(string groupId, CancellationToken ct)
+    {
+        var groupe = await db.Groupes.AsNoTracking().FirstOrDefaultAsync(g => g.Id == groupId, ct);
+        var state = await db.CloudBackupStates.AsNoTracking().FirstOrDefaultAsync(s => s.GroupId == groupId, ct);
+        if (WhyNotApplicable(groupe, state) is not null) return false;
+
+        try
+        {
+            // The backup client waits up to half an hour for a snapshot; a rename must not.
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(10));
+
+            client.For(groupe!.LicenceServerUrl!, groupId, state!.DeviceId!, state.DeviceToken!, state.Epoch);
+            await client.PutNameAsync(groupe.Nom, timeout.Token);
+            return true;
+        }
+        catch (Exception e) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning("Nom de {GroupId} non envoyé au serveur Lonnii : {Message}", groupId, e.Message);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Tells the Lonnii server an online shop is being deleted, so the dashboard shows it as deleted
+    /// rather than as a shop gone quiet. Must run before the shop's rows go. False when it is not an
+    /// online shop or the server cannot be reached.
+    /// </summary>
+    public async Task<bool> PushDeletedAsync(string groupId, CancellationToken ct)
+    {
+        var groupe = await db.Groupes.AsNoTracking().FirstOrDefaultAsync(g => g.Id == groupId, ct);
+        var state = await db.CloudBackupStates.AsNoTracking().FirstOrDefaultAsync(s => s.GroupId == groupId, ct);
+        if (WhyNotApplicable(groupe, state) is not null) return false;
+
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(10));
+
+            client.For(groupe!.LicenceServerUrl!, groupId, state!.DeviceId!, state.DeviceToken!, state.Epoch);
+            await client.MarkDeletedAsync(timeout.Token);
+            return true;
+        }
+        catch (Exception e) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning("Suppression de {GroupId} non signalée au serveur Lonnii : {Message}", groupId, e.Message);
+            return false;
         }
     }
 

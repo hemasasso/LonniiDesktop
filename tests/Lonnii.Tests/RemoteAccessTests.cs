@@ -43,7 +43,15 @@ public class RemoteAccessTests : IAsyncLifetime
         Directory.CreateDirectory(_dataDirectory);
 
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
-            builder.UseSetting("Lonnii:DataDirectory", _dataDirectory));
+        {
+            builder.UseSetting("Lonnii:DataDirectory", _dataDirectory);
+            // The host replays a change from afar through its own API: here, the in-memory test server.
+            builder.ConfigureServices(services => services
+                .AddHttpClient(RemoteRequestReplayer.HttpClientName, c => c.BaseAddress = new Uri("http://localhost/"))
+                .ConfigurePrimaryHttpMessageHandler(sp =>
+                    ((Microsoft.AspNetCore.TestHost.TestServer)sp.GetRequiredService<Microsoft.AspNetCore.Hosting.Server.IServer>())
+                    .CreateHandler()));
+        });
         _client = _factory.CreateClient();
 
         await SeedServerAsync(DeploymentModes.Online, subscribed: true);
@@ -208,16 +216,126 @@ public class RemoteAccessTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_remote_session_cannot_change_anything()
+    public async Task A_change_on_a_shop_screen_is_kept_for_the_shop_and_leaves_the_copy_alone()
     {
         var (jwt, session) = await AdminSessionAsync();
 
-        var write = Remote(HttpMethod.Post, "/api/stock/products", jwt, session.SessionToken);
+        var write = Remote(HttpMethod.Post, "/api/stock/products?source=test", jwt, session.SessionToken);
         write.Content = JsonContent.Create(new SaveProductRequest("Nouveau", 100m));
 
         var response = await _client.SendAsync(write);
 
-        Assert.Equal(HttpStatusCode.MethodNotAllowed, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var store = _factory.Services.GetRequiredService<RemoteCommandStore>();
+        var kept = Assert.Single(store.Pending(GroupId));
+        Assert.Equal(RemoteCommandTypes.Request, kept.Type);
+        Assert.Equal("POST", kept.Method);
+        Assert.Equal("/api/stock/products?source=test", kept.Path);
+        Assert.Contains("Nouveau", kept.Body);
+        Assert.Equal(_adminId, kept.RequestedBy);
+
+        var products = await _client.SendAsync(Remote(HttpMethod.Get, "/api/stock/products", jwt, session.SessionToken));
+        Assert.DoesNotContain((await products.Content.ReadFromJsonAsync<List<ProductDto>>())!, p => p.Name == "Nouveau");
+    }
+
+    [Fact]
+    public async Task Inside_a_shop_from_afar_the_shop_list_still_comes_from_the_server()
+    {
+        var (jwt, session) = await AdminSessionAsync();
+
+        var response = await _client.SendAsync(Remote(HttpMethod.Get, "/api/groupes", jwt, session.SessionToken));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains((await response.Content.ReadFromJsonAsync<List<GroupeDto>>())!, g => g.Id == GroupId);
+    }
+
+    [Fact]
+    public async Task A_profile_change_from_afar_is_saved_online_and_kept_for_the_shop()
+    {
+        var (jwt, session) = await AdminSessionAsync();
+
+        var write = Remote(HttpMethod.Put, "/api/auth/profile", jwt, session.SessionToken);
+        write.Content = JsonContent.Create(new UpdateProfileRequest("Awa", "Sanou", "awa.s", "+226 70 00 00 01"));
+        var response = await _client.SendAsync(write);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("awa.s", (await response.Content.ReadFromJsonAsync<UserDto>())!.Username);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+            Assert.Equal("Sanou", db.Users.Single(u => u.IdUser == _adminId).LastName);
+        }
+
+        var kept = Assert.Single(_factory.Services.GetRequiredService<RemoteCommandStore>().Pending(GroupId));
+        Assert.Equal("/api/auth/profile", kept.Path);
+        Assert.Contains("awa.s", kept.Body);
+    }
+
+    [Fact]
+    public async Task Account_and_espace_actions_and_files_are_not_kept_from_afar()
+    {
+        var (jwt, session) = await AdminSessionAsync();
+
+        var deleteShop = await _client.SendAsync(Remote(HttpMethod.Delete, $"/api/groupes/{GroupId}", jwt, session.SessionToken));
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, deleteShop.StatusCode);
+
+        var import = await _client.SendAsync(Remote(HttpMethod.Post, "/api/parametres/espace/import", jwt, session.SessionToken));
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, import.StatusCode);
+
+        var upload = Remote(HttpMethod.Post, "/api/groupe/photo", jwt, session.SessionToken);
+        upload.Content = new MultipartFormDataContent { { new ByteArrayContent([1, 2, 3]), "file", "photo.jpg" } };
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, (await _client.SendAsync(upload)).StatusCode);
+
+        Assert.Empty(_factory.Services.GetRequiredService<RemoteCommandStore>().Pending(GroupId));
+    }
+
+    private static RemoteCommandDto Replay(string requestedBy, string method, string path, object? body) =>
+        new(Guid.NewGuid().ToString("N"), RemoteCommandTypes.Request, requestedBy, null, null, null, null, null,
+            requestedBy, null, DateTime.UtcNow, RemoteCommandStatuses.Pending,
+            Method: method, Path: path,
+            Body: body is null ? null : System.Text.Json.JsonSerializer.Serialize(body, System.Text.Json.JsonSerializerOptions.Web));
+
+    [Fact]
+    public async Task The_host_replays_a_kept_change_through_its_own_api_as_the_sender()
+    {
+        await MakeThisTheShopsHostAsync();
+        using var scope = _factory.Services.CreateScope();
+        var applier = scope.ServiceProvider.GetRequiredService<RemoteCommandApplier>();
+
+        var result = await applier.ApplyAsync(GroupId,
+            Replay(_adminId, "POST", "/api/stock/products", new SaveProductRequest("Envoyé de loin", 250m)), CancellationToken.None);
+
+        Assert.Equal(RemoteCommandStatuses.Applied, result.Status);
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+        Assert.True(db.Products.Any(p => p.GroupId == GroupId && p.Name == "Envoyé de loin"));
+        Assert.Empty(db.GroupeSessions); // the sender's short session is closed again
+
+        // The shop's own checks still apply: an invalid product is refused with the shop's message.
+        var refused = await applier.ApplyAsync(GroupId,
+            Replay(_adminId, "POST", "/api/stock/products", new SaveProductRequest("", 250m)), CancellationToken.None);
+        Assert.Equal(RemoteCommandStatuses.Failed, refused.Status);
+        Assert.False(string.IsNullOrEmpty(refused.Message));
+    }
+
+    [Fact]
+    public async Task The_host_does_not_replay_for_a_non_administrator_or_outside_the_shop_screens()
+    {
+        await MakeThisTheShopsHostAsync();
+        using var scope = _factory.Services.CreateScope();
+        var applier = scope.ServiceProvider.GetRequiredService<RemoteCommandApplier>();
+
+        var staff = await applier.ApplyAsync(GroupId,
+            Replay(_staffId, "POST", "/api/stock/products", new SaveProductRequest("Pas admin", 1m)), CancellationToken.None);
+        Assert.Equal(RemoteCommandStatuses.Failed, staff.Status);
+
+        var outside = await applier.ApplyAsync(GroupId,
+            Replay(_adminId, "DELETE", $"/api/groupes/{GroupId}", null), CancellationToken.None);
+        Assert.Equal(RemoteCommandStatuses.Failed, outside.Status);
+
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+        Assert.True(db.Groupes.Any(g => g.Id == GroupId));
+        Assert.False(db.Products.Any(p => p.Name == "Pas admin"));
     }
 
     [Fact]

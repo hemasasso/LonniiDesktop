@@ -101,6 +101,14 @@
             </StatusBarItem>
         </StatusBar>
 
+        <!-- Remote access: says plainly that this is the shop's last backup, not the shop live. -->
+        <Border x:Name="RemoteBanner" DockPanel.Dock="Top" Visibility="Collapsed"
+                Background="{DynamicResource AccentLight}"
+                BorderBrush="{DynamicResource Accent}" BorderThickness="0,0,0,1" Padding="14,6">
+            <TextBlock x:Name="RemoteBannerText" TextWrapping="Wrap" FontSize="12"
+                       Foreground="{DynamicResource TextPrimary}" />
+        </Border>
+
         <!--
           Top navigation. Replaces the old menu bar and left sidebar: every module the
           user can reach now lives in this one bar, either as a direct pill (Chat,
@@ -176,6 +184,7 @@
                                 <MenuItem x:Name="AvatarRoleHeader" IsEnabled="False" />
                                 <Separator />
                                 <MenuItem Header="Changer d'espace…" Click="ChangeGroup_Click" />
+                                <MenuItem x:Name="ProfileMenuItem" Header="Mon profil…" Click="Profile_Click" />
                                 <MenuItem Header="Changer mon mot de passe…" Click="ChangePassword_Click" />
                                 <Separator />
                                 <MenuItem Header="À propos de Lonnii…" Click="About_Click" />

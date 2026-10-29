@@ -135,7 +135,7 @@ public partial class AuditView : UserControl
         {
             null => "—",
             "repos" => "Repos",
-            var type => $"{(type == "reunion" ? "Réunion" : "Travail")}{Hours(Dto.ScheduleStart, Dto.ScheduleEnd)}",
+            var type => $"{DayTypes.Label(type)}{Hours(Dto.ScheduleStart, Dto.ScheduleEnd)}",
         };
 
         public string ArrivalDisplay => Dto.FirstLoginAt is { } at ? at.ToLocalTime().ToString("HH:mm") : "—";

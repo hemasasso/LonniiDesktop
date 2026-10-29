@@ -28,10 +28,23 @@ public partial class ForgotPasswordWindow : Window
     /// <summary>The account whose password was changed, to pre-fill sign-in.</summary>
     public string Identifier => _identifier;
 
-    public ForgotPasswordWindow(AppSession session, string? identifier)
+    /// <summary>Resetting the account on the Lonnii online server (remote access), not on a shop's server.</summary>
+    private readonly bool _online;
+
+    public ForgotPasswordWindow(AppSession session, string? identifier, bool online = false)
     {
         _session = session;
+        _online = online;
         InitializeComponent();
+
+        if (online)
+        {
+            // The online server knows its accounts by email, and has no offline code to offer.
+            OfflineLink.Visibility = Visibility.Collapsed;
+            ShopNote.Visibility = Visibility.Collapsed;
+            SubtitleText.Text = "Accès à distance : indiquez l'email de votre compte Lonnii. " +
+                                "Le mot de passe de la boutique, lui, ne change pas.";
+        }
 
         _copyReset = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _copyReset.Tick += (_, _) =>
@@ -92,6 +105,25 @@ public partial class ForgotPasswordWindow : Window
     private async Task SendCodeAsync()
     {
         if (!ReadIdentifier()) return;
+
+        if (_online)
+        {
+            if (!_identifier.Contains('@'))
+            {
+                Fail("Indiquez l'adresse email de votre compte Lonnii.", IdentifierBox);
+                return;
+            }
+
+            await BusyAsync(async () =>
+            {
+                var online = await _session.Api.OnlinePasswordResetStartAsync(_identifier);
+                _requestId = online.RequestId;
+                SubtitleText.Text = $"Si {_identifier} est un compte Lonnii, un code vient d'y être envoyé. Il est valable 15 minutes.";
+                ShowStep(Step.EmailCode);
+                CodeBox.Focus();
+            });
+            return;
+        }
 
         await BusyAsync(async () =>
         {
@@ -172,6 +204,14 @@ public partial class ForgotPasswordWindow : Window
 
         await BusyAsync(async () =>
         {
+            if (_online)
+            {
+                await _session.Api.OnlinePasswordResetVerifyAsync(
+                    new PasswordResetVerifyRequest(_requestId!, _identifier, code, NewBox.Password));
+                DialogResult = true;
+                return;
+            }
+
             await _session.Api.ForgotPasswordVerifyAsync(
                 new ForgotPasswordVerifyRequest(_requestId!, _identifier, code, NewBox.Password));
             DialogResult = true;

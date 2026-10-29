@@ -67,9 +67,10 @@ public class RegistrationTests : IAsyncLifetime
         catch (IOException) { }
     }
 
-    private Task<HttpResponseMessage> Start(string email = Email, string password = Password) =>
+    private Task<HttpResponseMessage> Start(string email = Email, string password = Password,
+        string username = "pharmasud", string phone = "+226 70 12 34 56") =>
         _client.PostAsJsonAsync("/api/registration/start",
-            new RegistrationStartRequest("Pharmacie Sud", email, password, "machine-1", "poste"));
+            new RegistrationStartRequest("Pharmacie Sud", email, password, "machine-1", "poste", username, phone));
 
     private async Task<string> StartOkAsync()
     {
@@ -132,6 +133,8 @@ public class RegistrationTests : IAsyncLifetime
         Assert.Equal(admin.IdUser, groupe.IdUserAdmin);
         Assert.Equal(DeploymentModes.Local, groupe.Mode);
         Assert.True(BCrypt.Net.BCrypt.Verify(Password, admin.Password));
+        Assert.Equal("pharmasud", admin.Username);
+        Assert.Equal("+226 70 12 34 56", admin.Phone);
         Assert.Single(await db.UserRoles.Where(r => r.Role == GroupRoles.Admin).ToListAsync());
         Assert.Empty(await db.RegistrationRequests.ToListAsync());
     }
@@ -248,6 +251,25 @@ public class RegistrationTests : IAsyncLifetime
     {
         Assert.Equal(HttpStatusCode.BadRequest, (await Start(email, password)).StatusCode);
         Assert.Empty(_email.Sent);
+    }
+
+    [Theory]
+    [InlineData("", "+226 70 12 34 56")]
+    [InlineData("a b", "+226 70 12 34 56")]
+    [InlineData("pharmasud", "")]
+    [InlineData("pharmasud", "12ab")]
+    public async Task A_username_and_a_phone_are_required(string username, string phone)
+    {
+        Assert.Equal(HttpStatusCode.BadRequest, (await Start(username: username, phone: phone)).StatusCode);
+        Assert.Empty(_email.Sent);
+    }
+
+    [Fact]
+    public async Task A_username_already_taken_is_refused()
+    {
+        await RegisterAsync();
+
+        Assert.Equal(HttpStatusCode.Conflict, (await Start(email: "autre@pharmacie.bf")).StatusCode);
     }
 
     private async Task SetStatusAsync(string groupId, string status)

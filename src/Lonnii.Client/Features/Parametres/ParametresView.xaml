@@ -35,8 +35,15 @@
 
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Nom de l'espace"
                                    Foreground="{DynamicResource TextSecondary}" Margin="0,3" />
-                        <TextBlock x:Name="GroupNameText" Grid.Row="0" Grid.Column="1"
-                                   FontWeight="SemiBold" Margin="0,3" />
+                        <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal">
+                            <TextBlock x:Name="GroupNameText" FontWeight="SemiBold" Margin="0,3"
+                                       VerticalAlignment="Center" />
+                            <Button x:Name="RenameEspaceButton" Content="Renommer…" Margin="12,0,0,0"
+                                    Style="{StaticResource SecondaryButton}" Visibility="Collapsed"
+                                    Click="RenameEspace_Click" />
+                            <TextBlock x:Name="RenameStatusText" Margin="12,0,0,0" FontSize="12"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
 
                         <TextBlock Grid.Row="1" Grid.Column="0" Text="Votre rôle"
                                    Foreground="{DynamicResource TextSecondary}" Margin="0,3" />

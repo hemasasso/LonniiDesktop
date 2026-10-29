@@ -58,14 +58,18 @@ public partial class LoginWindow : Window
             // Only an address that proves itself is tried without searching: this machine, or
             // one we authorised. Whatever else the settings file says is ignored.
             var known = ServerTrust.RepairedAddress(App.Settings) ?? _host;
+            if (_remote) return;
+
             if (ServerTrust.IsAllowedWithoutSearch(known, App.Settings) && await ReachableAsync(known))
             {
+                if (_remote) return;
                 _host = known;
                 ShowFound();
                 return;
             }
 
             var hosts = await HostDiscovery.FindAsync(TimeSpan.FromSeconds(2));
+            if (_remote) return;
             if (hosts.Count > 0)
             {
                 _host = hosts[0].Address;
@@ -74,7 +78,9 @@ public partial class LoginWindow : Window
                 return;
             }
         }
-        while (IsLoaded && DateTime.UtcNow < deadline);
+        while (IsLoaded && !_remote && DateTime.UtcNow < deadline);
+
+        if (_remote) return;
 
         SetDiscovery("Serveur introuvable.", "Danger", "Danger", blink: false);
         NotFoundButtons.Visibility = Visibility.Visible;
@@ -144,7 +150,8 @@ public partial class LoginWindow : Window
     /// </summary>
     private async Task CheckSetupStateAsync()
     {
-        if (string.IsNullOrWhiteSpace(_host)) return;
+        // The online server is not this shop's host: nothing to set up, nothing to pin.
+        if (_remote || string.IsNullOrWhiteSpace(_host)) return;
 
         try
         {
@@ -244,9 +251,57 @@ public partial class LoginWindow : Window
         HostHint.Text = "Compte créé. Connectez-vous avec votre mot de passe.";
     }
 
+    // --- Remote access ---------------------------------------------------------------
+
+    /// <summary>Signing in to the Lonnii online server rather than a shop's host.</summary>
+    private bool _remote;
+
+    /// <summary>
+    /// Switches between the shop's own server and remote access. Remote access is for an
+    /// administrator away from the shop: their account on the Lonnii server opens the copy of an
+    /// online shop that its server last backed up. The shop keeps trading on its own server, so
+    /// there is only ever one place its data is written.
+    /// </summary>
+    private async void ToggleRemote_Click(object sender, RoutedEventArgs e)
+    {
+        HideError();
+        HostHint.Text = string.Empty;
+        _remote = !_remote;
+
+        if (_remote)
+        {
+            NotFoundButtons.Visibility = Visibility.Collapsed;
+            ShowSetupPanel(false);
+            _blocked = false;
+            _serverFound = true;
+            UpdateSignIn();
+            SetDiscovery(string.Empty, "Accent", "Accent", blink: false); // a blue dot, nothing to read
+            return;
+        }
+
+        _host = App.Settings.HostAddress;
+        await FindHostAsync();
+        await CheckSetupStateAsync();
+    }
+
     /// <summary>The shop owner gets an emailed code; anyone else is told to ask their administrator.</summary>
     private void ForgotPassword_Click(object sender, RoutedEventArgs e)
     {
+        if (_remote)
+        {
+            // The account on the Lonnii online server, reset by an emailed code there.
+            _session.Api.Connect(App.Settings.OnlineServerUrl.Trim());
+            var online = new ForgotPasswordWindow(_session, IdentifierBox.Text.Trim(), online: true) { Owner = this };
+            if (online.ShowDialog() != true) return;
+
+            IdentifierBox.Text = online.Identifier;
+            PasswordBox.Clear();
+            HideError();
+            PasswordBox.Focus();
+            HostHint.Text = "Mot de passe changé. Connectez-vous avec le nouveau.";
+            return;
+        }
+
         if (!_serverFound || _blocked)
         {
             ShowError("Attendez que le serveur soit trouvé.");
@@ -291,7 +346,7 @@ public partial class LoginWindow : Window
 
     private async Task SignInCoreAsync()
     {
-        var host = _host.Trim();
+        var host = _remote ? App.Settings.OnlineServerUrl.Trim() : _host.Trim();
         var identifier = IdentifierBox.Text.Trim();
         var password = PasswordBox.Password;
 
@@ -303,9 +358,10 @@ public partial class LoginWindow : Window
         try
         {
             _session.Api.Connect(host);
-            await _session.SignInAsync(identifier, password);
+            await _session.SignInAsync(identifier, password, _remote);
 
-            App.Settings.HostAddress = host;
+            // The online server never becomes this till's host.
+            if (!_remote) App.Settings.HostAddress = host;
             App.Settings.LastIdentifier = identifier;
             App.Settings.Save();
 

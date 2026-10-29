@@ -44,6 +44,7 @@
                 <ComboBoxItem Content="Travail" Tag="travail" IsSelected="True" />
                 <ComboBoxItem Content="Réunion" Tag="reunion" />
                 <ComboBoxItem Content="Repos" Tag="repos" />
+                <ComboBoxItem Content="Autre" Tag="autre" />
             </ComboBox>
 
             <Grid Margin="0,14,0,0">

@@ -131,6 +131,10 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
 
         }
 
+        // Integer-keyed tables also carry a GUID that live sync matches rows by (see ISyncable).
+        foreach (var entity in b.Model.GetEntityTypes().Where(e => typeof(ISyncable).IsAssignableFrom(e.ClrType)))
+            b.Entity(entity.ClrType).HasIndex(nameof(ISyncable.SyncId)).IsUnique();
+
         // Run last: index filters written above already use snake_case column names.
         ApplySnakeCaseNames(b);
     }

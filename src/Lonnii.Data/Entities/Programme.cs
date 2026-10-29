@@ -14,7 +14,11 @@ public static class ProgrammeEntryTypes
     /// worth telling a worker about.</summary>
     public const string Repos = "repos";
 
-    public static readonly IReadOnlyList<string> All = [Travail, Reunion, Repos];
+    /// <summary>Anything else - training, a delivery, an errand. Hours are optional and the note
+    /// says what it is; counted like a work day when hours are set.</summary>
+    public const string Autre = "autre";
+
+    public static readonly IReadOnlyList<string> All = [Travail, Reunion, Repos, Autre];
 }
 
 /// <summary>

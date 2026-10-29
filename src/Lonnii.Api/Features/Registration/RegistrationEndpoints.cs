@@ -79,6 +79,14 @@ public static class RegistrationEndpoints
         if (string.IsNullOrWhiteSpace(request.DeviceId))
             return Results.BadRequest(new ApiError("Identifiant de poste manquant."));
 
+        var username = request.Username?.Trim() ?? string.Empty;
+        if (UsernameProblem(username) is { } usernameProblem)
+            return Results.BadRequest(new ApiError(usernameProblem));
+
+        var phone = request.Phone?.Trim() ?? string.Empty;
+        if (PhoneProblem(phone) is { } phoneProblem)
+            return Results.BadRequest(new ApiError(phoneProblem));
+
         if (!email.IsConfigured)
         {
             log.LogError("Inscription demandée mais aucun envoi d'email n'est configuré (Lonnii:Email)");
@@ -98,6 +106,9 @@ public static class RegistrationEndpoints
         if (await db.Users.AnyAsync(u => u.Email == address, ct))
             return Results.Conflict(new ApiError("Cette adresse email est déjà utilisée"));
 
+        if (await db.Users.AnyAsync(u => u.Username == username, ct))
+            return Results.Conflict(new ApiError("Ce nom d'utilisateur est déjà pris"));
+
         // A second attempt for the same address replaces the first.
         await db.RegistrationRequests.Where(r => r.Email == address).ExecuteDeleteAsync(ct);
 
@@ -106,6 +117,8 @@ public static class RegistrationEndpoints
             ShopName = shop,
             Email = address,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
+            Username = username,
+            Phone = phone,
             DeviceId = request.DeviceId,
             DeviceName = request.DeviceName,
             CodeExpiresAt = DateTime.UtcNow.AddMinutes(CodeLifetimeMinutes),
@@ -139,6 +152,23 @@ public static class RegistrationEndpoints
         }
 
         return Results.Ok(new RegistrationStartResponse(pending.Id, pending.CodeExpiresAt));
+    }
+
+    /// <summary>A sign-in name: typed at the till instead of the email, so short and plain.</summary>
+    internal static string? UsernameProblem(string username) =>
+        username.Length is < 3 or > 30
+            ? "Le nom d'utilisateur doit contenir entre 3 et 30 caractères"
+            : username.Any(c => !(char.IsLetterOrDigit(c) || c is '.' or '_' or '-'))
+                ? "Le nom d'utilisateur ne peut contenir que des lettres, des chiffres et . _ -"
+                : null;
+
+    /// <summary>A phone number as people write it: digits, with an optional + and spaces.</summary>
+    internal static string? PhoneProblem(string phone)
+    {
+        var digits = phone.Count(char.IsDigit);
+        var allowed = phone.All(c => char.IsDigit(c) || c is ' ' or '+' or '-' or '.')
+                      && phone.LastIndexOf('+') <= 0;
+        return !allowed || digits is < 8 or > 15 ? "Indiquez un numéro de téléphone valide (8 à 15 chiffres)" : null;
     }
 
     private static async Task<IResult> VerifyAsync(
@@ -177,10 +207,20 @@ public static class RegistrationEndpoints
             return Results.Conflict(new ApiError("Cette adresse email est déjà utilisée"));
         }
 
+        // Same race for the username; an older app's request has none, which is allowed.
+        if (pending.Username is not null && await db.Users.AnyAsync(u => u.Username == pending.Username, ct))
+        {
+            db.RegistrationRequests.Remove(pending);
+            await db.SaveChangesAsync(ct);
+            return Results.Conflict(new ApiError("Ce nom d'utilisateur est déjà pris. Recommencez l'inscription."));
+        }
+
         var admin = new User
         {
             Email = pending.Email,
             Password = pending.PasswordHash,
+            Username = pending.Username,
+            Phone = pending.Phone,
             IsVerified = true,
         };
 
@@ -224,7 +264,7 @@ public static class RegistrationEndpoints
     /// blocked or deleted from the dashboard like any other.
     ///
     /// <para>
-    /// Authenticated by email and password, and only an Admin Général of an <em>approved</em> shop
+    /// Authenticated by email and password, and only an admin of an <em>approved</em> shop
     /// qualifies: someone whose only shop is pending, blocked or declined gets nothing here, so this
     /// cannot be used to get around the approval step.
     /// </para>
@@ -262,14 +302,22 @@ public static class RegistrationEndpoints
         if (user?.Password is null || user.IsBlocked || !BCrypt.Net.BCrypt.Verify(request.Password, user.Password))
             return refused;
 
-        var approvedShop = await db.Groupes.AnyAsync(g =>
-            g.IdUserAdmin == user.IdUser && g.ApprovalStatus == ApprovalStatuses.Approved &&
-            !g.IsBlocked && !g.IsDeleted, ct);
+        var approvedShops = db.Groupes.Where(g =>
+            g.ApprovalStatus == ApprovalStatuses.Approved && !g.IsBlocked && !g.IsDeleted);
+
+        // The Admin Général of an approved shop, or any admin of one. Roles are compared here rather
+        // than in SQL: on PostgreSQL the column is the enum role_type, which refuses a text parameter.
+        var approvedShop = await approvedShops.AnyAsync(g => g.IdUserAdmin == user.IdUser, ct)
+            || (await db.UserRoles
+                .Where(r => r.UserId == user.IdUser && r.IsActive && approvedShops.Any(g => g.Id == r.GroupId))
+                .Select(r => r.Role)
+                .ToListAsync(ct))
+                .Any(GroupRoles.IsAdminRole);
 
         if (!approvedShop)
         {
             return Results.Json(
-                new ApiError("Seul l'administrateur d'une boutique déjà approuvée peut créer un espace."),
+                new ApiError("Seul un administrateur d'une boutique déjà approuvée peut créer un espace."),
                 statusCode: StatusCodes.Status403Forbidden);
         }
 

@@ -67,6 +67,9 @@ public partial class MainWindow : Window
             EndPresence();
             CustomerDisplayService.Instance.Stop();
         };
+
+        // After a sign-out the app lives on, so a closed shell must not keep polling.
+        Closed += (_, _) => _licenceTimer.Stop();
     }
 
     // --- Licence (offline deadline) ---
@@ -86,12 +89,21 @@ public partial class MainWindow : Window
     /// </summary>
     private async Task SyncLicenceAsync(bool onlyIfStale = false)
     {
-        if (_session.Groupe is not { } groupe) return;
+        if (_session.Groupe is not { } groupe || _session.IsRemote) return;
         if (onlyIfStale && DateTime.UtcNow - _lastLicenceSync < TimeSpan.FromMinutes(30)) return;
 
         _lastLicenceSync = DateTime.UtcNow;
-        try { await _session.Api.SyncLicenceAsync(groupe.Id); }
-        catch (Exception ex) when (ex is ApiException or System.Net.Http.HttpRequestException or TaskCanceledException) { }
+        try
+        {
+            await _session.Api.SyncLicenceAsync(groupe.Id);
+            _licenceTimer.Interval = TimeSpan.FromHours(3);
+        }
+        catch (Exception ex) when (ex is ApiException or System.Net.Http.HttpRequestException or TaskCanceledException)
+        {
+            // Missed (internet down, or a request that timed out as it came back): try again
+            // soon, so "Serveur central" does not stay red for three hours after a blip.
+            _licenceTimer.Interval = TimeSpan.FromMinutes(10);
+        }
     }
 
     /// <summary>Blocks the shell behind the lock screen until the licence is renewed. Several
@@ -115,7 +127,7 @@ public partial class MainWindow : Window
     /// attendance is a by-product of working, and a failed beat must not interrupt a sale.</summary>
     private async Task SendPresenceAsync()
     {
-        if (_session.Groupe is null) return;
+        if (_session.Groupe is null || _session.IsRemote) return;
         try { await _session.Api.SendPresenceAsync(_currentLabel); }
         catch (Exception ex) when (ex is ApiException or System.Net.Http.HttpRequestException or TaskCanceledException) { }
     }
@@ -164,7 +176,7 @@ public partial class MainWindow : Window
     {
         _presenceTimer.Stop();
         _liveTimer.Stop();
-        if (_session.Groupe is null) return;
+        if (_session.Groupe is null || _session.IsRemote) return;
         try { Task.Run(() => _session.Api.EndPresenceAsync()).Wait(TimeSpan.FromSeconds(2)); }
         catch (AggregateException) { }
     }
@@ -214,6 +226,14 @@ public partial class MainWindow : Window
         Title = groupe is null ? "Lonnii" : groupe.Nom;
 
         StatusUser.Text = _session.DisplayName;
+
+        RemoteBanner.Visibility = _session.IsRemote ? Visibility.Visible : Visibility.Collapsed;
+        if (_session.IsRemote)
+        {
+            var at = _session.RemoteSnapshotAt?.ToLocalTime().ToString("dd/MM/yyyy à HH:mm") ?? "—";
+            RemoteBannerText.Text = $"Accès à distance, en lecture seule : données de la boutique au {at} " +
+                                    "(dernière sauvegarde envoyée par le serveur de la boutique).";
+        }
 
         AvatarButton.Content = Initials(_session.DisplayName);
         AvatarGroupHeader.Header = groupe?.Nom ?? "Aucun espace";
@@ -537,6 +557,18 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>The signed-in user's own name, username and phone. From afar it is saved on the online
+    /// account at once and applied to the shop's account when the shop next connects.</summary>
+    private void Profile_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new ProfileDialog(_session) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
+
+        StatusText.Text = _session.IsRemote
+            ? "Profil enregistré — appliqué à la boutique à sa prochaine connexion"
+            : "Profil enregistré";
+    }
+
     /// <summary>
     /// Changes the signed-in user's own password. Available to everyone, since a member
     /// has no Options screen to reach it from.
@@ -606,19 +638,33 @@ public partial class MainWindow : Window
         EndPresence();
         CustomerDisplayService.Instance.Stop();
         _session.SignOut();
-        Application.Current.Shutdown();
+
+        // Back to the sign-in screen, not out of the app: the till is shared, and the next
+        // person signs in where the last one left. The shell closes once the app no longer
+        // shuts down with it.
+        var app = (App)Application.Current;
+        app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        Close();
+        app.Dispatcher.BeginInvoke(app.SignInAndOpenShell);
     }
 
     private void Quit_Click(object sender, RoutedEventArgs e) => Close();
 
     private void About_Click(object sender, RoutedEventArgs e)
     {
+        // No web address on screen: from afar it is simply "Lonnii"; at the shop, the server's machine.
+        var server = _session.IsRemote
+            ? "Lonnii"
+            : Uri.TryCreate(_session.Api.BaseAddress, UriKind.Absolute, out var address) ? address.Host : _session.Api.BaseAddress;
+
         MessageBox.Show(this,
             "Lonnii Business — poste Windows\n\n" +
-            $"Serveur : {_session.Api.BaseAddress}\n" +
+            $"Serveur : {server}\n" +
             $"Espace : {_session.Groupe?.Nom}\n" +
             $"Utilisateur : {_session.DisplayName}\n\n" +
-            "Les données sont conservées sur l'ordinateur hôte.",
+            (_session.IsRemote
+                ? "Accès à distance : vous voyez la dernière sauvegarde de la boutique."
+                : "Les données sont conservées sur l'ordinateur hôte."),
             "À propos", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 

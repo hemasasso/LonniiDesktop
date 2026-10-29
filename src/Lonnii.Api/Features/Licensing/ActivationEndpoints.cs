@@ -163,6 +163,9 @@ public static class ActivationEndpoints
             ActivatedAt: DateTime.UtcNow,
             // Online shops only: the key to their cloud backup. Activation has just verified
             // the admin's password, which is what makes this the moment to hand it out.
-            BackupToken: subscriptionRequired ? backupTokens.Create(groupe.Id, request.DeviceId) : null));
+            BackupToken: subscriptionRequired ? backupTokens.Create(groupe.Id, request.DeviceId) : null,
+            // What the owner gave at sign-up, so their account on the shop's host has it too.
+            AdminUsername: user.Username,
+            AdminPhone: user.Phone));
     }
 }

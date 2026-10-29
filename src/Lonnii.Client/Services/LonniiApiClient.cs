@@ -21,6 +21,12 @@ public class ApiException(string message, HttpStatusCode statusCode, string? req
 }
 
 /// <summary>
+/// A change made from afar was kept for the shop's server, not made yet. Shown like any other
+/// message, it tells the person the change is on its way rather than that it failed.
+/// </summary>
+public sealed class RemoteQueuedException(string message) : ApiException(message, HttpStatusCode.Accepted);
+
+/// <summary>
 /// Talks to the Lonnii Desktop API on the host laptop.
 ///
 /// The host runs the client against localhost; the other machines point at the host's
@@ -75,13 +81,23 @@ public class LonniiApiClient
             address = $"http://{address}";
         }
 
-        if (!address.Contains(':', StringComparison.Ordinal) ||
-            address.LastIndexOf(':') < "http://".Length)
+        // A shop's host is plain http on 5280; an https address is the Lonnii online server,
+        // which answers on the standard port.
+        var isHttps = address.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+        if (!isHttps && address.LastIndexOf(':') < "http://".Length)
         {
             address = $"{address}:5280";
         }
 
         address = address.TrimEnd('/');
+
+        // "localhost" makes Windows try IPv6 (::1) first; a host listening on IPv4 only refuses
+        // it, and Windows retries a refused local connection for ~2 s before falling back. That
+        // was paid on every new connection and made the sign-in check time out. Same machine,
+        // asked directly.
+        address = System.Text.RegularExpressions.Regex.Replace(
+            address, @"^(https?://)localhost(?=[:/]|$)", "${1}127.0.0.1",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
         // Nothing to do when the address has not moved. This matters: HttpClient refuses
         // to have BaseAddress reassigned once it has sent a request, so blindly setting
@@ -143,6 +159,9 @@ public class LonniiApiClient
     public Task<UserDto> MeAsync(CancellationToken ct = default) =>
         GetAsync<UserDto>("api/auth/me", ct);
 
+    public Task<UserDto> UpdateProfileAsync(UpdateProfileRequest request, CancellationToken ct = default) =>
+        SendAsync<UserDto>(HttpMethod.Put, "api/auth/profile", request, ct);
+
     // --- Groups ---
 
     public Task<List<GroupeDto>> GetGroupesAsync(CancellationToken ct = default) =>
@@ -175,6 +194,11 @@ public class LonniiApiClient
 
     public Task<GroupSessionResponse> OpenGroupSessionAsync(string groupId, CancellationToken ct = default) =>
         PostAsync<GroupSessionResponse>($"api/groupes/{groupId}/session", new { }, ct);
+
+    /// <summary>Opens a read-only session on the copy of an online shop that the Lonnii server
+    /// holds, for an administrator away from the shop.</summary>
+    public Task<RemoteSessionResponse> OpenRemoteSessionAsync(string groupId, CancellationToken ct = default) =>
+        PostAsync<RemoteSessionResponse>($"api/remote/{groupId}/session", new { }, ct);
 
     /// <summary>
     /// Permanently deletes an espace and all its data. Only the Admin Général (the creator)
@@ -254,18 +278,54 @@ public class LonniiApiClient
     public Task<List<GroupMemberDto>> GetMembersAsync(CancellationToken ct = default) =>
         GetAsync<List<GroupMemberDto>>("api/groupe/members", ct);
 
-    public Task<UserDto> AddMemberAsync(AddMemberRequest request, CancellationToken ct = default) =>
-        PostAsync<UserDto>("api/groupe/members", request, ct);
+    public async Task<UserDto> AddMemberAsync(AddMemberRequest request, CancellationToken ct = default)
+    {
+        if (!Remote) return await PostAsync<UserDto>("api/groupe/members", request, ct);
+
+        // From afar the shop creates the account when it collects the request; until then there is
+        // no id, only what was asked for.
+        await QueueRemoteAsync(new RemoteCommandRequest(RemoteCommandTypes.MemberAdd, string.Empty, Member: request), ct);
+        var id = request.Identifier.Trim();
+        return new UserDto(string.Empty, id.Contains('@') ? id : string.Empty,
+            request.Username ?? (id.Contains('@') ? null : id), request.FirstName, request.LastName,
+            request.Phone, null, false, null);
+    }
 
     public Task RemoveMemberAsync(string userId, CancellationToken ct = default) =>
-        SendAsync(HttpMethod.Delete, $"api/groupe/members/{userId}", null, ct);
+        Remote
+            ? QueueRemoteAsync(new RemoteCommandRequest(RemoteCommandTypes.MemberRemove, userId), ct)
+            : SendAsync(HttpMethod.Delete, $"api/groupe/members/{userId}", null, ct);
 
     /// <summary>Resets another member's password. Administrators only.</summary>
     public Task ResetMemberPasswordAsync(string userId, string newPassword, CancellationToken ct = default) =>
-        SendAsync(HttpMethod.Post, $"api/groupe/members/{userId}/password",
+        Remote ? throw RemoteNotPossible("La réinitialisation d'un mot de passe") : SendAsync(HttpMethod.Post, $"api/groupe/members/{userId}/password",
             new ResetMemberPasswordRequest(newPassword), ct);
 
     /// <summary>Renames the currency shown after every amount. Group-admin only.</summary>
+    /// <summary>Renames the current espace (group admin only).</summary>
+    public Task<GroupeDto> RenameGroupeAsync(string nom, CancellationToken ct = default) =>
+        SendAsync<GroupeDto>(HttpMethod.Put, "api/groupe/name", new RenameGroupeRequest(nom), ct);
+
+    /// <summary>Asks the shop to rename itself, from afar. <paramref name="senderId"/> is the
+    /// signed-in user, as every remote request names its sender.</summary>
+    public Task QueueRenameGroupeAsync(string senderId, string nom, CancellationToken ct = default) =>
+        QueueRemoteAsync(new RemoteCommandRequest(RemoteCommandTypes.EspaceRename, senderId, Name: nom), ct);
+
+    // --- Remote access -----------------------------------------------------------------
+
+    /// <summary>
+    /// Signed in remotely: the espace is a read-only copy, so the changes an administrator may make
+    /// from afar are queued for the shop's server, which applies them when it next checks in
+    /// (normally within minutes). Set by <see cref="AppSession"/>.
+    /// </summary>
+    public bool Remote { get; set; }
+
+    private Task QueueRemoteAsync(RemoteCommandRequest request, CancellationToken ct) =>
+        SendAsync(HttpMethod.Post, "api/remote/commands", request, ct);
+
+    private static ApiException RemoteNotPossible(string what) =>
+        new($"{what} n'est pas possible à distance. Faites-la depuis la boutique.", HttpStatusCode.MethodNotAllowed);
+
     public Task<GroupeDto> UpdateCurrencyAsync(string currencyLabel, bool currencyBefore, CancellationToken ct = default) =>
         SendAsync<GroupeDto>(HttpMethod.Put, "api/groupe/currency", new UpdateCurrencyRequest(currencyLabel, currencyBefore), ct);
 
@@ -306,13 +366,21 @@ public class LonniiApiClient
         GetAsync<MemberPrivilegesResponse>($"api/privileges/member/{userId}", ct);
 
     public Task SetGestionPrivilegeAsync(SetPrivilegeRequest request, CancellationToken ct = default) =>
-        SendAsync(HttpMethod.Post, "api/privileges/gestion", request, ct);
+        Remote
+            ? QueueRemoteAsync(new RemoteCommandRequest(RemoteCommandTypes.Privilege, request.UserId,
+                PrivilegeName: request.PrivilegeName, Catalog: "gestion", Granted: request.Granted), ct)
+            : SendAsync(HttpMethod.Post, "api/privileges/gestion", request, ct);
 
     public Task SetOptionPrivilegeAsync(SetPrivilegeRequest request, CancellationToken ct = default) =>
-        SendAsync(HttpMethod.Post, "api/privileges/option", request, ct);
+        Remote
+            ? QueueRemoteAsync(new RemoteCommandRequest(RemoteCommandTypes.Privilege, request.UserId,
+                PrivilegeName: request.PrivilegeName, Catalog: "option", Granted: request.Granted), ct)
+            : SendAsync(HttpMethod.Post, "api/privileges/option", request, ct);
 
     public Task SetRoleAsync(SetRoleRequest request, CancellationToken ct = default) =>
-        SendAsync(HttpMethod.Post, "api/privileges/role", request, ct);
+        Remote
+            ? QueueRemoteAsync(new RemoteCommandRequest(RemoteCommandTypes.Role, request.UserId, Role: request.Role), ct)
+            : SendAsync(HttpMethod.Post, "api/privileges/role", request, ct);
 
     // --- Stock ---
 
@@ -758,6 +826,13 @@ public class LonniiApiClient
 
     // --- Forgotten password (shop owner) ---
 
+    /// <summary>Remote access: the Lonnii online server emails a code for its own copy of the account.</summary>
+    public Task<PasswordResetStartResponse> OnlinePasswordResetStartAsync(string email, CancellationToken ct = default) =>
+        PostAsync<PasswordResetStartResponse>("api/registration/password/start", new PasswordResetStartRequest(email), ct);
+
+    public Task OnlinePasswordResetVerifyAsync(PasswordResetVerifyRequest request, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, "api/registration/password/verify", request, ct);
+
     /// <summary>Has Lonnii email the shop owner a code. Anonymous: called from the login screen.</summary>
     public Task<ForgotPasswordStartResponse> ForgotPasswordStartAsync(string identifier, CancellationToken ct = default) =>
         PostAsync<ForgotPasswordStartResponse>("api/auth/forgot/start", new ForgotPasswordStartRequest(identifier), ct);
@@ -1170,6 +1245,18 @@ public class LonniiApiClient
             throw new ApiException(
                 $"Impossible de joindre le serveur ({BaseAddress}). Vérifiez le réseau local.\n\n{e.Message}",
                 HttpStatusCode.ServiceUnavailable);
+        }
+
+        // From afar, a change is kept on the Lonnii server for the shop (202). The screen's caller
+        // expects the change's result, which does not exist yet: say where the change is instead.
+        if (Remote && response.StatusCode == HttpStatusCode.Accepted)
+        {
+            RemoteQueuedResponse? queued = null;
+            try { queued = await response.Content.ReadFromJsonAsync<RemoteQueuedResponse>(JsonOptions, ct); }
+            catch { /* the default message below */ }
+            response.Dispose();
+            throw new RemoteQueuedException(queued?.Message
+                ?? "Demande envoyée à la boutique : elle sera appliquée dès que son serveur sera connecté.");
         }
 
         if (response.IsSuccessStatusCode) return response;

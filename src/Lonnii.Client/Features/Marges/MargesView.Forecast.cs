@@ -76,7 +76,7 @@ public partial class MargesView
 
         ForecastMethodText.Text =
             (f.MoisHistorique > 0
-                ? $"Lissage exponentiel de Holt-Winters sur {f.MoisHistorique} mois complets (mois récents plus pondérés, tendance amortie"
+                ? $"Prévision sur {f.MoisHistorique} mois complets (mois récents plus pondérés, tendance amortie"
                   + (f.Saisonnier ? ", saisonnalité mensuelle)" : ")")
                 : "Aucun mois complet encore : projection du rythme du mois en cours")
             + $", fourchette à 80 %. Coût des ventes ({Percent(f.TauxCoutVentes)} du CA) et charges variables "

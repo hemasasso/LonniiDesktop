@@ -38,6 +38,9 @@ public static class BackupEndpoints
 
     private sealed record Caller(string GroupId);
 
+    /// <summary>Lets an endpoint through the authentication filter without a current subscription.</summary>
+    private sealed class AllowLapsedSubscription;
+
     public static void MapBackupEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/backup").WithTags("Backup")
@@ -54,7 +57,15 @@ public static class BackupEndpoints
         group.MapGet("/images/{folder}/{name}", GetImage);
 
         group.MapPut("/snapshot", PutSnapshotAsync);
+
+        // The shop's name, as its Admin last set it there. Sent after a rename and with every
+        // backup, so a rename made while offline still reaches us.
+        group.MapPut("/name", PutNameAsync);
         group.MapGet("/snapshot", GetSnapshot);
+
+        // The owner deleted the shop on its own host. Accepted even once the subscription has
+        // lapsed: an unpaid shop is exactly the kind that gets deleted.
+        group.MapPost("/deleted", MarkDeletedAsync).WithMetadata(new AllowLapsedSubscription());
 
         // What administrators asked for from afar, for the shop's host to collect and apply.
         group.MapGet("/commands", (HttpContext http, Lonnii.Api.Features.Remote.RemoteCommandStore commands) =>
@@ -113,6 +124,12 @@ public static class BackupEndpoints
                 statusCode: StatusCodes.Status403Forbidden);
         }
 
+        if (http.GetEndpoint()?.Metadata.GetMetadata<AllowLapsedSubscription>() is not null)
+        {
+            http.Items[CallerKey] = new Caller(groupId);
+            return await next(invocation);
+        }
+
         // The backup is part of the paid tier: a local-mode shop has none to reach.
         if (!DeploymentModes.RequiresSubscription(groupe.Mode))
         {
@@ -159,6 +176,44 @@ public static class BackupEndpoints
                 "Une sauvegarde existe déjà pour cet espace et cet ordinateur n'en fait pas partie. " +
                 "Restaurez la sauvegarde, ou choisissez de repartir de zéro."),
             statusCode: StatusCodes.Status409Conflict);
+
+    // --- Name --------------------------------------------------------------------------
+
+    private static async Task<IResult> PutNameAsync(
+        BackupNameRequest request, HttpContext http, LonniiDbContext db, CancellationToken ct)
+    {
+        var nom = request.Nom?.Trim() ?? string.Empty;
+        if (nom.Length == 0 || nom.Length > 100)
+            return Results.BadRequest(new ApiError("Le nom de l'espace doit contenir entre 1 et 100 caractères."));
+
+        var groupId = GroupOf(http);
+        var groupe = await db.Groupes.FirstAsync(g => g.Id == groupId, ct);
+        if (groupe.Nom != nom)
+        {
+            groupe.Nom = nom;
+            await db.SaveChangesAsync(ct);
+        }
+        return Results.NoContent();
+    }
+
+    /// <summary>
+    /// Marks the shop deleted here as it was on its host, so the dashboard shows it as such and it
+    /// can be removed for good from there. Nothing is erased: that stays the dashboard's decision.
+    /// Once marked, this machine's backup token is refused like any other.
+    /// </summary>
+    private static async Task<IResult> MarkDeletedAsync(HttpContext http, LonniiDbContext db,
+        ILoggerFactory logs, CancellationToken ct)
+    {
+        var groupId = GroupOf(http);
+        var groupe = await db.Groupes.FirstAsync(g => g.Id == groupId, ct);
+        groupe.IsDeleted = true;
+        await db.SaveChangesAsync(ct);
+
+        logs.CreateLogger("Lonnii.Backup").LogInformation(
+            "Shop {Shop} ({Name}) deleted by its owner from device {Device}",
+            groupId, groupe.Nom, http.Request.Headers["x-device-id"].ToString());
+        return Results.NoContent();
+    }
 
     // --- Epoch -------------------------------------------------------------------------
 

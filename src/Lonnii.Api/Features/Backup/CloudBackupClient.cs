@@ -119,6 +119,17 @@ public sealed class CloudBackupClient(IHttpClientFactory factory)
         return begun;
     }
 
+    public async Task PutNameAsync(string nom, CancellationToken ct)
+    {
+        using var _ = await SendAsync(
+            Request(HttpMethod.Put, "name", JsonContent.Create(new BackupNameRequest(nom))), ct);
+    }
+
+    public async Task MarkDeletedAsync(CancellationToken ct)
+    {
+        using var _ = await SendAsync(Request(HttpMethod.Post, "deleted"), ct);
+    }
+
     public async Task<BackupBeginResponse> ResetAsync(CancellationToken ct)
     {
         using var response = await SendAsync(Request(HttpMethod.Post, "reset"), ct);

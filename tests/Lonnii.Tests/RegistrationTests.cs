@@ -285,6 +285,16 @@ public class RegistrationTests : IAsyncLifetime
 
         await SetStatusAsync(result.GroupId, ApprovalStatuses.Approved);
 
+        // Approved but still local mode, as every new shop starts: nothing to pull from online.
+        Assert.Empty((await (await AccountEspaces()).Content.ReadFromJsonAsync<List<AccountEspaceDto>>())!);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+            (await db.Groupes.SingleAsync(g => g.Id == result.GroupId)).Mode = DeploymentModes.Online;
+            await db.SaveChangesAsync();
+        }
+
         var espace = Assert.Single((await (await AccountEspaces()).Content.ReadFromJsonAsync<List<AccountEspaceDto>>())!);
         Assert.Equal(result.GroupId, espace.GroupId);
         Assert.Equal("Pharmacie Sud", espace.Name);

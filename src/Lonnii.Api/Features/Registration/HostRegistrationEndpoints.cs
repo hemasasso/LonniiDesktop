@@ -2,6 +2,7 @@ using System.Text.Json;
 using Lonnii.Data;
 using Lonnii.Data.Entities;
 using Lonnii.Shared.Contracts;
+using Lonnii.Shared.Security;
 using Microsoft.EntityFrameworkCore;
 
 namespace Lonnii.Api.Features.Registration;
@@ -142,6 +143,16 @@ public static class HostRegistrationEndpoints
         catch (ActivationRefusedException e)
         {
             return Refuse(e.Message, (int?)e.Status ?? StatusCodes.Status403Forbidden);
+        }
+
+        // Our server's answer is the authority on the mode. A local-mode shop has no online copy
+        // to pull, so nothing is built: it would only be an empty shop under the real one's name.
+        if (!DeploymentModes.RequiresSubscription(activation.Mode))
+        {
+            return Refuse(
+                "Cet espace est en mode local : ses données sont sur l'ordinateur de la boutique, pas en ligne. " +
+                "Passez-le en mode en ligne dans le tableau de bord Lonnii pour l'installer ici.",
+                StatusCodes.Status409Conflict);
         }
 
         return await SetupEndpoints.CreateWorkspaceAsync(

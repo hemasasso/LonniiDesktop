@@ -31,6 +31,7 @@ public class HostRegistrationTests : IAsyncLifetime
     private sealed class FakeLicenceServer : ILicenceServer
     {
         public bool Approved { get; set; }
+        public string Mode { get; set; } = DeploymentModes.Local;
         public ActivationRefusedException? StartFails { get; set; }
         public string? LastBaseUrl { get; private set; }
 
@@ -58,7 +59,7 @@ public class HostRegistrationTests : IAsyncLifetime
             }
 
             return Task.FromResult(new ActivationResponse(
-                request.GroupId, "Pharmacie Sud", DeploymentModes.Local, 3, 1, "FCFA",
+                request.GroupId, "Pharmacie Sud", Mode, 3, 1, "FCFA",
                 SubscriptionRequired: false, SubscriptionStatus: null, SubscriptionExpiresAt: null,
                 ActivatedAt: DateTime.UtcNow, AdminUsername: "pharmasud", AdminPhone: "+226 70 12 34 56"));
         }
@@ -126,6 +127,7 @@ public class HostRegistrationTests : IAsyncLifetime
     public async Task More_shops_can_be_added_but_only_by_someone_signed_in()
     {
         _licences.Approved = true;
+        _licences.Mode = DeploymentModes.Online;
         const string second = "7d1f0c2e-3b4a-4c5d-8e9f-0a1b2c3d4e5f";
 
         Assert.Equal(HttpStatusCode.OK, (await Install(GroupId)).StatusCode);
@@ -143,6 +145,22 @@ public class HostRegistrationTests : IAsyncLifetime
         var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
         Assert.Equal(1, await db.Users.CountAsync(u => u.Email == Email));
         Assert.Equal(2, await db.Groupes.CountAsync());
+    }
+
+    /// <summary>A local-mode shop has no online copy: installing it here would only give an empty shop.</summary>
+    [Fact]
+    public async Task A_local_mode_shop_is_not_installed_by_signing_in()
+    {
+        _licences.Approved = true;
+        _licences.Mode = DeploymentModes.Local;
+
+        var response = await Install(GroupId);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("mode local", (await response.Content.ReadFromJsonAsync<ApiError>())!.Error);
+
+        using var scope = _factory.Services.CreateScope();
+        Assert.Empty(await scope.ServiceProvider.GetRequiredService<LonniiDbContext>().Groupes.ToListAsync());
     }
 
     [Fact]

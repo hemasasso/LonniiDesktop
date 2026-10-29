@@ -62,10 +62,11 @@ public partial class ExistingAccountWindow : Window
             if (espaces.Count == 0)
             {
                 EspacePanel.Visibility = Visibility.Collapsed;
+                // Only online-mode shops are listed: a local-mode one has no online copy to pull.
                 ShowError(_installed.Count > 0
-                    ? "Tous les espaces que ce compte administre sont déjà sur cet ordinateur."
-                    : "Ce compte n'administre aucun espace approuvé. Un membre qui n'est pas administrateur " +
-                      "demande à son administrateur d'installer l'espace.");
+                    ? "Tous les espaces en mode en ligne que ce compte administre sont déjà sur cet ordinateur."
+                    : "Ce compte n'administre aucun espace en mode en ligne. Un espace en mode local reste sur " +
+                      "l'ordinateur de sa boutique ; passez-le en mode en ligne dans le tableau de bord pour l'installer ici.");
                 return;
             }
 

@@ -98,8 +98,11 @@ public static class RegistrationEndpoints
             .Select(g => new { g.Id, g.Nom, g.Mode })
             .ToListAsync(ct);
 
+        // Online mode only: a local-mode shop lives on its own computer and we hold no copy of it,
+        // so installing it elsewhere would give an empty shop. The dashboard sets the mode.
         return Results.Ok(owned.Select(g => new AccountEspaceDto(g.Id, g.Nom, g.Mode, IsOwner: true))
             .Concat(administered.Select(g => new AccountEspaceDto(g.Id, g.Nom, g.Mode, IsOwner: false)))
+            .Where(e => DeploymentModes.RequiresSubscription(e.Mode))
             .OrderBy(e => e.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList());
     }

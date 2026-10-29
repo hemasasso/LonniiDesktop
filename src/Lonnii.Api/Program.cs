@@ -157,6 +157,7 @@ builder.Services.AddHttpClient(CloudBackupClient.HttpClientName, client =>
 builder.Services.AddScoped<CloudBackupClient>();
 builder.Services.AddScoped<CloudBackupRunner>();
 builder.Services.AddScoped<CloudRestoreService>();
+builder.Services.AddScoped<Lonnii.Api.Features.Updates.UpdateDownloader>();
 // On the licence server: a shop with no host gets its backup built from the live data (see LiveSnapshotBuilder).
 builder.Services.AddScoped<LiveSnapshotBuilder>();
 // The sending side of the backup belongs to a shop's own host (SQLite). The licence server runs on
@@ -167,6 +168,8 @@ if (!databaseOptions.IsPostgres)
     builder.Services.AddHostedService<CloudBackupService>();
     // The same host also looks for changes administrators asked for from afar (see RemoteCommandApplier).
     builder.Services.AddHostedService<Lonnii.Api.Features.Remote.RemoteCommandService>();
+    // And fetches new versions of the app for itself and its tills - online espaces only.
+    builder.Services.AddHostedService<Lonnii.Api.Features.Updates.UpdateService>();
 }
 // Lets a till on the same network find this host without being told its address.
 builder.Services.AddHostedService<LanDiscoveryService>();

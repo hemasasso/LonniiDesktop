@@ -184,4 +184,19 @@ public sealed class CloudBackupClient(IHttpClientFactory factory)
         await using var file = File.Create(path);
         await response.Content.CopyToAsync(file, ct);
     }
+
+    /// <summary>The newest version we published, or null when there is none to offer.</summary>
+    public async Task<Lonnii.Shared.Security.UpdateManifest?> LatestUpdateAsync(CancellationToken ct)
+    {
+        using var response = await SendAsync(Request(HttpMethod.Get, "update/latest"), ct);
+        if (response.StatusCode == HttpStatusCode.NoContent) return null;
+        return await response.Content.ReadFromJsonAsync<Lonnii.Shared.Security.UpdateManifest>(ct);
+    }
+
+    public async Task DownloadUpdateAsync(string fileName, string path, CancellationToken ct)
+    {
+        using var response = await SendAsync(Request(HttpMethod.Get, $"update/files/{Uri.EscapeDataString(fileName)}"), ct);
+        await using var file = File.Create(path);
+        await response.Content.CopyToAsync(file, ct);
+    }
 }

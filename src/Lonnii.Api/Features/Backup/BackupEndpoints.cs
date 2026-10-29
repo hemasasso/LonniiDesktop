@@ -62,6 +62,14 @@ public static class BackupEndpoints
         group.MapPut("/name", PutNameAsync);
         group.MapGet("/snapshot", GetSnapshot);
 
+        // New versions of the app: behind the same checks as the backup, so only a computer of an
+        // online shop, not blocked and paid up, is given one. The files are those our own
+        // /api/updates serves, which on this server is never exposed outside.
+        group.MapGet("/update/latest", (Lonnii.Api.Features.Updates.UpdatePaths paths) =>
+            Lonnii.Api.Features.Updates.UpdateEndpoints.Latest(paths));
+        group.MapGet("/update/files/{name}", (string name, Lonnii.Api.Features.Updates.UpdatePaths paths) =>
+            Lonnii.Api.Features.Updates.UpdateEndpoints.File(name, paths));
+
         // The owner deleted the shop on its own host. Accepted even once the subscription has
         // lapsed: an unpaid shop is exactly the kind that gets deleted.
         group.MapPost("/deleted", MarkDeletedAsync).WithMetadata(new AllowLapsedSubscription());

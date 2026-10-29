@@ -15,13 +15,18 @@ public sealed class UpdatePaths(string dataDirectory, string? publicKey = null)
 }
 
 /// <summary>
-/// Serves the newest version to the computers that ask. On our server the folder is filled by
-/// hand when we publish (<c>lonnii-setup release</c>); later a shop's main computer fills its own
-/// the same way for its tills, so both answer the same two addresses.
-///
+/// Hands out the newest version. Only online shops get updates, so the paths differ by side:
+/// <list type="bullet">
+/// <item>On our server the folder is filled when we publish (<c>lonnii-setup release</c>) and is
+/// given out only through <c>/api/backup/update/...</c>, behind the backup's checks: an online,
+/// unblocked, paid-up shop's own computer. Its <c>/api/updates</c> is never routed outside.</item>
+/// <item>On a shop's main computer, <see cref="UpdateDownloader"/> fills the folder from our
+/// server, and <c>/api/updates</c> serves it to the shop's tills, which often have no internet.
+/// A local-mode shop's computer never downloads one, so its tills are offered nothing.</item>
+/// </list>
 /// <para>
-/// Open to anyone: the installer is the one we hand out to every customer anyway, and a computer
-/// checks our signature before running it, so nothing here needs to be kept from strangers.
+/// <c>/api/updates</c> is open on the shop's network: a till checks our signature before running
+/// the file, so the address needs no more protection than that.
 /// </para>
 /// </summary>
 public static class UpdateEndpoints
@@ -30,21 +35,24 @@ public static class UpdateEndpoints
     {
         var group = app.MapGroup("/api/updates").AllowAnonymous();
 
-        group.MapGet("/latest", (UpdatePaths paths) =>
-            Read(paths) is { } manifest ? Results.Ok(manifest) : Results.NoContent());
-
-        group.MapGet("/files/{name}", (string name, UpdatePaths paths) =>
-        {
-            // Only the file the current notice names: never a path built from what was asked.
-            if (Read(paths) is not { } manifest || !string.Equals(name, manifest.FileName, StringComparison.Ordinal))
-                return Results.NotFound();
-
-            return Results.File(
-                Path.Combine(paths.Directory, manifest.FileName), "application/octet-stream",
-                manifest.FileName, enableRangeProcessing: true);
-        });
+        group.MapGet("/latest", (UpdatePaths paths) => Latest(paths));
+        group.MapGet("/files/{name}", (string name, UpdatePaths paths) => File(name, paths));
 
         return app;
+    }
+
+    internal static IResult Latest(UpdatePaths paths) =>
+        Read(paths) is { } manifest ? Results.Ok(manifest) : Results.NoContent();
+
+    internal static IResult File(string name, UpdatePaths paths)
+    {
+        // Only the file the current notice names: never a path built from what was asked.
+        if (Read(paths) is not { } manifest || !string.Equals(name, manifest.FileName, StringComparison.Ordinal))
+            return Results.NotFound();
+
+        return Results.File(
+            Path.Combine(paths.Directory, manifest.FileName), "application/octet-stream",
+            manifest.FileName, enableRangeProcessing: true);
     }
 
     /// <summary>
@@ -56,10 +64,10 @@ public static class UpdateEndpoints
     {
         try
         {
-            if (!File.Exists(paths.Manifest)) return null;
+            if (!System.IO.File.Exists(paths.Manifest)) return null;
 
             var manifest = JsonSerializer.Deserialize<UpdateManifest>(
-                File.ReadAllText(paths.Manifest), JsonSerializerOptions.Web);
+                System.IO.File.ReadAllText(paths.Manifest), JsonSerializerOptions.Web);
 
             if (manifest is null || !manifest.IsGenuine(paths.PublicKey)) return null;
 

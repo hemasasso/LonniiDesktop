@@ -387,6 +387,14 @@ public static class RegistrationEndpoints
                 statusCode: StatusCodes.Status403Forbidden);
         }
 
+        // One owner's shops are told apart by name in every list, here and on the dashboard.
+        var wanted = shop.ToLower();
+        if (await db.Groupes.AnyAsync(g =>
+                g.IdUserAdmin == user.IdUser && !g.IsDeleted && g.Nom.Trim().ToLower() == wanted, ct))
+        {
+            return Results.Conflict(new ApiError("Vous avez déjà un espace portant ce nom. Choisissez-en un autre."));
+        }
+
         // Every espace waits for our approval, including another one for an owner we already know:
         // nobody uses the app before we have agreed to it (decided 2026-10-08).
         var groupe = new Groupe

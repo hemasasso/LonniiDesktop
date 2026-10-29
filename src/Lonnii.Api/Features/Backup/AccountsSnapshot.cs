@@ -105,25 +105,19 @@ internal static class AccountsSnapshot
 
         await db.Database.ExecuteSqlRawAsync("PRAGMA defer_foreign_keys = ON;", ct);
 
-        var groupe = await db.Groupes.AsNoTracking().FirstAsync(g => g.Id == groupId, ct);
-        var setupAdmin = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.IdUser == groupe.IdUserAdmin, ct);
+        // An account already on this computer with a backed-up email is the same person - the
+        // installer setup just created, or staff of another shop here. It takes the backed-up id,
+        // which is the one the server and the phones know, everywhere it is referenced.
+        var emails = archivedUsers.Select(u => u.Email.ToLowerInvariant()).ToList();
+        var local = await db.Users.AsNoTracking()
+            .Where(u => emails.Contains(u.Email.ToLower()))
+            .Select(u => new { u.IdUser, u.Email })
+            .ToListAsync(ct);
 
-        // The account setup made is the same person as the backed-up one with that email.
-        var same = setupAdmin is null
-            ? null
-            : archivedUsers.FirstOrDefault(u => string.Equals(u.Email, setupAdmin.Email, StringComparison.OrdinalIgnoreCase));
-
-        if (setupAdmin is not null && same is not null && same.IdUser != setupAdmin.IdUser)
+        foreach (var user in local)
         {
-            var from = setupAdmin.IdUser;
-            var to = same.IdUser;
-
-            await db.Database.ExecuteSqlRawAsync("UPDATE users SET iduser = {0} WHERE iduser = {1};", [to, from], ct);
-            await db.Database.ExecuteSqlRawAsync("UPDATE groupes SET iduser_admin = {0} WHERE iduser_admin = {1};", [to, from], ct);
-            await db.Database.ExecuteSqlRawAsync("UPDATE groupe_membres SET iduser = {0} WHERE iduser = {1};", [to, from], ct);
-            await db.Database.ExecuteSqlRawAsync("UPDATE user_roles SET user_id = {0} WHERE user_id = {1};", [to, from], ct);
-            await db.Database.ExecuteSqlRawAsync("UPDATE user_roles SET assigned_by = {0} WHERE assigned_by = {1};", [to, from], ct);
-            await db.Database.ExecuteSqlRawAsync("UPDATE password_history SET iduser = {0} WHERE iduser = {1};", [to, from], ct);
+            var same = archivedUsers.First(u => string.Equals(u.Email, user.Email, StringComparison.OrdinalIgnoreCase));
+            if (same.IdUser != user.IdUser) await RenumberAsync(db, user.IdUser, same.IdUser, ct);
         }
 
         db.ChangeTracker.Clear();
@@ -202,6 +196,34 @@ internal static class AccountsSnapshot
         db.ChangeTracker.Clear();
 
         return archivedUsers.Count;
+    }
+
+    // Every column that holds a user's id, by name: most are plain columns (created_by,
+    // performed_by...) rather than foreign keys, so the model's relationships alone miss them.
+    private static readonly HashSet<string> UserColumns = new(StringComparer.Ordinal)
+    {
+        "iduser", "iduser_admin", "user_id", "target_user_id",
+        "created_by", "updated_by", "deleted_by", "cancelled_by", "assigned_by", "granted_by",
+        "performed_by", "avoir_solded_by", "ecart_resolved_by",
+    };
+
+    /// <summary>Moves an account from one id to another, along with every row that names it.</summary>
+    private static async Task RenumberAsync(LonniiDbContext db, string from, string to, CancellationToken ct)
+    {
+        var columns = db.Model.GetEntityTypes()
+            .Where(t => t.GetTableName() is not null)
+            .SelectMany(t => t.GetProperties()
+                .Where(p => p.ClrType == typeof(string) && UserColumns.Contains(p.GetColumnName()))
+                .Select(p => (Table: t.GetTableName()!, Column: p.GetColumnName())))
+            .Distinct();
+
+        foreach (var (table, column) in columns)
+        {
+#pragma warning disable EF1002 // names come from the model, never from input
+            await db.Database.ExecuteSqlRawAsync(
+                $"UPDATE \"{table}\" SET \"{column}\" = {{0}} WHERE \"{column}\" = {{1}};", [to, from], ct);
+#pragma warning restore EF1002
+        }
     }
 
     /// <summary>Archive privilege id → this installation's id, by name.</summary>

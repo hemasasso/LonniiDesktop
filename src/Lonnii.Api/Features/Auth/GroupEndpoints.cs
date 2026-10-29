@@ -90,6 +90,8 @@ public static class GroupEndpoints
         if (string.IsNullOrWhiteSpace(request.Nom))
             return Results.BadRequest(new ApiError("Le nom du groupe est requis"));
 
+        if (await NameTakenAsync(db, request.Nom, exceptId: null, ct)) return NameTakenResult();
+
         var groupe = new Groupe
         {
             Nom = request.Nom.Trim(),
@@ -626,6 +628,8 @@ public static class GroupEndpoints
         if (nom.Length == 0 || nom.Length > 100)
             return Results.BadRequest(new ApiError("Le nom de l'espace doit contenir entre 1 et 100 caractères."));
 
+        if (await NameTakenAsync(db, nom, exceptId: scope.GroupId, ct)) return NameTakenResult();
+
         var groupe = await db.Groupes.FirstAsync(g => g.Id == scope.GroupId, ct);
         groupe.Nom = nom;
         await db.SaveChangesAsync(ct);
@@ -637,6 +641,17 @@ public static class GroupEndpoints
         var memberCount = await db.GroupMembers.CountAsync(m => m.IdGroupe == scope.GroupId, ct);
         return Results.Ok(ToDto(groupe, scope.Privileges.Role, scope.IsAdminGeneral, memberCount));
     }
+
+    /// <summary>Two espaces on one computer with the same name cannot be told apart in the picker,
+    /// so a name is taken whatever its case or surrounding spaces.</summary>
+    private static Task<bool> NameTakenAsync(LonniiDbContext db, string nom, string? exceptId, CancellationToken ct)
+    {
+        var wanted = nom.Trim().ToLower();
+        return db.Groupes.AnyAsync(g => g.Id != exceptId && g.Nom.Trim().ToLower() == wanted, ct);
+    }
+
+    private static IResult NameTakenResult() =>
+        Results.Conflict(new ApiError("Un espace porte déjà ce nom sur cet ordinateur. Choisissez-en un autre."));
 
     // --- Espace deletion ---------------------------------------------------------
 

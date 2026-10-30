@@ -23,8 +23,13 @@ public class ApiException(string message, HttpStatusCode statusCode, string? req
 /// <summary>
 /// A change made from afar was kept for the shop's server, not made yet. Shown like any other
 /// message, it tells the person the change is on its way rather than that it failed.
+/// <see cref="CommandId"/> lets a screen follow it until the shop has applied it.
 /// </summary>
-public sealed class RemoteQueuedException(string message) : ApiException(message, HttpStatusCode.Accepted);
+public sealed class RemoteQueuedException(string message, string? commandId = null)
+    : ApiException(message, HttpStatusCode.Accepted)
+{
+    public string? CommandId { get; } = commandId;
+}
 
 /// <summary>
 /// Talks to the Lonnii Desktop API on the host laptop.
@@ -329,6 +334,14 @@ public class LonniiApiClient
 
     private Task QueueRemoteAsync(RemoteCommandRequest request, CancellationToken ct) =>
         SendAsync(HttpMethod.Post, "api/remote/commands", request, ct);
+
+    /// <summary>The shop's most recent requests from afar, newest first, with what the shop did with each.</summary>
+    public async Task<IReadOnlyList<RemoteCommandDto>> GetRemoteCommandsAsync(CancellationToken ct = default) =>
+        (await GetAsync<RemoteCommandsResponse>("api/remote/commands", ct)).Commands;
+
+    /// <summary>When the copy read from afar was taken - changes requested after it are not in it yet.</summary>
+    public Task<RemoteInfoResponse> GetRemoteInfoAsync(CancellationToken ct = default) =>
+        GetAsync<RemoteInfoResponse>("api/remote/info", ct);
 
     private static ApiException RemoteNotPossible(string what) =>
         new($"{what} n'est pas possible à distance. Faites-la depuis la boutique.", HttpStatusCode.MethodNotAllowed);
@@ -1308,7 +1321,8 @@ public class LonniiApiClient
             catch { /* the default message below */ }
             response.Dispose();
             throw new RemoteQueuedException(queued?.Message
-                ?? "Demande envoyée à la boutique : elle sera appliquée dès que son serveur sera connecté.");
+                ?? "Demande envoyée à la boutique : elle sera appliquée dès que son serveur sera connecté.",
+                queued?.Id);
         }
 
         if (response.IsSuccessStatusCode) return response;

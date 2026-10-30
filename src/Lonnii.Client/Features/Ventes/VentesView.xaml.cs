@@ -1757,16 +1757,7 @@ public partial class VentesView : UserControl
                 && Money.TryParse(MontantRecuBox.Text, out decimal handed) && handed > vente.MontantTotal
                 ? handed - vente.MontantTotal : (decimal?)null;
 
-            // The next customer must not inherit this one's "montant reçu" on the display.
-            MontantRecuBox.Clear();
-            _cart.Clear();
-            RenderCart();
-            RemiseGlobaleBox.Text = "0";
-            _remiseIsPercent = false;
-            UpdateRemiseModeLabel();
-            ClientNomBox.Text = string.Empty;
-            ClientTelephoneBox.Text = string.Empty;
-            ClientEmailBox.Text = string.Empty;
+            ResetSaleForm();
 
             CustomerDisplayService.Instance.ShowThanks(
                 vente.MontantTotal, changeGiven, facture: vente.StatutPaiement == "en_attente");
@@ -1778,6 +1769,13 @@ public partial class VentesView : UserControl
             await LoadAsync();
             if (_caisseStatus is not null) await RefreshCaisseStatusAsync();
         }
+        catch (RemoteQueuedException queued)
+        {
+            // From afar the sale is kept for the shop, which records it: this one is done here,
+            // and leaving it in the cart would invite selling it twice.
+            ResetSaleForm();
+            ShowMessage(queued.Message);
+        }
         catch (ApiException ex)
         {
             ShowMessage(ex.Message);
@@ -1786,6 +1784,21 @@ public partial class VentesView : UserControl
         {
             SetBusy(false);
         }
+    }
+
+    /// <summary>Empties the cart and the customer fields for the next sale.</summary>
+    private void ResetSaleForm()
+    {
+        // The next customer must not inherit this one's "montant reçu" on the display.
+        MontantRecuBox.Clear();
+        _cart.Clear();
+        RenderCart();
+        RemiseGlobaleBox.Text = "0";
+        _remiseIsPercent = false;
+        UpdateRemiseModeLabel();
+        ClientNomBox.Text = string.Empty;
+        ClientTelephoneBox.Text = string.Empty;
+        ClientEmailBox.Text = string.Empty;
     }
 
     // --- Liste des Ventes ---

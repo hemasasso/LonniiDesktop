@@ -25,8 +25,13 @@
                 <TextBlock x:Name="StatusText" VerticalAlignment="Center"
                            Foreground="{DynamicResource TextSecondary}" FontSize="12"
                            TextWrapping="Wrap" MaxWidth="440" HorizontalAlignment="Left" />
-                <Button Content="Fermer" IsCancel="True" IsDefault="True"
-                        HorizontalAlignment="Right" Style="{StaticResource SecondaryButton}" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="RefreshButton" Content="Actualiser" Click="Refresh_Click"
+                            Margin="0,0,8,0" Style="{StaticResource SecondaryButton}"
+                            ToolTip="Recharger les privilèges de ce membre" />
+                    <Button Content="Fermer" IsCancel="True" IsDefault="True"
+                            Style="{StaticResource SecondaryButton}" />
+                </StackPanel>
             </Grid>
         </Border>
 

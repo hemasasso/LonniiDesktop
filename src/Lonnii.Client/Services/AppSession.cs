@@ -83,7 +83,18 @@ public class AppSession(LonniiApiClient api)
     {
         if (IsRemote)
         {
-            var remote = await Api.OpenRemoteSessionAsync(groupId, ct);
+            // Sent with the espace being left still attached, the request would read as a change
+            // made inside that espace from afar, and be refused like one. Put back if the new one
+            // cannot be opened, so the person stays where they were.
+            var leaving = Api.GroupSession;
+            Api.SetGroupSession(null);
+            RemoteSessionResponse remote;
+            try { remote = await Api.OpenRemoteSessionAsync(groupId, ct); }
+            catch
+            {
+                Api.SetGroupSession(leaving);
+                throw;
+            }
             Api.SetGroupSession(remote.SessionToken);
             RemoteSnapshotAt = remote.SnapshotAt;
             SetGroupe(remote.Groupe);

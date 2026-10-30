@@ -131,6 +131,8 @@ public class LonniiApiClient
     /// <summary>The group session token sent as <c>x-group-session</c>.</summary>
     public void SetGroupSession(string? token) => _groupSession = token;
 
+    public string? GroupSession => _groupSession;
+
     /// <summary>Checks that a Lonnii host is answering at <see cref="BaseAddress"/>.</summary>
     public async Task<bool> PingAsync(CancellationToken ct = default)
     {

@@ -172,7 +172,7 @@ public partial class GroupPickerWindow : Window
             // authorise it rather than leaving the person at a refusal they cannot act on.
             Cursor = null;
 
-            if (RegisterDeviceDialog.Show(this, App.Settings.LastIdentifier))
+            if (RegisterDeviceDialog.Show(this, item.Groupe.Id, App.Settings.LastIdentifier))
             {
                 HideError();
                 await OpenAsync(item);

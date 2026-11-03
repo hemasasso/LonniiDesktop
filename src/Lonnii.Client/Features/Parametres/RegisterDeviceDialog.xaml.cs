@@ -17,10 +17,12 @@ namespace Lonnii.Client.Features.Parametres;
 public partial class RegisterDeviceDialog : Window
 {
     private readonly AppSession _session = App.Session;
+    private readonly string _groupId;
 
-    private RegisterDeviceDialog(string? prefillEmail)
+    private RegisterDeviceDialog(string groupId, string? prefillEmail)
     {
         InitializeComponent();
+        _groupId = groupId;
 
         EmailBox.Text = prefillEmail ?? string.Empty;
         DeviceText.Text = $"{DeviceIdentity.FriendlyName} — {DeviceIdentity.Current[..12]}…";
@@ -32,10 +34,10 @@ public partial class RegisterDeviceDialog : Window
         };
     }
 
-    /// <summary>Asks to bind this machine. True when it is now authorised.</summary>
-    public static bool Show(Window owner, string? prefillEmail = null)
+    /// <summary>Asks to bind this machine to the espace <paramref name="groupId"/>. True when it is now authorised.</summary>
+    public static bool Show(Window owner, string groupId, string? prefillEmail = null)
     {
-        var dialog = new RegisterDeviceDialog(prefillEmail) { Owner = owner };
+        var dialog = new RegisterDeviceDialog(groupId, prefillEmail) { Owner = owner };
         return dialog.ShowDialog() == true;
     }
 
@@ -51,7 +53,7 @@ public partial class RegisterDeviceDialog : Window
         Cursor = Cursors.Wait;
         try
         {
-            await _session.Api.RegisterThisDeviceAsync(EmailBox.Text.Trim(), PasswordBox.Password);
+            await _session.Api.RegisterThisDeviceAsync(EmailBox.Text.Trim(), PasswordBox.Password, _groupId);
             DialogResult = true;
         }
         catch (ApiException ex)

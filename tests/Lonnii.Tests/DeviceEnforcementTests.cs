@@ -115,11 +115,11 @@ public class DeviceEnforcementTests : IAsyncLifetime
     }
 
     /// <summary>Opens a group session as a given machine, which is where the check lives.</summary>
-    private async Task<HttpResponseMessage> OpenSessionAsync(string? deviceId)
+    private async Task<HttpResponseMessage> OpenSessionAsync(string? deviceId, string groupId = GroupId)
     {
         var token = await SignInAsync();
 
-        var message = new HttpRequestMessage(HttpMethod.Post, $"/api/groupes/{GroupId}/session")
+        var message = new HttpRequestMessage(HttpMethod.Post, $"/api/groupes/{groupId}/session")
         {
             Content = JsonContent.Create(new { }),
         };
@@ -182,6 +182,35 @@ public class DeviceEnforcementTests : IAsyncLifetime
 
         // And it can then open a session, which it could not before.
         Assert.Equal(HttpStatusCode.OK, (await OpenSessionAsync("till-2")).StatusCode);
+    }
+
+    /// <summary>
+    /// A computer holding several espaces: the till is bound to the one it is opening. Binding the
+    /// first espace instead used to succeed and leave the till asking again, round and round.
+    /// </summary>
+    [Fact]
+    public async Task A_till_is_bound_to_the_espace_it_opens_when_the_computer_holds_several()
+    {
+        const string Second = "0b7c2f4e-1a3d-4e5f-8a9b-c0d1e2f3a4b5";
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+            var admin = db.Users.Single(u => u.Email == AdminEmail);
+            db.Groupes.Add(new Groupe
+            {
+                Id = Second, Nom = "Pharmacie Sud", IdUserAdmin = admin.IdUser,
+                MaxDevices = 5, LicenceServerUrl = "https://licences.lonnii.test",
+            });
+            db.GroupMembers.Add(new GroupMember { IdGroupe = Second, IdUser = admin.IdUser });
+            db.SaveChanges();
+        }
+
+        var response = await _client.PostAsJsonAsync("/api/devices/register",
+            new RegisterDeviceRequest(AdminEmail, AdminPassword, "till-sud", "Caisse Sud", "1.0.0", GroupId: Second));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(Second, _licences.LastRequest!.GroupId);
+        Assert.Equal(HttpStatusCode.OK, (await OpenSessionAsync("till-sud", Second)).StatusCode);
     }
 
     /// <summary>A phone or tablet used to sell takes a slot like a till, and is recorded as what it is.</summary>

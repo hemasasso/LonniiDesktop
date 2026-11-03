@@ -261,9 +261,9 @@ public class LonniiApiClient
 
     /// <summary>Binds this machine to the workspace. Needs an administrator's credentials.</summary>
     public Task<DeviceDto> RegisterThisDeviceAsync(
-        string email, string password, CancellationToken ct = default) =>
+        string email, string password, string groupId, CancellationToken ct = default) =>
         PostAsync<DeviceDto>("api/devices/register", new RegisterDeviceRequest(
-            email, password, DeviceIdentity.Current, DeviceIdentity.FriendlyName, AppVersion), ct);
+            email, password, DeviceIdentity.Current, DeviceIdentity.FriendlyName, AppVersion, GroupId: groupId), ct);
 
     /// <summary>
     /// Asks the host to reach the licence server now and renew this workspace's deadline.

@@ -44,9 +44,16 @@ public static class DeviceEndpoints
         if (string.IsNullOrWhiteSpace(request.DeviceId))
             return Results.BadRequest(new ApiError("Identifiant de poste manquant."));
 
-        var groupe = await db.Groupes.FirstOrDefaultAsync(ct);
+        // The espace being opened. A computer can hold several: binding the first one instead
+        // would succeed and still leave this machine refused by the espace it asked for.
+        // Without a GroupId (older apps, the phone) the first is kept, as before.
+        var groupe = string.IsNullOrWhiteSpace(request.GroupId)
+            ? await db.Groupes.FirstOrDefaultAsync(ct)
+            : await db.Groupes.FirstOrDefaultAsync(g => g.Id == request.GroupId, ct);
         if (groupe is null)
-            return Results.BadRequest(new ApiError("Cette installation n'est pas encore configurée."));
+            return string.IsNullOrWhiteSpace(request.GroupId)
+                ? Results.BadRequest(new ApiError("Cette installation n'est pas encore configurée."))
+                : Results.NotFound(new ApiError("Cet espace n'existe pas sur ce serveur."));
 
         var email = request.Email.Trim().ToLowerInvariant();
         var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email, ct);

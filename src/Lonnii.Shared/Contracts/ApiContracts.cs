@@ -1263,7 +1263,8 @@ public sealed record RegisterDeviceRequest(
     string DeviceId,
     string? DeviceName = null,
     string? AppVersion = null,
-    string? Platform = null);
+    string? Platform = null,
+    string? GroupId = null);
 
 /// <summary>A machine bound to the workspace, as the device list shows it.</summary>
 public sealed record DeviceDto(

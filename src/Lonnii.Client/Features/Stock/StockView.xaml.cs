@@ -793,7 +793,7 @@ public partial class StockView : UserControl
         AnalyseStatsPanel.Children.Add(StatCard("Valeur du stock (vente)", Money.Format(saleValue), (Brush)FindResource("Accent")));
         AnalyseStatsPanel.Children.Add(StatCard("Valeur du stock (achat)", Money.Format(costValue), (Brush)FindResource("TextSecondary")));
         if (_canViewMarges)
-            AnalyseStatsPanel.Children.Add(StatCard("Marge potentielle", Money.FormatPlain(margin, 2), (Brush)FindResource("Success")));
+            AnalyseStatsPanel.Children.Add(StatCard("Marge potentielle", Money.FormatPlain(margin, 2), (Brush)FindResource(margin < 0 ? "Danger" : "Success")));
         AnalyseStatsPanel.Children.Add(StatCard("En stock bas", lowStock.ToString(),
             (Brush)FindResource(lowStock > 0 ? "Danger" : "TextSecondary")));
 

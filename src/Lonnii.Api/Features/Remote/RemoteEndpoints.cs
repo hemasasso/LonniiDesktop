@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Lonnii.Api.Features.Auth;
 using Lonnii.Api.Features.Backup;
 using Lonnii.Api.Features.Images;
+using Lonnii.Api.Features.Licensing;
 using Lonnii.Api.Features.Live;
 using Lonnii.Api.Features.Members;
 using Lonnii.Data;
@@ -112,6 +113,9 @@ public static class RemoteEndpoints
             return Results.Json(new ApiError(groupe.BlockReason ?? "Cet espace est bloqué. Contactez le support."),
                 statusCode: StatusCodes.Status403Forbidden);
         }
+
+        if (groupe.ApprovalStatus != ApprovalStatuses.Approved)
+            return ActivationEndpoints.NotApproved(groupe);
 
         if (!DeploymentModes.RequiresSubscription(groupe.Mode))
         {

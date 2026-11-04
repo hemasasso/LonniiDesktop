@@ -714,9 +714,11 @@ public static class StockEndpoints
     private static async Task<string?> IsDuplicateAsync(
         LonniiDbContext db, string groupId, string name, string? sku, string? barcode, string? excludeId, CancellationToken ct)
     {
+        // An inactive product is hidden from the shop's lists, so its name is free to reuse.
+        // SKU and barcode below stay strict: a scanner must never match two products.
         var normalizedName = name.Trim().ToLowerInvariant();
         if (await db.Products.AnyAsync(
-                p => p.GroupId == groupId && p.Id != excludeId && p.DeletedAt == null &&
+                p => p.GroupId == groupId && p.Id != excludeId && p.DeletedAt == null && p.IsActive &&
                      p.Name.ToLower() == normalizedName, ct))
             return $"Un produit nommé \"{name.Trim()}\" existe déjà";
 

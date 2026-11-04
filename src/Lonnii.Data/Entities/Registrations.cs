@@ -30,6 +30,10 @@ public class RegistrationRequest
     public string DeviceId { get; set; } = string.Empty;
     public string? DeviceName { get; set; }
 
+    /// <summary>A <see cref="DevicePlatforms"/> value; android or ios means a shop with no computer,
+    /// which only ever runs online on our server. Null from the desktop app.</summary>
+    public string? Platform { get; set; }
+
     /// <summary>SHA-256 of the request id and the six-digit code.</summary>
     public string CodeHash { get; set; } = string.Empty;
     public DateTime CodeExpiresAt { get; set; }

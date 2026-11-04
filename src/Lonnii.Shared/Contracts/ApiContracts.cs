@@ -2067,7 +2067,8 @@ public sealed record RegistrationStartRequest(
     string DeviceId,
     string? DeviceName = null,
     string? Username = null,
-    string? Phone = null);
+    string? Phone = null,
+    string? Platform = null);
 
 public sealed record RegistrationStartResponse(string RequestId, DateTime ExpiresAt);
 

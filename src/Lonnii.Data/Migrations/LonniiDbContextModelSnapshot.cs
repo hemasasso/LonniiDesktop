@@ -1209,6 +1209,10 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("nom");
 
+                    b.Property<bool>("PhoneOnly")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("phone_only");
+
                     b.Property<string>("PhotoUrl")
                         .HasColumnType("TEXT")
                         .HasColumnName("photo_url");
@@ -2242,6 +2246,10 @@ namespace Lonnii.Data.Migrations
                     b.Property<string>("Phone")
                         .HasColumnType("TEXT")
                         .HasColumnName("phone");
+
+                    b.Property<string>("Platform")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("platform");
 
                     b.Property<string>("ShopName")
                         .IsRequired()

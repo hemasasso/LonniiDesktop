@@ -58,6 +58,9 @@ public static class DesktopAdminEndpoints
         // Stopping a shop from working is as weighty as what it pays for: owner and super admins.
         group.MapPut("/shops/{id}/block", SetBlockedAsync).RequireDashboardSuperAdmin();
 
+        // Moves where the shop's data lives (its computer or our server): owner and super admins.
+        group.MapPut("/shops/{id}/phone-only", SetPhoneOnlyAsync).RequireDashboardSuperAdmin();
+
         // The whole shop - sales, customers, account password hashes: owner and super admins only.
         group.MapGet("/shops/{id}/database", DownloadDatabaseAsync).RequireDashboardSuperAdmin();
     }
@@ -148,7 +151,8 @@ public static class DesktopAdminEndpoints
             Backup?.SnapshotAt,
             Groupe.CreatedAt,
             Attention().Select(a => SeverityRank(a.Severity)).DefaultIfEmpty(0).Max(),
-            Groupe.IsDeleted);
+            Groupe.IsDeleted,
+            Groupe.PhoneOnly);
     }
 
     private static int SeverityRank(string severity) => severity switch
@@ -432,6 +436,49 @@ public static class DesktopAdminEndpoints
 
         return Results.NoContent();
     }
+
+    /// <summary>
+    /// Makes a shop phone-only (our server is its host) or gives it back to computers. Turning it on
+    /// puts the shop online and retires its bound machines: a computer kept working would hold its own
+    /// copy of the data, apart from what the phones now change here. Its data on our server is what
+    /// the phones see - a computer shop moved over brings only what was last sent here.
+    /// </summary>
+    private static async Task<IResult> SetPhoneOnlyAsync(
+        string id,
+        SetPhoneOnlyRequest request,
+        ClaimsPrincipal admin,
+        LonniiDbContext db,
+        ILoggerFactory logs,
+        CancellationToken ct)
+    {
+        var groupe = await db.Groupes.FirstOrDefaultAsync(g => g.Id == id && !g.IsDeleted, ct);
+        if (groupe is null) return Results.NotFound(new ApiError("Boutique introuvable"));
+
+        groupe.PhoneOnly = request.PhoneOnly;
+        var retired = 0;
+
+        if (request.PhoneOnly)
+        {
+            groupe.Mode = DeploymentModes.Online;
+
+            var now = DateTime.UtcNow;
+            var devices = await db.Devices.Where(d => d.GroupId == id && d.RevokedAt == null).ToListAsync(ct);
+            foreach (var device in devices)
+            {
+                device.RevokedAt = now;
+                device.RevokedReason = "Espace passé en téléphone uniquement";
+            }
+            retired = devices.Count;
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        logs.CreateLogger("Lonnii.Admin").LogInformation(
+            "Dashboard admin {Admin} set shop {Shop} phone-only={PhoneOnly} ({Retired} machines retired)",
+            DashboardAdminAuth.AdminId(admin), id, request.PhoneOnly, retired);
+
+        return Results.Ok(new { phoneOnly = groupe.PhoneOnly, mode = groupe.Mode, retiredDevices = retired });
+    }
 }
 
 // --- Contracts (read by the dashboard's JavaScript, so camelCase JSON) ----------------------
@@ -468,7 +515,8 @@ public sealed record ShopSummaryDto(
     DateTime? LastBackupAt,
     DateTime CreatedAt,
     int AttentionLevel,
-    bool IsDeleted);
+    bool IsDeleted,
+    bool PhoneOnly);
 
 public sealed record ShopOwnerDto(string Email, string Name, string? Phone);
 
@@ -499,3 +547,5 @@ public sealed record ShopDetailDto(
 public sealed record SetMaxDevicesRequest(int MaxDevices);
 
 public sealed record SetBlockedRequest(bool Blocked, string? Reason);
+
+public sealed record SetPhoneOnlyRequest(bool PhoneOnly);

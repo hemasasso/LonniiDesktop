@@ -126,6 +126,14 @@ public class Groupe
     public int MaxDevices { get; set; } = 3;
 
     /// <summary>
+    /// A shop with no computer, used only from phones: our server is its host. Set from the
+    /// dashboard. Its sessions open here whatever machines were once bound, so a phone works on
+    /// the data directly instead of queuing requests for a shop computer, and no computer may
+    /// activate it while this is on.
+    /// </summary>
+    public bool PhoneOnly { get; set; }
+
+    /// <summary>
     /// How many days this workspace may run without reaching the licence server before it
     /// stops - 14 by default (it was 7 until 2026-10-04). Applies to online mode only; local
     /// mode is never sent a deadline. The defence against an online-mode shop - bought cheaply, with a yearly fee -

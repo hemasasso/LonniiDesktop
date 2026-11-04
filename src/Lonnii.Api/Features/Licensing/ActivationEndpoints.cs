@@ -105,6 +105,15 @@ public static class ActivationEndpoints
         if (groupe.ApprovalStatus != ApprovalStatuses.Approved)
             return NotApproved(groupe);
 
+        // Our server is this shop's host; a computer taking over would split its data in two.
+        if (groupe.PhoneOnly)
+        {
+            return Results.Json(
+                new ApiError("Cet espace est utilisé sans ordinateur, sur téléphone uniquement. " +
+                             "Contactez le support pour l'installer sur un ordinateur."),
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
         // Blocked and deleted are separate states, and blocked has its own message: this one
         // is a customer we know, so telling them why is useful rather than a leak.
         if (groupe.IsBlocked || user.IsBlocked)

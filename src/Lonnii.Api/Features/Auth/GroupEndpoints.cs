@@ -344,6 +344,11 @@ public static class GroupEndpoints
             return Results.Json(new ApiError(groupe.BlockReason ?? "Ce groupe est bloqué."),
                 statusCode: StatusCodes.Status403Forbidden);
 
+        // A shop registered from a phone has no computer to activate, so its sessions open here, on
+        // our server: this is where it waits for our approval like any other.
+        if (groupe.ApprovalStatus != ApprovalStatuses.Approved)
+            return ActivationEndpoints.NotApproved(groupe);
+
         var licenceStatus = await licence.CheckAsync(groupe, ct);
         if (licenceStatus.Expired)
         {
@@ -364,7 +369,9 @@ public static class GroupEndpoints
         // Only enforced once the workspace has machines bound, which is the licensed state
         // a setup creates. A workspace made through POST /api/groupes has none, and locking
         // that out would break development and the first run of a self-built host.
-        var bound = await db.Devices.AnyAsync(d => d.GroupId == groupId && d.RevokedAt == null, ct);
+        // A phone-only shop has no computer: this server is its host, so no machine check.
+        var bound = !groupe.PhoneOnly
+            && await db.Devices.AnyAsync(d => d.GroupId == groupId && d.RevokedAt == null, ct);
 
         if (bound)
         {

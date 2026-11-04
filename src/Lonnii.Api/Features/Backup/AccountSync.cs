@@ -252,10 +252,14 @@ internal static class AccountSync
         {
             if (current is null)
             {
+                // The live assigned_by is NOT NULL. The shop's computer speaks for its owner, so the
+                // owner is named; the person themselves if the shop is not here.
                 await db.Database.ExecuteSqlInterpolatedAsync(
                     $"""
-                    INSERT INTO user_roles (user_id, group_id, role, assigned_at, is_active)
-                    VALUES ({userId}, {groupId}, CAST({role} AS role_type), {assignedAt}, TRUE)
+                    INSERT INTO user_roles (user_id, group_id, role, assigned_by, assigned_at, is_active)
+                    VALUES ({userId}, {groupId}, CAST({role} AS role_type),
+                            COALESCE((SELECT iduser_admin FROM groupes WHERE id = {groupId}), {userId}),
+                            {assignedAt}, TRUE)
                     """, ct);
             }
             else

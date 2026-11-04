@@ -139,6 +139,29 @@ public class RegistrationTests : IAsyncLifetime
         Assert.Empty(await db.RegistrationRequests.ToListAsync());
     }
 
+    /// <summary>A shop with no computer only ever runs on our server: it waits for approval already
+    /// online, so the dashboard approves it with a subscription.</summary>
+    [Theory]
+    [InlineData("android", DeploymentModes.Online)]
+    [InlineData("ios", DeploymentModes.Online)]
+    [InlineData("windows", DeploymentModes.Local)]
+    [InlineData(null, DeploymentModes.Local)]
+    public async Task A_shop_registered_from_a_phone_waits_online(string? platform, string mode)
+    {
+        var start = await _client.PostAsJsonAsync("/api/registration/start",
+            new RegistrationStartRequest("Boutique Mobile", Email, Password, "phone-1", "Pixel",
+                "boutiquemobile", "+226 70 12 34 56", platform));
+        Assert.Equal(HttpStatusCode.OK, start.StatusCode);
+        var id = (await start.Content.ReadFromJsonAsync<RegistrationStartResponse>())!.RequestId;
+
+        var result = (await (await Verify(id, _email.LastCode)).Content.ReadFromJsonAsync<RegistrationVerifyResponse>())!;
+
+        Assert.Equal(ApprovalStatuses.Pending, result.ApprovalStatus);
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+        Assert.Equal(mode, (await db.Groupes.SingleAsync()).Mode);
+    }
+
     [Fact]
     public async Task A_pending_shop_cannot_activate_until_it_is_approved()
     {
@@ -151,6 +174,33 @@ public class RegistrationTests : IAsyncLifetime
         await SetStatusAsync(result.GroupId, ApprovalStatuses.Approved);
 
         Assert.Equal(HttpStatusCode.OK, (await Activate(result.GroupId)).StatusCode);
+    }
+
+    /// <summary>A shop registered from a phone has no computer to activate: its sessions open on our
+    /// server, which must hold it back until approval just the same.</summary>
+    [Fact]
+    public async Task A_pending_shop_opens_no_session_on_the_server_until_it_is_approved()
+    {
+        var result = await RegisterAsync();
+
+        var login = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest(Email, Password));
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        var token = (await login.Content.ReadFromJsonAsync<LoginResponse>())!.AccessToken;
+
+        Task<HttpResponseMessage> OpenSession()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, $"/api/groupes/{result.GroupId}/session");
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            return _client.SendAsync(request);
+        }
+
+        var refused = await OpenSession();
+        Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+        Assert.Contains("attente", (await refused.Content.ReadFromJsonAsync<ApiError>())!.Error);
+
+        await SetStatusAsync(result.GroupId, ApprovalStatuses.Approved);
+
+        Assert.Equal(HttpStatusCode.OK, (await OpenSession()).StatusCode);
     }
 
     [Fact]

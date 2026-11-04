@@ -187,6 +187,7 @@ public static class RegistrationEndpoints
             Phone = phone,
             DeviceId = request.DeviceId,
             DeviceName = request.DeviceName,
+            Platform = request.Platform is DevicePlatforms.Android or DevicePlatforms.Ios ? request.Platform : null,
             CodeExpiresAt = DateTime.UtcNow.AddMinutes(CodeLifetimeMinutes),
             IpAddress = ip,
         };
@@ -295,7 +296,10 @@ public static class RegistrationEndpoints
             Nom = pending.ShopName,
             IdUserAdmin = admin.IdUser,
             GestionAccess = true,
-            Mode = DeploymentModes.Local,
+            // Registered from a phone: no computer will ever host it, so it runs online on our
+            // server. Still pending - the dashboard's approval adds the subscription that pays for it.
+            Mode = pending.Platform is null ? DeploymentModes.Local : DeploymentModes.Online,
+            PhoneOnly = pending.Platform is not null,
             ApprovalStatus = ApprovalStatuses.Pending,
         };
 

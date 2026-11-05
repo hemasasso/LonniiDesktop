@@ -76,7 +76,14 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""L
 ; every Windows account read it - the database, and jwt.key, with which a cashier's own account
 ; could forge an administrator's sign-in. SIDs, not names: French Windows says "Administrateurs".
 ; Re-applied on every install, so an update also repairs a folder opened up by hand.
-Filename: "{sys}\icacls.exe"; Parameters: """{commonappdata}\Lonnii"" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F /T /C /Q"; Components: api; Flags: runhidden
+; Three steps, in this order: take ownership (a file left with no permissions can still be reset by
+; its owner), reset every file to inherit from the folder (drops grants added by hand, like
+; "Users: Modify"), then lock the folder alone - its files inherit SYSTEM and Administrators from it.
+; Never (OI)(CI) with /T: on a file that flag is refused and, with /C, the file is left with no
+; permissions at all - which once locked the API out of its own jwt.key.
+Filename: "{sys}\takeown.exe"; Parameters: "/F ""{commonappdata}\Lonnii"" /R /A /D Y"; Components: api; Flags: runhidden
+Filename: "{sys}\icacls.exe"; Parameters: """{commonappdata}\Lonnii"" /reset /T /C /Q"; Components: api; Flags: runhidden
+Filename: "{sys}\icacls.exe"; Parameters: """{commonappdata}\Lonnii"" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F /Q"; Components: api; Flags: runhidden
 Filename: "{sys}\schtasks.exe"; Parameters: "/Create /F /TN ""Lonnii API"" /SC ONSTART /RU SYSTEM /RL HIGHEST /TR ""\""{app}\Api\Lonnii.Api.exe\"""""; Components: api; Flags: runhidden
 Filename: "{sys}\schtasks.exe"; Parameters: "/Run /TN ""Lonnii API"""; Components: api; Flags: runhidden
 Filename: "{app}\Client\Lonnii.Client.exe"; Description: "Lancer Lonnii Business"; Flags: nowait postinstall skipifsilent

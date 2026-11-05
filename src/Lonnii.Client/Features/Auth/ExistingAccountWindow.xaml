@@ -39,6 +39,8 @@
         <StackPanel Grid.Row="3" x:Name="EspacePanel" Visibility="Collapsed">
             <TextBlock Text="Espace à installer" Style="{StaticResource FieldLabel}" />
             <ListBox x:Name="EspaceList" Margin="0,4,0,0" MaxHeight="150"
+                     Background="{DynamicResource Surface}" Foreground="{DynamicResource TextPrimary}"
+                     BorderBrush="{DynamicResource Border}"
                      DisplayMemberPath="Display" MouseDoubleClick="EspaceList_DoubleClick" />
         </StackPanel>
 

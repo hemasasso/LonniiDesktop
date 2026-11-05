@@ -1145,6 +1145,10 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("blocked_at");
 
+                    b.Property<string>("Color")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("color");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at");

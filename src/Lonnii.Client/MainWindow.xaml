@@ -140,8 +140,9 @@
           sidebar did. Account actions (change group, change password, sign out...)
           moved into the avatar's own menu.
         -->
-        <!-- Gray grid bar; HeaderBackground lives in both palettes so it follows the theme. -->
-        <Border DockPanel.Dock="Top" Height="56" Background="{DynamicResource HeaderBackground}">
+        <!-- Grid bar; HeaderBackground lives in both palettes so it follows the theme. Repainted
+             from code with the user's own colour and pattern (TopBarPreferences). -->
+        <Border x:Name="TopBar" DockPanel.Dock="Top" Height="56" Background="{DynamicResource HeaderBackground}">
 
             <Grid Margin="14,0">
                 <Grid.ColumnDefinitions>
@@ -229,6 +230,7 @@
                                 <MenuItem Header="Changer d'espace…" Click="ChangeGroup_Click" />
                                 <MenuItem x:Name="ProfileMenuItem" Header="Mon profil…" Click="Profile_Click" />
                                 <MenuItem Header="Changer mon mot de passe…" Click="ChangePassword_Click" />
+                                <MenuItem Header="Apparence de la barre…" Click="TopBarStyle_Click" />
                                 <Separator />
                                 <MenuItem Header="À propos de Lonnii…" Click="About_Click" />
                                 <MenuItem Header="Se déconnecter" Click="SignOut_Click" />

@@ -37,6 +37,7 @@ public static class GroupEndpoints
         scoped.MapPost("/members/{userId}/password", ResetMemberPasswordAsync)
             .RequireGroupScope().RequireGroupAdmin();
         scoped.MapPut("/name", RenameAsync).RequireGroupScope().RequireGroupAdmin();
+        scoped.MapPut("/color", UpdateColorAsync).RequireGroupScope().RequireGroupAdmin();
         scoped.MapPut("/currency", UpdateCurrencyAsync).RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageDevise);
         scoped.MapDelete("/session", CloseSessionAsync).RequireGroupScope();
 
@@ -689,6 +690,30 @@ public static class GroupEndpoints
         return Results.Ok(ToDto(groupe, scope.Privileges.Role, scope.IsAdminGeneral, memberCount));
     }
 
+    /// <summary>Sets the espace colour shown on the picker cards. Group-admin only, like the name
+    /// and photo. In online mode the Lonnii server is told too, so phones show it.</summary>
+    private static async Task<IResult> UpdateColorAsync(
+        UpdateGroupeColorRequest request, GroupScope scope, LonniiDbContext db,
+        Lonnii.Api.Features.Backup.CloudBackupRunner cloud, CancellationToken ct)
+    {
+        string? color = null;
+        if (!string.IsNullOrWhiteSpace(request.Color))
+        {
+            color = EspaceColors.Normalize(request.Color);
+            if (color is null)
+                return Results.BadRequest(new ApiError("Couleur invalide (format attendu : #RRGGBB)."));
+        }
+
+        var groupe = await db.Groupes.FirstAsync(g => g.Id == scope.GroupId, ct);
+        groupe.Color = color;
+        await db.SaveChangesAsync(ct);
+
+        await cloud.PushNameAsync(scope.GroupId, ct);
+
+        var memberCount = await db.GroupMembers.CountAsync(m => m.IdGroupe == scope.GroupId, ct);
+        return Results.Ok(ToDto(groupe, scope.Privileges.Role, scope.IsAdminGeneral, memberCount));
+    }
+
     /// <summary>Two espaces on one computer with the same name cannot be told apart in the picker,
     /// so a name is taken whatever its case or surrounding spaces.</summary>
     private static Task<bool> NameTakenAsync(LonniiDbContext db, string nom, string? exceptId, CancellationToken ct)
@@ -986,5 +1011,5 @@ public static class GroupEndpoints
     private static GroupeDto ToDto(Groupe g, string role, bool isAdminGeneral, int memberCount) => new(
         g.Id, g.Nom, isAdminGeneral, role, g.GestionAccess,
         g.PrestationsEnabled, g.PrestationsLocation, memberCount, g.CreatedAt, g.CurrencyLabel, g.CurrencyBefore,
-        g.PhotoUrl);
+        g.PhotoUrl, g.Color);
 }

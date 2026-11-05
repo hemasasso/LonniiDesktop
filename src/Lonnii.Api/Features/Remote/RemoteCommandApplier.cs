@@ -177,6 +177,17 @@ public sealed class RemoteCommandApplier(
                 }
                 break;
 
+            case RemoteCommandTypes.EspaceColor:
+                outcome = RemoteEndpoints.EspaceColorCheck(command.Name);
+                if (outcome.Ok)
+                {
+                    var groupe = await db.Groupes.FirstAsync(g => g.Id == groupId, ct);
+                    groupe.Color = EspaceColors.Normalize(command.Name);
+                    await db.SaveChangesAsync(ct);
+                    await backups.PushNameAsync(groupId, ct);
+                }
+                break;
+
             default:
                 return new RemoteCommandResult(RemoteCommandStatuses.Failed, "Demande incomplète ou inconnue.");
         }

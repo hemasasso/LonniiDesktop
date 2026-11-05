@@ -68,10 +68,13 @@ Name: "{autodesktop}\Lonnii Business"; Filename: "{app}\Client\Lonnii.Client.exe
 [Run]
 ; Server: open the LAN ports the tills use (API on TCP 5280, discovery on UDP 5281), then
 ; register and start the API at boot as SYSTEM. Data stays in C:\ProgramData\Lonnii.
+; Every network type, but only to the local network (remoteip=localsubnet): Windows files a new
+; Wi-Fi or a phone hotspot as "Public", and a private-only rule left the tills unable to find the
+; server there. localsubnet keeps the ports closed to anything beyond the shop's own network.
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Lonnii API"""; Components: api; Flags: runhidden
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""Lonnii API"" dir=in action=allow protocol=TCP localport=5280 profile=private,domain"; Components: api; Flags: runhidden
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""Lonnii API"" dir=in action=allow protocol=TCP localport=5280 profile=any remoteip=localsubnet"; Components: api; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Lonnii Discovery"""; Components: api; Flags: runhidden
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""Lonnii Discovery"" dir=in action=allow protocol=UDP localport=5281 profile=private,domain"; Components: api; Flags: runhidden
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""Lonnii Discovery"" dir=in action=allow protocol=UDP localport=5281 profile=any remoteip=localsubnet"; Components: api; Flags: runhidden
 ; Only SYSTEM (the API) and administrators may open the data folder: by default ProgramData lets
 ; every Windows account read it - the database, and jwt.key, with which a cashier's own account
 ; could forge an administrator's sign-in. SIDs, not names: French Windows says "Administrateurs".
@@ -81,10 +84,18 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""L
 ; "Users: Modify"), then lock the folder alone - its files inherit SYSTEM and Administrators from it.
 ; Never (OI)(CI) with /T: on a file that flag is refused and, with /C, the file is left with no
 ; permissions at all - which once locked the API out of its own jwt.key.
-Filename: "{sys}\takeown.exe"; Parameters: "/F ""{commonappdata}\Lonnii"" /R /A /D Y"; Components: api; Flags: runhidden
+; Ownership with icacls /setowner, not takeown: takeown's /D answer is in the Windows language
+; ("Y" fails on a French Windows, which wants "O"); a SID works in every language.
+Filename: "{sys}\icacls.exe"; Parameters: """{commonappdata}\Lonnii"" /setowner *S-1-5-32-544 /T /C /Q"; Components: api; Flags: runhidden
 Filename: "{sys}\icacls.exe"; Parameters: """{commonappdata}\Lonnii"" /reset /T /C /Q"; Components: api; Flags: runhidden
 Filename: "{sys}\icacls.exe"; Parameters: """{commonappdata}\Lonnii"" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F /Q"; Components: api; Flags: runhidden
 Filename: "{sys}\schtasks.exe"; Parameters: "/Create /F /TN ""Lonnii API"" /SC ONSTART /RU SYSTEM /RL HIGHEST /TR ""\""{app}\Api\Lonnii.Api.exe\"""""; Components: api; Flags: runhidden
+; schtasks keeps Windows' task defaults and has no switch for them: stop on battery, never start on
+; battery, stop after 72 hours. On a shop's laptop unplugged, that stopped the server and left every
+; screen on "Serveur introuvable" (2026-11-05). So: run on battery, no time limit, and if the API
+; ever stops, Windows starts it again every minute. Re-applied on each install, since /Create /F
+; rebuilds the task.
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0 -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1); Set-ScheduledTask -TaskName 'Lonnii API' -Settings $s"""; Components: api; Flags: runhidden
 Filename: "{sys}\schtasks.exe"; Parameters: "/Run /TN ""Lonnii API"""; Components: api; Flags: runhidden
 Filename: "{app}\Client\Lonnii.Client.exe"; Description: "Lancer Lonnii Business"; Flags: nowait postinstall skipifsilent
 

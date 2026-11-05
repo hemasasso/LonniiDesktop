@@ -84,7 +84,7 @@
                     <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
                             BorderThickness="1" CornerRadius="3" Padding="16,12">
                         <StackPanel Orientation="Horizontal">
-                            <Border Width="64" Height="64" CornerRadius="32" ClipToBounds="True"
+                            <Border x:Name="PhotoCircle" Width="64" Height="64" CornerRadius="32" ClipToBounds="True"
                                     Background="{DynamicResource Accent}" VerticalAlignment="Center">
                                 <Grid>
                                     <TextBlock x:Name="PhotoInitial" HorizontalAlignment="Center"
@@ -107,6 +107,20 @@
                                                VerticalAlignment="Center" FontSize="12" />
                                 </StackPanel>
                             </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Espace colour (admin only): the card colour in the espace list, desktop and phone. -->
+                <StackPanel x:Name="ColorPanel" Visibility="Collapsed">
+                    <TextBlock Text="COULEUR DE L'ESPACE" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12">
+                        <StackPanel>
+                            <TextBlock Text="La couleur de la carte de cet espace dans la liste des espaces, sur l'ordinateur et le téléphone."
+                                       Foreground="{DynamicResource TextSecondary}" FontSize="12" TextWrapping="Wrap" />
+                            <WrapPanel x:Name="ColorSwatches" Margin="0,10,0,0" />
+                            <TextBlock x:Name="ColorStatusText" Margin="0,6,0,0" FontSize="12" TextWrapping="Wrap" />
                         </StackPanel>
                     </Border>
                 </StackPanel>

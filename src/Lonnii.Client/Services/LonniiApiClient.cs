@@ -325,6 +325,14 @@ public class LonniiApiClient
     public Task QueueRenameGroupeAsync(string senderId, string nom, CancellationToken ct = default) =>
         QueueRemoteAsync(new RemoteCommandRequest(RemoteCommandTypes.EspaceRename, senderId, Name: nom), ct);
 
+    /// <summary>Sets the espace colour; null goes back to the Lonnii blue. Group admin only.</summary>
+    public Task<GroupeDto> UpdateGroupeColorAsync(string? color, CancellationToken ct = default) =>
+        SendAsync<GroupeDto>(HttpMethod.Put, "api/groupe/color", new UpdateGroupeColorRequest(color), ct);
+
+    /// <summary>Asks the shop to change its colour, from afar (empty = the Lonnii blue).</summary>
+    public Task QueueGroupeColorAsync(string senderId, string? color, CancellationToken ct = default) =>
+        QueueRemoteAsync(new RemoteCommandRequest(RemoteCommandTypes.EspaceColor, senderId, Name: color ?? string.Empty), ct);
+
     // --- Remote access -----------------------------------------------------------------
 
     /// <summary>

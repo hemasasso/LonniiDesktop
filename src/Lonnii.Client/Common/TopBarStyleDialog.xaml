@@ -1,0 +1,36 @@
+<Window x:Class="Lonnii.Client.Common.TopBarStyleDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Apparence de la barre" SizeToContent="Height" Width="460"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize" ShowInTaskbar="False"
+        Background="{DynamicResource Surface}">
+
+    <StackPanel Margin="20">
+        <TextBlock Text="Votre choix, sur cet ordinateur. Les autres utilisateurs gardent le leur."
+                   Foreground="{DynamicResource TextSecondary}" FontSize="12" TextWrapping="Wrap" />
+
+        <!-- Live preview of the bar. -->
+        <Border x:Name="Preview" Height="44" CornerRadius="6" Margin="0,12,0,0" Padding="10,0">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Border x:Name="PreviewActive" CornerRadius="12" Padding="12,4" Margin="0,0,6,0" Background="#FFC839">
+                    <TextBlock Text="Ventes" FontWeight="SemiBold" Foreground="#1B1F27" />
+                </Border>
+                <Border x:Name="PreviewPill" CornerRadius="12" Padding="12,4" BorderThickness="1">
+                    <TextBlock x:Name="PreviewPillText" Text="Stock" FontWeight="SemiBold" />
+                </Border>
+            </StackPanel>
+        </Border>
+
+        <TextBlock Text="COULEUR" Style="{StaticResource SectionHeader}" Margin="0,16,0,6" />
+        <WrapPanel x:Name="ColorSwatches" />
+
+        <TextBlock Text="MOTIF" Style="{StaticResource SectionHeader}" Margin="0,12,0,6" />
+        <WrapPanel x:Name="PatternPanel" />
+
+        <StackPanel Orientation="Horizontal" Margin="0,18,0,0" HorizontalAlignment="Right">
+            <Button Content="Par défaut" Margin="0,0,8,0" Style="{StaticResource SecondaryButton}" Click="Reset_Click" />
+            <Button Content="Annuler" IsCancel="True" Margin="0,0,8,0" Style="{StaticResource SecondaryButton}" />
+            <Button Content="Enregistrer" IsDefault="True" Style="{StaticResource PrimaryButton}" Click="Ok_Click" />
+        </StackPanel>
+    </StackPanel>
+</Window>

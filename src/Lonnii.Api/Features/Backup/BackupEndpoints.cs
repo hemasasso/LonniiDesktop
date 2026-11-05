@@ -217,11 +217,21 @@ public static class BackupEndpoints
 
         var groupId = GroupOf(http);
         var groupe = await db.Groupes.FirstAsync(g => g.Id == groupId, ct);
-        if (groupe.Nom != nom)
+        var changed = groupe.Nom != nom;
+        groupe.Nom = nom;
+
+        // Null: an older host that knows nothing of colours - leave it. Empty: back to the default.
+        if (request.Color is not null)
         {
-            groupe.Nom = nom;
-            await db.SaveChangesAsync(ct);
+            var color = request.Color.Length == 0 ? null : EspaceColors.Normalize(request.Color);
+            if (color is not null || request.Color.Length == 0)
+            {
+                changed |= groupe.Color != color;
+                groupe.Color = color;
+            }
         }
+
+        if (changed) await db.SaveChangesAsync(ct);
         return Results.NoContent();
     }
 

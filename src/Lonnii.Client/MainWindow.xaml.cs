@@ -42,6 +42,7 @@ public partial class MainWindow : Window
         Loaded += (_, _) =>
         {
             BuildShell();
+            ApplyTopBarStyle(); // the user is known by now
             CustomerDisplayService.Instance.Start(_session);
             PaymentProviderRegistry.Register(new LigdiCashProvider());
             PaymentProviderRegistry.Register(new OrangeMoneyProvider());
@@ -297,6 +298,20 @@ public partial class MainWindow : Window
     private void ApplyThemeButtonVisuals()
     {
         DarkModeButton.ToolTip = ThemeManager.IsDark ? "Mode clair" : "Mode sombre";
+        ApplyTopBarStyle();
+    }
+
+    /// <summary>The signed-in user's bar colour and pattern (Apparence de la barre).</summary>
+    private void ApplyTopBarStyle() =>
+        TopBarPreferences.Apply(TopBarPreferences.For(_session.User?.IdUser), TopBar, Resources, ThemeManager.IsDark);
+
+    private void TopBarStyle_Click(object sender, RoutedEventArgs e)
+    {
+        var userId = _session.User?.IdUser;
+        var dialog = new Lonnii.Client.Common.TopBarStyleDialog(TopBarPreferences.For(userId)) { Owner = this };
+        if (dialog.ShowDialog() != true || dialog.Result is null) return;
+        TopBarPreferences.Save(userId, dialog.Result);
+        ApplyTopBarStyle();
     }
 
     /// <summary>

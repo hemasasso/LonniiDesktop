@@ -98,18 +98,12 @@
                         </Grid.RowDefinitions>
 
                         <!--
-                            Cover: the espace photo when it has one, otherwise a blue gradient with
+                            Cover: the espace photo when it has one, otherwise a gradient of the espace colour with
                             its initial. Two layers rather than one switching, so the rounded top
                             corners hold in both states (an image brush follows the corner radius;
                             an Image element would not).
                         -->
-                        <Border Grid.Row="0" CornerRadius="11,11,0,0">
-                            <Border.Background>
-                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                    <GradientStop Color="#5675F8" Offset="0" />
-                                    <GradientStop Color="#3347D1" Offset="1" />
-                                </LinearGradientBrush>
-                            </Border.Background>
+                        <Border Grid.Row="0" CornerRadius="11,11,0,0" Background="{Binding Cover}">
                             <TextBlock Text="{Binding Groupe.Nom, Converter={StaticResource Initial}}"
                                        Foreground="White" Opacity="0.95"
                                        FontSize="34" FontWeight="Bold"

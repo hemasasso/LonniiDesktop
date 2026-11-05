@@ -434,7 +434,8 @@ public sealed class EspaceTransferService(
         CurrencyBefore: g.CurrencyBefore,
         GestionAccess: g.GestionAccess,
         PrestationsEnabled: g.PrestationsEnabled,
-        PrestationsLocation: g.PrestationsLocation);
+        PrestationsLocation: g.PrestationsLocation,
+        Color: g.Color);
 
     private static void Apply(EspaceSettings settings, Lonnii.Data.Entities.Groupe g)
     {
@@ -445,6 +446,8 @@ public sealed class EspaceTransferService(
         g.GestionAccess = settings.GestionAccess;
         g.PrestationsEnabled = settings.PrestationsEnabled;
         g.PrestationsLocation = settings.PrestationsLocation;
+        // Files from before colours carry none: keep the receiving espace's own colour then.
+        if (EspaceColors.Normalize(settings.Color) is { } color) g.Color = color;
     }
 
     /// <summary>Deletes a transfer file, ignoring a failure: an undeleted temporary file is

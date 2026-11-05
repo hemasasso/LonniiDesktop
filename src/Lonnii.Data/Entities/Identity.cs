@@ -90,6 +90,12 @@ public class Groupe
     /// </summary>
     public string? PhotoUrl { get; set; }
 
+    /// <summary>
+    /// The espace's colour, <c>#RRGGBB</c>, chosen in Administration and shown on the picker
+    /// cards (desktop and phone). Null = the Lonnii blue. See <c>EspaceColors</c>.
+    /// </summary>
+    public string? Color { get; set; }
+
     public bool IsBlocked { get; set; }
     public string? BlockReason { get; set; }
     public DateTime? BlockedAt { get; set; }

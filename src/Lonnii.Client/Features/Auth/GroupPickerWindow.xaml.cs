@@ -371,7 +371,27 @@ internal sealed class GroupeItem : INotifyPropertyChanged
     public GroupeDto Groupe
     {
         get => _groupe;
-        set { _groupe = value; Notify(); Notify(nameof(HasPhoto)); }
+        set { _groupe = value; Notify(); Notify(nameof(HasPhoto)); Notify(nameof(Cover)); Notify(nameof(AccentColor)); }
+    }
+
+    /// <summary>The espace's colour (Administration), Lonnii blue when none.</summary>
+    public System.Windows.Media.Color AccentColor =>
+        (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(EspaceColors.Effective(_groupe.Color));
+
+    /// <summary>The card cover: the espace colour, a little lighter at the top-left as the old
+    /// fixed blue gradient was (#5675F8 -> #3347D1).</summary>
+    public System.Windows.Media.Brush Cover
+    {
+        get
+        {
+            var c = AccentColor;
+            static byte Mix(byte v, int to, double t) => (byte)Math.Round(v + (to - v) * t);
+            var light = System.Windows.Media.Color.FromRgb(Mix(c.R, 255, 0.12), Mix(c.G, 255, 0.12), Mix(c.B, 255, 0.12));
+            var dark = System.Windows.Media.Color.FromRgb(Mix(c.R, 0, 0.15), Mix(c.G, 0, 0.15), Mix(c.B, 0, 0.15));
+            var brush = new System.Windows.Media.LinearGradientBrush(light, dark, new Point(0, 0), new Point(1, 1));
+            brush.Freeze();
+            return brush;
+        }
     }
 
     public BitmapImage? Photo

@@ -62,6 +62,9 @@ public partial class ParametresView : UserControl
         PhotoInitial.Text = string.IsNullOrEmpty(groupe?.Nom) ? string.Empty : groupe!.Nom[..1].ToUpperInvariant();
         if (_session.IsAdmin && groupe is not null) _ = LoadPhotoAsync(groupe.Id);
 
+        ColorPanel.Visibility = _session.IsAdmin ? Visibility.Visible : Visibility.Collapsed;
+        ShowColors(groupe?.Color);
+
         // Gated the same way: the API refuses these writes to anyone but an admin, so showing
         // the entry to a member only advertises a locked door.
         PaymentSettingsPanel.Visibility = _session.IsAdmin && PaymentProviderRegistry.SettingsVisible ? Visibility.Visible : Visibility.Collapsed;
@@ -197,6 +200,93 @@ public partial class ParametresView : UserControl
         {
             SetPhotoStatus(ex.Message, error: true);
         }
+    }
+
+    // --- Espace colour ----------------------------------------------------------------
+
+    /// <summary>One round swatch per palette colour; the current one carries a check mark.</summary>
+    private void ShowColors(string? current)
+    {
+        var selected = EspaceColors.Effective(current);
+        ColorSwatches.Children.Clear();
+        foreach (var hex in EspaceColors.Palette)
+        {
+            var isCurrent = string.Equals(hex, selected, StringComparison.OrdinalIgnoreCase);
+            var swatch = new Button
+            {
+                Width = 34, Height = 34, Margin = new Thickness(0, 0, 8, 8),
+                Cursor = System.Windows.Input.Cursors.Hand, Tag = hex,
+                ToolTip = hex == EspaceColors.Default ? "Bleu Lonnii (par défaut)" : hex,
+                Template = SwatchTemplate(hex, isCurrent),
+            };
+            swatch.Click += Swatch_Click;
+            ColorSwatches.Children.Add(swatch);
+        }
+
+        // The photo circle above shows the colour behind the initial when there is no photo.
+        PhotoCircle.Background = HexBrush(selected);
+    }
+
+    private static SolidColorBrush HexBrush(string hex)
+    {
+        var b = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
+        b.Freeze();
+        return b;
+    }
+
+    private ControlTemplate SwatchTemplate(string hex, bool isCurrent)
+    {
+        var ring = new FrameworkElementFactory(typeof(Border));
+        ring.SetValue(Border.CornerRadiusProperty, new CornerRadius(17));
+        ring.SetValue(Border.BackgroundProperty, HexBrush(hex));
+        ring.SetValue(Border.BorderThicknessProperty, new Thickness(isCurrent ? 3 : 0));
+        ring.SetValue(Border.BorderBrushProperty, (Brush)FindResource("TextPrimary"));
+
+        if (isCurrent)
+        {
+            var check = new FrameworkElementFactory(typeof(TextBlock));
+            check.SetValue(TextBlock.TextProperty, "✓");
+            check.SetValue(TextBlock.ForegroundProperty, System.Windows.Media.Brushes.White);
+            check.SetValue(TextBlock.FontSizeProperty, 16.0);
+            check.SetValue(TextBlock.FontWeightProperty, FontWeights.Bold);
+            check.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Center);
+            check.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center);
+            ring.AppendChild(check);
+        }
+        return new ControlTemplate(typeof(Button)) { VisualTree = ring };
+    }
+
+    private async void Swatch_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string hex } || _session.Groupe is null) return;
+        // The default is stored as "no colour", so a later change of default reaches it too.
+        var color = hex == EspaceColors.Default ? null : hex;
+        if (EspaceColors.Effective(_session.Groupe.Color) == hex) return;
+
+        try
+        {
+            if (_session.IsRemote)
+            {
+                await _session.Api.QueueGroupeColorAsync(_session.User!.IdUser, color);
+                ShowColors(hex);
+                SetColorStatus("Demande envoyée : la boutique prendra cette couleur dès qu'elle la recevra.", error: false);
+                return;
+            }
+
+            _session.ApplyGroupeChange(await _session.Api.UpdateGroupeColorAsync(color));
+            ShowColors(_session.Groupe?.Color);
+            SetColorStatus("Couleur enregistrée.", error: false);
+        }
+        catch (ApiException ex)
+        {
+            SetColorStatus(ex.Message, error: true);
+        }
+    }
+
+    private void SetColorStatus(string text, bool error)
+    {
+        ColorStatusText.Text = text;
+        ColorStatusText.Foreground = (Brush)FindResource(error ? "Danger" : "TextSecondary");
     }
 
     // --- Delete the espace -------------------------------------------------------------

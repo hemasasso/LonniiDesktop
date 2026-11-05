@@ -51,6 +51,7 @@ internal static class AccountsSnapshot
             CurrencyLabel = groupe.CurrencyLabel,
             CurrencyBefore = groupe.CurrencyBefore,
             PhotoUrl = groupe.PhotoUrl,
+            Color = groupe.Color,
             Mode = DeploymentModes.Local,
             CreatedAt = groupe.CreatedAt,
         }], ct);

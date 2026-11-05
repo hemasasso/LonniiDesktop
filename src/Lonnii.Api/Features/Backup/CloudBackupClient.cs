@@ -119,10 +119,11 @@ public sealed class CloudBackupClient(IHttpClientFactory factory)
         return begun;
     }
 
-    public async Task PutNameAsync(string nom, CancellationToken ct)
+    /// <summary>Sends the shop's name and colour (null colour is sent as "", meaning "the default").</summary>
+    public async Task PutNameAsync(string nom, string? color, CancellationToken ct)
     {
         using var _ = await SendAsync(
-            Request(HttpMethod.Put, "name", JsonContent.Create(new BackupNameRequest(nom))), ct);
+            Request(HttpMethod.Put, "name", JsonContent.Create(new BackupNameRequest(nom, color ?? string.Empty))), ct);
     }
 
     public async Task MarkDeletedAsync(CancellationToken ct)

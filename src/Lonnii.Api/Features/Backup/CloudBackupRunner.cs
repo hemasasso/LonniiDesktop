@@ -105,7 +105,7 @@ public sealed class CloudBackupRunner(
 
             // Catches up a rename made while the server could not be reached. Never fails the
             // backup: an older server has no such address.
-            try { await client.PutNameAsync(groupe.Nom, ct); }
+            try { await client.PutNameAsync(groupe.Nom, groupe.Color, ct); }
             catch (CloudBackupException e)
             {
                 logger.LogWarning("Nom de {GroupId} non envoyé au serveur Lonnii : {Message}", groupId, e.Message);
@@ -239,7 +239,7 @@ public sealed class CloudBackupRunner(
             timeout.CancelAfter(TimeSpan.FromSeconds(10));
 
             client.For(groupe!.LicenceServerUrl!, groupId, state!.DeviceId!, state.DeviceToken!, state.Epoch);
-            await client.PutNameAsync(groupe.Nom, timeout.Token);
+            await client.PutNameAsync(groupe.Nom, groupe.Color, timeout.Token);
             return true;
         }
         catch (Exception e) when (!ct.IsCancellationRequested)

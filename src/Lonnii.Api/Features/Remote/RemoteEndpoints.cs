@@ -208,7 +208,7 @@ public static class RemoteEndpoints
             new GroupeDto(
                 shop.Id, shop.Nom, privileges.IsAdminGeneral, privileges.Role, shop.GestionAccess,
                 shop.PrestationsEnabled, shop.PrestationsLocation, memberCount, shop.CreatedAt,
-                shop.CurrencyLabel, shop.CurrencyBefore, shop.PhotoUrl)));
+                shop.CurrencyLabel, shop.CurrencyBefore, shop.PhotoUrl, shop.Color)));
     }
 
     /// <summary>What the screen needs to say how old what it shows is.</summary>
@@ -295,6 +295,10 @@ public static class RemoteEndpoints
                     check = EspaceRenameCheck(request.Name);
                     break;
 
+                case RemoteCommandTypes.EspaceColor:
+                    check = EspaceColorCheck(request.Name);
+                    break;
+
                 default:
                     return Results.BadRequest(new ApiError($"Type de demande inconnu : {request.Type}"));
             }
@@ -367,6 +371,13 @@ public static class RemoteEndpoints
             : PrivilegeChangeResult.Refused(StatusCodes.Status400BadRequest,
                 "Le nom de l'espace doit contenir entre 1 et 100 caractères.");
     }
+
+    /// <summary>The same rule as <c>PUT /api/groupe/color</c>: empty, or a <c>#RRGGBB</c>.</summary>
+    internal static PrivilegeChangeResult EspaceColorCheck(string? color) =>
+        string.IsNullOrWhiteSpace(color) || EspaceColors.Normalize(color) is not null
+            ? PrivilegeChangeResult.Done
+            : PrivilegeChangeResult.Refused(StatusCodes.Status400BadRequest,
+                "Couleur invalide (format attendu : #RRGGBB).");
 
     /// <summary>What was asked for recently and what became of it, newest first.</summary>
     private static IResult ListCommands(GroupScope scope, RemoteCommandStore commands) =>

@@ -79,7 +79,41 @@ public sealed record GroupeDto(
     DateTime CreatedAt,
     string CurrencyLabel,
     bool CurrencyBefore = false,
-    string? PhotoUrl = null);
+    string? PhotoUrl = null,
+    string? Color = null);
+
+/// <summary>Sets the espace's colour (<c>#RRGGBB</c>); null or empty goes back to the Lonnii blue.</summary>
+public sealed record UpdateGroupeColorRequest(string? Color);
+
+/// <summary>
+/// The colours an espace can wear. One list for the server (validation), the desktop picker and
+/// the phone, so a colour chosen on one shows the same on the other.
+/// </summary>
+public static class EspaceColors
+{
+    /// <summary>The Lonnii blue every espace wears until someone picks another.</summary>
+    public const string Default = "#4361EE";
+
+    /// <summary>The choices offered in Administration. Any valid <c>#RRGGBB</c> is accepted.</summary>
+    public static readonly IReadOnlyList<string> Palette =
+    [
+        "#4361EE", "#2563EB", "#0891B2", "#0D9488", "#16A34A", "#65A30D",
+        "#CA8A04", "#EA580C", "#DC2626", "#DB2777", "#9333EA", "#475569",
+    ];
+
+    /// <summary>The colour in canonical <c>#RRGGBB</c> form, or null when it is not one.</summary>
+    public static string? Normalize(string? color)
+    {
+        var c = color?.Trim();
+        if (c is null || c.Length != 7 || c[0] != '#') return null;
+        for (var i = 1; i < 7; i++)
+            if (!Uri.IsHexDigit(c[i])) return null;
+        return c.ToUpperInvariant();
+    }
+
+    /// <summary>What to paint: the espace's colour, or the Lonnii blue when it has none.</summary>
+    public static string Effective(string? color) => Normalize(color) ?? Default;
+}
 
 /// <summary>Request to create a group. The caller becomes its Admin Général.</summary>
 /// <param name="Password">
@@ -93,7 +127,9 @@ public sealed record CreateGroupeRequest(string Nom, bool GestionAccess = true, 
 public sealed record RenameGroupeRequest(string Nom);
 
 /// <summary>An online shop telling the Lonnii server its current name.</summary>
-public sealed record BackupNameRequest(string Nom);
+/// <param name="Color">The espace colour. Null = left as it is (older hosts never send it);
+/// empty = back to the Lonnii blue.</param>
+public sealed record BackupNameRequest(string Nom, string? Color = null);
 
 public sealed record UpdateCurrencyRequest(string CurrencyLabel, bool CurrencyBefore = false);
 
@@ -148,6 +184,10 @@ public static class RemoteCommandTypes
 
     /// <summary>Rename the espace (<c>Name</c>). <c>UserId</c> is the sender.</summary>
     public const string EspaceRename = "espace.rename";
+
+    /// <summary>Change the espace colour: <c>Name</c> carries <c>#RRGGBB</c>, or empty for the
+    /// Lonnii blue. <c>UserId</c> is the sender.</summary>
+    public const string EspaceColor = "espace.color";
 }
 
 /// <summary>Where a remote command is: waiting for the shop, done, refused, or given up on.</summary>

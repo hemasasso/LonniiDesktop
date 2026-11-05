@@ -47,7 +47,11 @@ public partial class MainWindow : Window
             PaymentProviderRegistry.Register(new OrangeMoneyProvider());
         };
 
-        ThemeManager.Changed += (_, _) => ApplyThemeButtonVisuals();
+        ThemeManager.Changed += (_, _) =>
+        {
+            ApplyThemeButtonVisuals();
+            RebuildModulesForTheme();
+        };
         ApplyThemeButtonVisuals();
 
         _presenceTimer.Tick += async (_, _) => await SendPresenceAsync();
@@ -67,6 +71,11 @@ public partial class MainWindow : Window
         _updateTimer.Start();
         Loaded += async (_, _) => await CheckForUpdateAsync();
         _session.Changed += async (_, _) => await CheckForUpdateAsync();
+
+        _notificationTimer.Tick += async (_, _) => await RefreshNotificationsAsync();
+        _notificationTimer.Start();
+        Loaded += async (_, _) => await RefreshNotificationsAsync();
+        _session.Changed += async (_, _) => await RefreshNotificationsAsync();
         Closing += (_, _) =>
         {
             EndPresence();
@@ -78,6 +87,7 @@ public partial class MainWindow : Window
         {
             _licenceTimer.Stop();
             _updateTimer.Stop();
+            _notificationTimer.Stop();
         };
     }
 
@@ -105,6 +115,7 @@ public partial class MainWindow : Window
         {
             var manifest = await _session.Api.LatestUpdateAsync();
             _update = manifest is not null && manifest.IsNewerThan(AppUpdater.CurrentVersion) ? manifest : null;
+            _ = RefreshNotificationsAsync(); // the bell lists the update too
         }
         catch (Exception ex) when (ex is ApiException or System.Net.Http.HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
         {
@@ -409,25 +420,35 @@ public partial class MainWindow : Window
             // the Button's - a Style setter beats inherited property value. Same bug BackButton
             // had; ButtonContentText normally fixes it by binding back to the ancestor Button,
             // but a flat White is simpler here since every pill wants the same colour anyway.
-            Content = new TextBlock { Text = $"{Glyph(entry.Key)} {entry.Label}", FontSize = 13, Foreground = Brushes.White },
+            Content = PillText($"{Glyph(entry.Key)} {entry.Label}", isActive),
             ToolTip = entry.Description,
             Cursor = Cursors.Hand,
             Padding = new Thickness(14, 7, 14, 7),
             Margin = new Thickness(4, 0, 4, 0),
-            BorderThickness = new Thickness(0),
-            FontWeight = isActive ? FontWeights.SemiBold : FontWeights.Normal,
-            // White throughout, active or not - this bar's background is a fixed purple
-            // gradient (and gold for the active pill), not DynamicResource, so its text
-            // stays fixed white too rather than following the light/dark app theme.
-            Foreground = Brushes.White,
-            Background = isActive
-                ? (Brush)new BrushConverter().ConvertFromString("#D9A400")!
-                : (Brush)new BrushConverter().ConvertFromString("#33FFFFFF")!,
+            BorderThickness = new Thickness(1),
+            FontWeight = FontWeights.SemiBold,
             Template = (ControlTemplate)Resources["PillNavButtonTemplate"]!,
         };
+        ApplyPillColours(button, isActive);
 
         button.Click += (_, _) => Navigate(entry.Key, entry.Label);
         return button;
+    }
+
+    /// <summary>A pill's label. Its Foreground is set on the TextBlock itself because the
+    /// implicit TextBlock style would otherwise beat the inherited Button Foreground.</summary>
+    private static TextBlock PillText(string text, bool isActive)
+    {
+        var block = new TextBlock { Text = text, FontSize = 13, FontWeight = FontWeights.SemiBold };
+        block.SetResourceReference(TextBlock.ForegroundProperty, isActive ? "HeaderPillActiveText" : "HeaderPillText");
+        return block;
+    }
+
+    /// <summary>Solid pill colours from the palette, by reference so a theme switch repaints them.</summary>
+    private static void ApplyPillColours(Button button, bool isActive)
+    {
+        button.SetResourceReference(Control.BackgroundProperty, isActive ? "HeaderPillActive" : "HeaderPill");
+        button.SetResourceReference(Control.BorderBrushProperty, isActive ? "HeaderPillActive" : "HeaderPillBorder");
     }
 
     /// <summary>A section pill (Opérations, Finance &amp; Analyse, Administration). It never
@@ -440,19 +461,16 @@ public partial class MainWindow : Window
 
         var button = new Button
         {
-            Content = new TextBlock { Text = $"{SectionGlyph(section.Id)} {section.Label}  ▾", FontSize = 13, Foreground = Brushes.White },
+            Content = PillText($"{SectionGlyph(section.Id)} {section.Label}  ▾", isActive),
             ToolTip = section.Description,
             Cursor = Cursors.Hand,
             Padding = new Thickness(14, 7, 14, 7),
             Margin = new Thickness(4, 0, 4, 0),
-            BorderThickness = new Thickness(0),
-            FontWeight = isActive ? FontWeights.SemiBold : FontWeights.Normal,
-            Foreground = Brushes.White,
-            Background = isActive
-                ? (Brush)new BrushConverter().ConvertFromString("#D9A400")!
-                : (Brush)new BrushConverter().ConvertFromString("#33FFFFFF")!,
+            BorderThickness = new Thickness(1),
+            FontWeight = FontWeights.SemiBold,
             Template = (ControlTemplate)Resources["PillNavButtonTemplate"]!,
         };
+        ApplyPillColours(button, isActive);
 
         button.Click += (_, _) =>
         {
@@ -480,22 +498,22 @@ public partial class MainWindow : Window
 
         var stripe = new Border
         {
-            Width = 3,
+            Width = 4,
             Background = accent,
             CornerRadius = new CornerRadius(2),
-            Opacity = isCurrent ? 1 : 0.55,
         };
 
         var label = new TextBlock
         {
             Text = entry.Label,
-            Margin = new Thickness(10, 0, 0, 0),
+            FontSize = 14,
+            Margin = new Thickness(12, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
             FontWeight = isCurrent ? FontWeights.SemiBold : FontWeights.Normal,
         };
 
-        var row = new DockPanel { Height = 32 };
+        var row = new DockPanel { Height = 38 };
         DockPanel.SetDock(stripe, Dock.Left);
         row.Children.Add(stripe);
         row.Children.Add(label);
@@ -509,6 +527,7 @@ public partial class MainWindow : Window
             Margin = new Thickness(2, 1, 2, 1),
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             BorderThickness = new Thickness(0),
+            FocusVisualStyle = null,
             Template = (ControlTemplate)Resources["DropdownRowTemplate"]!,
         };
 
@@ -576,6 +595,22 @@ public partial class MainWindow : Window
         _ = SendPresenceAsync();
     }
 
+    /// <summary>
+    /// Many views paint code-built parts (calendar days, cards, chips) with FindResource, which
+    /// copies the brush once instead of following the palette, so a theme switch left them in the
+    /// old colours. Dropping the cached modules and rebuilding the open one repaints everything;
+    /// it costs that screen its scroll position and filters. A sale in progress is kept as it is:
+    /// a few old-theme colours are better than a cashier losing the cart.
+    /// </summary>
+    private void RebuildModulesForTheme()
+    {
+        foreach (var key in _openModules.Keys.ToList())
+            if (_openModules[key] is not Features.Ventes.VentesView { SaleInProgress: true })
+                _openModules.Remove(key);
+        if (_currentKey is not null)
+            Navigate(_currentKey, _currentLabel ?? _currentKey, recordHistory: false);
+    }
+
     private UserControl CreateModule(string key, string label) => key switch
     {
         "gestion-de-stock" => new StockView(_session),
@@ -622,9 +657,138 @@ public partial class MainWindow : Window
 
     /// <summary>No notification feed exists yet; this just says so rather than pretending
     /// there is one to check.</summary>
-    private void Notifications_Click(object sender, RoutedEventArgs e) =>
-        MessageBox.Show(this, "Aucune notification pour le moment.", "Notifications",
-            MessageBoxButton.OK, MessageBoxImage.Information);
+    // --- Notifications ---
+
+    /// <summary>Every few minutes, so a till left open or stock running out shows without F5.</summary>
+    private readonly System.Windows.Threading.DispatcherTimer _notificationTimer = new() { Interval = TimeSpan.FromMinutes(3) };
+
+    private IReadOnlyList<NotificationDto> _notifications = [];
+
+    /// <summary>
+    /// Asks the API for the current alerts and updates the badge. The server works out stock,
+    /// backup, announcements and open tills and decides who sees which; "update available"
+    /// is added here from <see cref="_update"/>, which only admins ever have. Quiet on failure:
+    /// the previous list stays until the next try.
+    /// </summary>
+    private async Task RefreshNotificationsAsync()
+    {
+        try
+        {
+            var response = await _session.Api.GetNotificationsAsync();
+            var items = response.Items.ToList();
+            if (_update is not null)
+                items.Insert(0, new NotificationDto("update", "info",
+                    $"Mise à jour disponible : {_update.Version}",
+                    $"Vous avez la version {AppUpdater.CurrentVersion}.", null));
+            _notifications = items;
+        }
+        catch (Exception ex) when (ex is ApiException or System.Net.Http.HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            return;
+        }
+
+        NotificationBadge.Visibility = _notifications.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        NotificationBadgeText.Text = _notifications.Count > 9 ? "9+" : _notifications.Count.ToString();
+        if (NotificationsPopup.IsOpen) FillNotificationsPanel();
+    }
+
+    private void Notifications_Click(object sender, RoutedEventArgs e)
+    {
+        if (NotificationsPopup.IsOpen)
+        {
+            NotificationsPopup.IsOpen = false;
+            return;
+        }
+
+        FillNotificationsPanel();
+        NotificationsPopup.IsOpen = true;
+        _ = RefreshNotificationsAsync();
+    }
+
+    private void FillNotificationsPanel()
+    {
+        NotificationsPanel.Children.Clear();
+        if (_notifications.Count == 0)
+        {
+            var none = new TextBlock { Text = "Aucune notification pour le moment.", Margin = new Thickness(8, 6, 8, 10) };
+            none.SetResourceReference(TextBlock.ForegroundProperty, "TextMuted");
+            NotificationsPanel.Children.Add(none);
+            return;
+        }
+
+        foreach (var item in _notifications) NotificationsPanel.Children.Add(NotificationRow(item));
+    }
+
+    /// <summary>A coloured icon by kind and urgency, a bold title and a muted detail line.
+    /// Clicking opens the screen where the problem is dealt with.</summary>
+    private Button NotificationRow(NotificationDto item)
+    {
+        var colourKey = item.Severity switch { "danger" => "Danger", "warning" => "Warning", _ => "Accent" };
+
+        var icon = new TextBlock
+        {
+            Text = item.Kind switch
+            {
+                "stock" => "",   // package
+                "backup" => "",  // cloud
+                "annonce" => "", // megaphone
+                "caisse" => "",  // money
+                "update" => "",  // download
+                _ => "",
+            },
+            FontFamily = new FontFamily("Segoe MDL2 Assets"),
+            FontSize = 16,
+            Width = 26,
+            Margin = new Thickness(0, 2, 8, 0),
+            VerticalAlignment = VerticalAlignment.Top,
+        };
+        icon.SetResourceReference(TextBlock.ForegroundProperty, colourKey);
+
+        var title = new TextBlock { Text = item.Title, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
+        title.SetResourceReference(TextBlock.ForegroundProperty, "TextPrimary");
+        var detail = new TextBlock { Text = item.Message, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
+        detail.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondary");
+
+        var text = new StackPanel();
+        text.Children.Add(title);
+        if (!string.IsNullOrWhiteSpace(item.Message)) text.Children.Add(detail);
+
+        var row = new DockPanel();
+        DockPanel.SetDock(icon, Dock.Left);
+        row.Children.Add(icon);
+        row.Children.Add(text);
+
+        var button = new Button
+        {
+            Content = row,
+            Cursor = item.Module is null && item.Kind != "update" ? Cursors.Arrow : Cursors.Hand,
+            Padding = new Thickness(8, 8, 8, 8),
+            Margin = new Thickness(2, 1, 2, 1),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            FocusVisualStyle = null,
+            Template = (ControlTemplate)Resources["DropdownRowTemplate"]!,
+        };
+
+        button.Click += (_, _) =>
+        {
+            if (item.Kind == "update")
+            {
+                // The banner holds the install button; bring it back if it was hidden.
+                NotificationsPopup.IsOpen = false;
+                UpdateBanner.Visibility = Visibility.Visible;
+                return;
+            }
+            if (item.Module is null) return;
+            var entry = _session.Menu?.Gestion.Concat(_session.Menu.Espace)
+                .FirstOrDefault(m => m.Key == item.Module);
+            if (entry is null) return; // this user's menu does not reach that screen
+            NotificationsPopup.IsOpen = false;
+            Navigate(entry.Key, entry.Label);
+        };
+        return button;
+    }
 
     private async void Refresh_Click(object sender, RoutedEventArgs e) => await RefreshAsync();
 

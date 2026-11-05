@@ -572,6 +572,9 @@ public class LonniiApiClient
     // --- Caisse ---
 
     /// <summary>The caller's own open session, or null when nothing is open right now.</summary>
+    public Task<NotificationsResponse> GetNotificationsAsync(CancellationToken ct = default) =>
+        GetAsync<NotificationsResponse>("api/notifications", ct);
+
     public Task<CaisseStatusResponse> GetCaisseStatusAsync(CancellationToken ct = default) =>
         GetAsync<CaisseStatusResponse>("api/caisse/status", ct);
 

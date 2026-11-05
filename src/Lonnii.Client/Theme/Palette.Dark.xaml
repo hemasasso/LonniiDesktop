@@ -27,4 +27,33 @@
     <SolidColorBrush x:Key="Danger" Color="#F87171" />
     <SolidColorBrush x:Key="DangerLight" Color="#3B1B1E" />
 
+    <!-- Buttons on the top bar: a lighter blue than the bar so they stand out without glare. -->
+    <SolidColorBrush x:Key="HeaderPill" Color="#35659E" />
+    <SolidColorBrush x:Key="HeaderPillBorder" Color="#5A8AC4" />
+    <SolidColorBrush x:Key="HeaderPillText" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="HeaderPillActive" Color="#FFC839" />
+    <SolidColorBrush x:Key="HeaderPillActiveText" Color="#1B1F27" />
+
+    <!-- Top bar: a muted navy blue, lighter than the dark surfaces so it still reads as a bar. -->
+    <DrawingBrush x:Key="HeaderBackground" TileMode="Tile" Viewport="0,0,22,22" ViewportUnits="Absolute"
+                  Viewbox="0,0,22,22" ViewboxUnits="Absolute">
+        <DrawingBrush.Drawing>
+            <DrawingGroup>
+                <GeometryDrawing Brush="#1F3F66">
+                    <GeometryDrawing.Geometry>
+                        <RectangleGeometry Rect="0,0,22,22" />
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+                <GeometryDrawing Brush="#264970">
+                    <GeometryDrawing.Geometry>
+                        <GeometryGroup>
+                            <RectangleGeometry Rect="0,0,22,1" />
+                            <RectangleGeometry Rect="0,0,1,22" />
+                        </GeometryGroup>
+                    </GeometryDrawing.Geometry>
+                </GeometryDrawing>
+            </DrawingGroup>
+        </DrawingBrush.Drawing>
+    </DrawingBrush>
+
 </ResourceDictionary>

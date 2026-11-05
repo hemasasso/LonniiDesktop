@@ -13,16 +13,26 @@
              dropdown's rows. Colour and hover feedback come entirely from Background,
              set per-button in code, so one template covers active and inactive alike. -->
         <ControlTemplate x:Key="PillNavButtonTemplate" TargetType="Button">
-            <Border x:Name="Root"
-                    Background="{TemplateBinding Background}"
-                    CornerRadius="16"
-                    Padding="{TemplateBinding Padding}"
-                    SnapsToDevicePixels="True">
-                <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center" />
-            </Border>
+            <!-- The shadow is a sibling behind the pill, not an Effect on it: an Effect renders
+                 its element, text included, as a bitmap and loses ClearType, blurring the label. -->
+            <Grid x:Name="Root" UseLayoutRounding="True">
+                <Border CornerRadius="16" Background="{TemplateBinding Background}">
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="6" ShadowDepth="1" Opacity="0.25" Color="#0B1B33" />
+                    </Border.Effect>
+                </Border>
+                <Border Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="{TemplateBinding BorderThickness}"
+                        CornerRadius="16"
+                        Padding="{TemplateBinding Padding}"
+                        SnapsToDevicePixels="True">
+                    <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center" />
+                </Border>
+            </Grid>
             <ControlTemplate.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter TargetName="Root" Property="Opacity" Value="0.85" />
+                    <Setter TargetName="Root" Property="Opacity" Value="0.88" />
                 </Trigger>
             </ControlTemplate.Triggers>
         </ControlTemplate>
@@ -60,7 +70,7 @@
                 <!-- Brightens the box on hover rather than fading it - fading made the arrow
                      harder to see exactly when the user was pointing at it. -->
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter TargetName="Box" Property="Background" Value="#4DFFFFFF" />
+                    <Setter TargetName="Box" Property="Opacity" Value="0.85" />
                 </Trigger>
                 <Trigger Property="IsEnabled" Value="False">
                     <Setter TargetName="Box" Property="Opacity" Value="0.5" />
@@ -80,7 +90,7 @@
             </Border>
             <ControlTemplate.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter TargetName="Root" Property="Background" Value="{DynamicResource SurfaceSunken}" />
+                    <Setter TargetName="Root" Property="Background" Value="{DynamicResource AccentLight}" />
                 </Trigger>
             </ControlTemplate.Triggers>
         </ControlTemplate>
@@ -130,14 +140,8 @@
           sidebar did. Account actions (change group, change password, sign out...)
           moved into the avatar's own menu.
         -->
-        <Border DockPanel.Dock="Top" Height="56">
-            <Border.Background>
-                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                    <GradientStop Color="#5A6CF0" Offset="0" />
-                    <GradientStop Color="#7C5CF5" Offset="0.55" />
-                    <GradientStop Color="#8B5CF6" Offset="1" />
-                </LinearGradientBrush>
-            </Border.Background>
+        <!-- Gray grid bar; HeaderBackground lives in both palettes so it follows the theme. -->
+        <Border DockPanel.Dock="Top" Height="56" Background="{DynamicResource HeaderBackground}">
 
             <Grid Margin="14,0">
                 <Grid.ColumnDefinitions>
@@ -152,11 +156,11 @@
                      this button's own White - a Style setter beats inherited Foreground -
                      same reason every other icon TextBlock below uses ButtonContentText. -->
                 <Button x:Name="BackButton" Grid.Column="0" Width="32" Height="32" Margin="0,0,12,0"
-                        FontSize="15" Foreground="White" Cursor="Hand"
-                        Background="#33FFFFFF" BorderThickness="0" IsEnabled="False"
+                        FontSize="15" Foreground="{DynamicResource HeaderPillText}" Cursor="Hand"
+                        Background="{DynamicResource HeaderPill}" BorderThickness="0" IsEnabled="False"
                         Template="{StaticResource IconSquareButtonTemplate}"
                         Click="Back_Click" ToolTip="Retour">
-                    <TextBlock Text="←" FontSize="15" FontWeight="Bold" Style="{StaticResource ButtonContentText}" />
+                    <TextBlock Text="←" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource HeaderPillText}" />
                 </Button>
 
                 <!-- One pill per module the session's menu allows. -->
@@ -168,24 +172,50 @@
                     <!-- Segoe MDL2 Assets glyphs rather than emoji throughout this group: an
                          emoji ignores Foreground and keeps its own built-in colours, which
                          read as dark/muddy against this translucent-white-on-purple bar. -->
-                    <Button x:Name="DarkModeButton" FontSize="13" Foreground="White"
-                            Background="#22FFFFFF" BorderThickness="0" Margin="0,0,6,0"
+                    <Button x:Name="DarkModeButton" FontSize="13" Foreground="{DynamicResource HeaderPillText}"
+                            Background="{DynamicResource HeaderPill}" BorderThickness="0" Margin="0,0,6,0"
                             Template="{StaticResource IconCircleButtonTemplate}"
                             ToolTip="Mode sombre" Click="DarkMode_Click">
                         <TextBlock Text="&#xE706;" FontFamily="Segoe MDL2 Assets" FontSize="13" Style="{StaticResource ButtonContentText}" />
                     </Button>
-                    <Button x:Name="TopRefreshButton" FontSize="15" Foreground="White"
-                            Background="#22FFFFFF" BorderThickness="0" Margin="0,0,6,0"
+                    <Button x:Name="TopRefreshButton" FontSize="15" Foreground="{DynamicResource HeaderPillText}"
+                            Background="{DynamicResource HeaderPill}" BorderThickness="0" Margin="0,0,6,0"
                             Template="{StaticResource IconCircleButtonTemplate}"
                             ToolTip="Actualiser (F5)" Click="Refresh_Click">
                         <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="15" Style="{StaticResource ButtonContentText}" />
                     </Button>
-                    <Button x:Name="NotificationsButton" FontSize="13" Foreground="White"
-                            Background="#22FFFFFF" BorderThickness="0" Margin="0,0,12,0"
+                    <Button x:Name="NotificationsButton" FontSize="13" Foreground="{DynamicResource HeaderPillText}"
+                            Background="{DynamicResource HeaderPill}" BorderThickness="0" Margin="0,0,12,0"
                             Template="{StaticResource IconCircleButtonTemplate}"
                             ToolTip="Notifications" Click="Notifications_Click">
-                        <TextBlock Text="&#xEA8F;" FontFamily="Segoe MDL2 Assets" FontSize="13" Style="{StaticResource ButtonContentText}" />
+                        <Grid>
+                            <TextBlock Text="&#xEA8F;" FontFamily="Segoe MDL2 Assets" FontSize="13" Style="{StaticResource ButtonContentText}" />
+                            <!-- Count of active alerts; hidden when there are none. -->
+                            <Border x:Name="NotificationBadge" Visibility="Collapsed"
+                                    Background="#DC2626" CornerRadius="7" MinWidth="14" Height="14" Padding="3,0"
+                                    HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-9,-11,0">
+                                <TextBlock x:Name="NotificationBadgeText" Foreground="White" FontSize="9" FontWeight="Bold"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                        </Grid>
                     </Button>
+                    <Popup x:Name="NotificationsPopup" StaysOpen="False" Placement="Bottom"
+                           PlacementTarget="{Binding ElementName=NotificationsButton}"
+                           HorizontalOffset="-300" AllowsTransparency="True" PopupAnimation="None">
+                        <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Accent}"
+                                BorderThickness="1.5" CornerRadius="10" Padding="6" Width="340" Margin="0,6,12,14">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="20" ShadowDepth="5" Opacity="0.35" Color="#0B1B33" />
+                            </Border.Effect>
+                            <StackPanel>
+                                <TextBlock Text="Notifications" FontSize="14" FontWeight="SemiBold" Margin="8,4,8,6"
+                                           Foreground="{DynamicResource TextPrimary}" />
+                                <ScrollViewer MaxHeight="420" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel x:Name="NotificationsPanel" />
+                                </ScrollViewer>
+                            </StackPanel>
+                        </Border>
+                    </Popup>
 
                     <Button x:Name="AvatarButton" Content="?" FontSize="12" FontWeight="Bold"
                             Foreground="#1B1F27" Background="#FFC839" BorderThickness="0" Margin="0,0,6,0"
@@ -207,8 +237,8 @@
                         </Button.ContextMenu>
                     </Button>
 
-                    <Button x:Name="HomeButton" FontSize="13" Foreground="White"
-                            Background="#22FFFFFF" BorderThickness="0"
+                    <Button x:Name="HomeButton" FontSize="13" Foreground="{DynamicResource HeaderPillText}"
+                            Background="{DynamicResource HeaderPill}" BorderThickness="0"
                             Template="{StaticResource IconCircleButtonTemplate}"
                             ToolTip="Accueil" Click="Home_Click">
                         <TextBlock Text="&#xE80F;" FontFamily="Segoe MDL2 Assets" FontSize="13" Style="{StaticResource ButtonContentText}" />
@@ -219,11 +249,12 @@
                      Finance & Analyse, Administration). One popup serves all three: it is
                      refilled and re-anchored on each click, since only one can be open. -->
                 <Popup x:Name="SectionPopup" Grid.Column="2" StaysOpen="False" Placement="Bottom"
-                       AllowsTransparency="True" PopupAnimation="Fade">
-                    <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Border}"
-                            BorderThickness="1" CornerRadius="8" Padding="6" MinWidth="220">
+                       AllowsTransparency="True" PopupAnimation="None">
+                    <!-- Margin leaves room for the shadow, which AllowsTransparency would otherwise clip. -->
+                    <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Accent}"
+                            BorderThickness="1.5" CornerRadius="10" Padding="6" MinWidth="250" Margin="0,6,12,14">
                         <Border.Effect>
-                            <DropShadowEffect BlurRadius="18" ShadowDepth="4" Opacity="0.22" Color="#1B1F27" />
+                            <DropShadowEffect BlurRadius="20" ShadowDepth="5" Opacity="0.35" Color="#0B1B33" />
                         </Border.Effect>
                         <StackPanel x:Name="SectionPopupPanel" />
                     </Border>

@@ -2197,6 +2197,43 @@ namespace Lonnii.Data.Migrations
                     b.ToTable("programme_entries");
                 });
 
+            modelBuilder.Entity("Lonnii.Data.Entities.PushDevice", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Platform")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("platform");
+
+                    b.Property<string>("PushToken")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("push_token");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "PushToken")
+                        .IsUnique();
+
+                    b.ToTable("push_tokens");
+                });
+
             modelBuilder.Entity("Lonnii.Data.Entities.RegistrationRequest", b =>
                 {
                     b.Property<string>("Id")

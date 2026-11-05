@@ -171,6 +171,10 @@ if (!databaseOptions.IsPostgres)
     builder.Services.AddHostedService<Lonnii.Api.Features.Remote.RemoteCommandService>();
     // And fetches new versions of the app for itself and its tills - online espaces only.
     builder.Services.AddHostedService<Lonnii.Api.Features.Updates.UpdateService>();
+    // And wakes administrators' phones for new alerts (stock, open tills...), since it has the live data.
+    builder.Services.AddHttpClient(Lonnii.Api.Features.Notifications.PushAlertService.HttpClientName,
+        client => client.Timeout = TimeSpan.FromSeconds(20));
+    builder.Services.AddHostedService<Lonnii.Api.Features.Notifications.PushAlertService>();
 }
 // Lets a till on the same network find this host without being told its address.
 builder.Services.AddHostedService<LanDiscoveryService>();
@@ -280,6 +284,7 @@ app.MapMargesEndpoints();
 app.MapAmortissementEndpoints();
 app.MapBilanEndpoints();
 app.MapProgrammeEndpoints();
+app.MapNotificationEndpoints();
 app.MapParametresEndpoints();
 app.MapEspaceTransferEndpoints();
 app.MapConsommationEndpoints();

@@ -38,6 +38,7 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
     public DbSet<Device> Devices => Set<Device>();
     public DbSet<RegistrationRequest> RegistrationRequests => Set<RegistrationRequest>();
     public DbSet<CloudBackupState> CloudBackupStates => Set<CloudBackupState>();
+    public DbSet<PushDevice> PushDevices => Set<PushDevice>();
 
     // Identity
     public DbSet<User> Users => Set<User>();
@@ -159,6 +160,7 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         [typeof(DashboardSubscription)] = "dashboard_subscriptions",
         [typeof(Device)] = "devices",
         [typeof(CloudBackupState)] = "cloud_backup_state",
+        [typeof(PushDevice)] = "push_tokens",
         [typeof(RegistrationRequest)] = "registration_requests",
         [typeof(User)] = "users",
         [typeof(Groupe)] = "groupes",
@@ -333,6 +335,9 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
 
         // Local to each installation; see CloudBackupState. One row per workspace.
         b.Entity<CloudBackupState>(e => e.HasKey(x => x.GroupId));
+
+        // Lonnii Business's UNIQUE(user_id, push_token): re-registering only refreshes the row.
+        b.Entity<PushDevice>(e => e.HasIndex(x => new { x.UserId, x.PushToken }).IsUnique());
 
         b.Entity<Device>(e =>
         {

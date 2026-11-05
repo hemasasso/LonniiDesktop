@@ -2184,3 +2184,16 @@ public sealed record ConnexionServeurDto(string Role, string Nom, string? Hote, 
 /// <summary>Response of <c>GET /api/parametres/connexion</c>.</summary>
 /// <param name="Active">Whether the espace was activated against the central server at all.</param>
 public sealed record ConnexionResponse(string Mode, bool Active, IReadOnlyList<ConnexionServeurDto> Serveurs);
+
+/// <summary>One line in the top bar's notification panel.</summary>
+/// <param name="Kind">stock, backup, annonce or caisse - the client picks an icon from it.</param>
+/// <param name="Severity">info, warning or danger.</param>
+/// <param name="Module">The menu key the line opens when clicked, or null.</param>
+public sealed record NotificationDto(string Kind, string Severity, string Title, string Message, string? Module);
+
+/// <summary>Response of <c>GET /api/notifications</c>.</summary>
+public sealed record NotificationsResponse(IReadOnlyList<NotificationDto> Items);
+
+/// <summary>Body of <c>POST/DELETE /api/push-token</c>, as the phone app sends it. Its userId is
+/// ignored: the server takes the user from the sign-in token.</summary>
+public sealed record PushTokenRequest(string? UserId, string? PushToken, string? Platform);

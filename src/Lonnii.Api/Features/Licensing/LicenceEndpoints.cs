@@ -61,12 +61,24 @@ public static class LicenceEndpoints
         if (groupe is null || string.IsNullOrWhiteSpace(groupe.LicenceServerUrl))
             return Results.Ok(await guard.CheckAsync(request.GroupId, ct));
 
+        var deviceId = http.Request.Headers["x-device-id"].ToString();
+        return await RenewAsync(groupe, deviceId, db, guard, licences, ct) ?? Results.Ok(await guard.CheckAsync(groupe, ct));
+    }
+
+    /// <summary>
+    /// Asks the licence server for a fresh licence as <paramref name="deviceId"/> and stores the
+    /// answer. Shared by the tills' <c>/sync</c> and the host's own <see cref="LicenceRenewalService"/>,
+    /// so both follow the same rules. Returns the answer to give when the renewal ended the matter
+    /// (a removed machine, a refusal), or null when the stored state now speaks for itself.
+    /// </summary>
+    internal static async Task<IResult?> RenewAsync(
+        Groupe groupe, string deviceId, LonniiDbContext db, LicenceGuard guard, ILicenceServer licences, CancellationToken ct)
+    {
         // Every shop activated against our server checks in - local ones too. That is how a local shop
         // learns it was made online, or given more machines, or blocked: the server is the authority for
         // all three and has no way to reach a shop that never asks. What differs is the cost of failing:
         // only an online shop can be locked for not reaching us.
         var enforced = LicenceGuard.IsEnforced(groupe);
-        var deviceId = http.Request.Headers["x-device-id"].ToString();
 
         try
         {
@@ -105,7 +117,7 @@ public static class LicenceEndpoints
                 statusCode: (int)(e.Status ?? System.Net.HttpStatusCode.ServiceUnavailable));
         }
 
-        return Results.Ok(await guard.CheckAsync(groupe, ct));
+        return null;
     }
 
     private static async Task<IResult> StatusAsync(string groupId, LicenceGuard guard, CancellationToken ct) =>

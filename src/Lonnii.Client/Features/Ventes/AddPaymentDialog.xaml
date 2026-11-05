@@ -40,7 +40,7 @@
                 </Button>
                 <Button x:Name="PaymentMobileButton" Width="90" Height="34" Margin="0,0,8,0"
                         Style="{StaticResource SecondaryButton}" Click="PaymentMode_Click" Tag="mobile_money"
-                        ToolTip="Mobile Money via LigdiCash">
+                        ToolTip="Mobile Money">
                     <TextBlock Text="Mobile Money" Style="{StaticResource ButtonContentText}" />
                 </Button>
                 <Button x:Name="PaymentOrangeButton" Width="110" Height="34" Margin="0,0,8,0"

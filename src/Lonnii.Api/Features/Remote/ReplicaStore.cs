@@ -31,6 +31,7 @@ public sealed class ReplicaStore
     private readonly BackupStore _backups;
     private readonly string _root;
     private readonly Dictionary<string, SemaphoreSlim> _gates = [];
+    private readonly HashSet<string> _upToDate = [];
 
     public ReplicaStore(BackupStore backups, string dataDirectory)
     {
@@ -55,7 +56,10 @@ public sealed class ReplicaStore
 
         var dir = Path.Combine(_root, groupId);
         var target = Path.Combine(dir, $"{latest.Value.At:yyyyMMddHHmmssfff}.db");
-        if (File.Exists(target)) return new ReplicaInfo(target, latest.Value.At);
+        lock (_upToDate)
+        {
+            if (_upToDate.Contains(target) && File.Exists(target)) return new ReplicaInfo(target, latest.Value.At);
+        }
 
         SemaphoreSlim gate;
         lock (_gates)
@@ -67,7 +71,20 @@ public sealed class ReplicaStore
         await gate.WaitAsync(ct);
         try
         {
-            if (File.Exists(target)) return new ReplicaInfo(target, latest.Value.At);
+            if (File.Exists(target))
+            {
+                // A copy unpacked by the previous version of this server (before an update) has the
+                // old schema: bring it up once per start, or the new model asks for columns it lacks.
+                bool known;
+                lock (_upToDate) known = _upToDate.Contains(target);
+                if (!known)
+                {
+                    await using (var db = new LonniiDbContext(OptionsFor(target)))
+                        await db.Database.MigrateAsync(ct);
+                    lock (_upToDate) _upToDate.Add(target);
+                }
+                return new ReplicaInfo(target, latest.Value.At);
+            }
 
             Directory.CreateDirectory(dir);
             var temp = target + ".tmp";
@@ -90,6 +107,7 @@ public sealed class ReplicaStore
 
                 SqliteConnection.ClearAllPools();
                 File.Move(temp, target, overwrite: true);
+                lock (_upToDate) _upToDate.Add(target);
             }
             finally
             {

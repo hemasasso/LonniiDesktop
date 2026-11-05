@@ -816,7 +816,7 @@
                             </Button>
                             <Button x:Name="PaymentMobileButton"
                                     Width="44" Height="30" Padding="0" Margin="0,0,8,0"
-                                    Style="{StaticResource SecondaryButton}" ToolTip="Mobile Money (LigdiCash)"
+                                    Style="{StaticResource SecondaryButton}" ToolTip="Mobile Money"
                                     Click="PaymentMode_Click" Tag="mobile_money">
                                 <TextBlock Text="&#xE8EA;" FontFamily="Segoe MDL2 Assets" FontSize="16" Style="{StaticResource ButtonContentText}" />
                             </Button>

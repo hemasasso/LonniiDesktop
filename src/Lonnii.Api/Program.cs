@@ -175,6 +175,8 @@ if (!databaseOptions.IsPostgres)
     builder.Services.AddHostedService<Lonnii.Api.Features.Remote.RemoteCommandService>();
     // And fetches new versions of the app for itself and its tills - online espaces only.
     builder.Services.AddHostedService<Lonnii.Api.Features.Updates.UpdateService>();
+    // And renews its espaces' licences every hour, whether or not anyone has the app open.
+    builder.Services.AddHostedService<Lonnii.Api.Features.Licensing.LicenceRenewalService>();
     // And wakes administrators' phones for new alerts (stock, open tills...), since it has the live data.
     builder.Services.AddHttpClient(Lonnii.Api.Features.Notifications.PushAlertService.HttpClientName,
         client => client.Timeout = TimeSpan.FromSeconds(20));
@@ -302,6 +304,7 @@ app.MapCloudBackupEndpoints();
 app.MapImageEndpoints();
 app.MapDesktopAdminEndpoints();
 app.MapUpdateEndpoints();
+app.MapMobileUpdateEndpoints();
 // Installing is a shop computer's business; the licence server never installs anything.
 if (!databaseOptions.IsPostgres) app.MapUpdateInstallEndpoints();
 

@@ -265,9 +265,9 @@ public partial class VentesView : UserControl
         ClientsButton.Visibility = _canManageClients ? Visibility.Visible : Visibility.Collapsed;
         RemiseGlobalePanel.Visibility = _canApplyDiscount ? Visibility.Visible : Visibility.Collapsed;
 
-        // Orange Money direct appears only when at least one account is enabled in Paramètres.
-        PaymentOrangeButton.Visibility = PaymentProviderRegistry.EnabledAccounts(PaymentProviderIds.OrangeMoney).Count > 0
-            ? Visibility.Visible : Visibility.Collapsed;
+        // One "Mobile Money" choice only (user's decision, 2026-11-05): the separate Orange Money
+        // button stays hidden even with an Orange account configured. Its code path is kept.
+        PaymentOrangeButton.Visibility = Visibility.Collapsed;
 
         OpenCaisseButton.Visibility = _canAddPayment ? Visibility.Visible : Visibility.Collapsed;
         CaisseHistoryButton.Visibility = _canAddPayment && _canViewCaisseHistory ? Visibility.Visible : Visibility.Collapsed;

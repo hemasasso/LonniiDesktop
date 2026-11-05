@@ -19,6 +19,31 @@ public static class HostMachineIdentity
 {
     public static string? Current { get; } = Compute();
 
+    /// <summary>
+    /// This computer's <c>x-device-id</c> as its own desktop app sends it (the client's DeviceIdentity:
+    /// "lonnii-device-v1|" + MachineGuid, SHA-256, lower-case hex). Lets the host renew the licence by
+    /// itself as the shop computer it is (<see cref="Licensing.LicenceRenewalService"/>). Null off
+    /// Windows or when the registry cannot be read.
+    /// </summary>
+    public static string? DeviceId { get; } = ReadMachineGuid() is { } guid
+        ? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("lonnii-device-v1|" + guid))).ToLowerInvariant()
+        : null;
+
+    private static string? ReadMachineGuid()
+    {
+        if (!OperatingSystem.IsWindows()) return null;
+        try
+        {
+            using var key = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64)
+                .OpenSubKey(@"SOFTWARE\Microsoft\Cryptography");
+            return key?.GetValue("MachineGuid") is string guid && !string.IsNullOrWhiteSpace(guid) ? guid : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return null;
+        }
+    }
+
     private static string? Compute()
     {
         if (!OperatingSystem.IsWindows()) return null;

@@ -46,8 +46,8 @@ public partial class AddPaymentDialog : Window
             UpdateMonnaieARendre();
         };
 
-        PaymentOrangeButton.Visibility = PaymentProviderRegistry.EnabledAccounts(PaymentProviderIds.OrangeMoney).Count > 0
-            ? Visibility.Visible : Visibility.Collapsed;
+        // One "Mobile Money" choice only, as at checkout (VentesView): Orange Money stays hidden.
+        PaymentOrangeButton.Visibility = Visibility.Collapsed;
 
         ApplyPaymentVisuals();
         Loaded += (_, _) => MontantBox.Focus();

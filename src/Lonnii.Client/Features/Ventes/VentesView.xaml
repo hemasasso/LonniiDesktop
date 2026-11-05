@@ -38,10 +38,10 @@
                         <TextBlock x:Name="CaisseAmountText" FontWeight="Bold" FontSize="15"
                                    Foreground="{DynamicResource Success}" HorizontalAlignment="Right" />
                     </StackPanel>
-                    <Button x:Name="CaisseHistoryButton" Content="🕘 Historique Caisse" Margin="0,0,8,0"
-                            Style="{StaticResource SecondaryButton}" Click="CaisseHistory_Click" />
-                    <Button x:Name="OpenCaisseButton" Content="🏦 Ouvrir Caisse"
+                    <Button x:Name="OpenCaisseButton" Content="🏦 Ouvrir Caisse" Margin="0,0,8,0"
                             Style="{StaticResource SecondaryButton}" Click="OpenCaisse_Click" />
+                    <Button x:Name="CaisseHistoryButton" Content="🕘 Historique Caisse"
+                            Style="{StaticResource SecondaryButton}" Click="CaisseHistory_Click" />
                 </StackPanel>
             </Grid>
         </Border>

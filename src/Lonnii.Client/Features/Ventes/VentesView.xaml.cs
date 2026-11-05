@@ -399,11 +399,29 @@ public partial class VentesView : UserControl
         ApplyCaisseVisuals();
     }
 
+    /// <summary>"Statut / Fermer" with a red stop square after it, so an open till reads as
+    /// something still to close.</summary>
+    private static StackPanel StatutFermerContent()
+    {
+        var label = new TextBlock { Text = "🏦 Statut / Fermer", VerticalAlignment = VerticalAlignment.Center };
+        var square = new Border
+        {
+            Width = 10, Height = 10, CornerRadius = new CornerRadius(2),
+            Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+        };
+        square.SetResourceReference(Border.BackgroundProperty, "Danger");
+
+        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+        panel.Children.Add(label);
+        panel.Children.Add(square);
+        return panel;
+    }
+
     private void ApplyCaisseVisuals()
     {
         // "Statut / Fermer" rather than "Fermer la caisse": the same dialog is also where cash
         // is withdrawn, and a button that only promises closing hid that.
-        OpenCaisseButton.Content = _caisseStatus is null ? "🏦 Ouvrir Caisse" : "🏦 Statut / Fermer";
+        OpenCaisseButton.Content = _caisseStatus is null ? "🏦 Ouvrir Caisse" : StatutFermerContent();
 
         CaisseAmountPanel.Visibility = _caisseStatus is null ? Visibility.Collapsed : Visibility.Visible;
         if (_caisseStatus is { } open)

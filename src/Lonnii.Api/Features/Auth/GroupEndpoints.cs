@@ -370,6 +370,17 @@ public static class GroupEndpoints
         // a setup creates. A workspace made through POST /api/groupes has none, and locking
         // that out would break development and the first run of a self-built host.
         // A phone-only shop has no computer: this server is its host, so no machine check.
+        // A shop's host checks the machine against its signed licence first: deleting or adding
+        // rows in its own devices table changes nothing there. Without a signed licence (the window
+        // to fetch one) it falls back to the table as before.
+        if (!groupe.PhoneOnly && !string.IsNullOrWhiteSpace(groupe.LicenceServerUrl)
+            && await licence.SignedDeviceAllowedAsync(groupId, http.Request.Headers["x-device-id"].ToString(), ct) == false)
+        {
+            return Results.Json(
+                new ApiError("Ce poste n'est pas autorisé pour cet espace. Enregistrez-le avec un compte administrateur."),
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
         var bound = !groupe.PhoneOnly
             && await db.Devices.AnyAsync(d => d.GroupId == groupId && d.RevokedAt == null, ct);
 

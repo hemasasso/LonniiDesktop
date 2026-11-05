@@ -6,6 +6,8 @@ using Lonnii.Setup;
 return args.FirstOrDefault() switch
 {
     "repair-keygen" => RepairCommand.Keygen(args[1..]),
+    // The licence key is its own pair (see LicenceToken): never the repair/update key.
+    "licence-keygen" => RepairCommand.Keygen(args[1..], RepairCommand.LicenceKeyPath, "LicenceToken.PublicKey"),
     "repair-code" => RepairCommand.Issue(args[1..]),
     "reset-code" => RepairCommand.IssueReset(args[1..]),
     "release" => ReleaseCommand.Run(args[1..]),

@@ -855,7 +855,10 @@ public sealed class ReceiptDocument
 
     private bool Show(string section) => !_hidden.Contains(section);
 
-    private bool ShowsCashier => !_facture && Show(ReceiptSections.Cashier) && !string.IsNullOrWhiteSpace(_data.CaissierNom);
+    /// <summary>Left off when the seller line already names the same person - one cashier who
+    /// both sold and took the money read twice ("Caissier : S. Hema" / "Caissier : S. Hema").</summary>
+    private bool ShowsCashier => !_facture && Show(ReceiptSections.Cashier) && !string.IsNullOrWhiteSpace(_data.CaissierNom)
+        && !(Show(ReceiptSections.Seller) && string.Equals(_data.VendeurNom?.Trim(), _data.CaissierNom.Trim(), StringComparison.OrdinalIgnoreCase));
 
     private bool ShowsPaymentInfo => !_facture && Show(ReceiptSections.PaymentInfo);
 

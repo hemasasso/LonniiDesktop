@@ -383,8 +383,48 @@
                 <ColumnDefinition Width="2*" />
             </Grid.ColumnDefinitions>
 
+            <!-- Checkout preview: replaces the catalogue while Paiement or Facture is being filled
+                 in, showing the reçu / facture exactly as it will print (ReceiptDocument, the
+                 shop's own template and settings), redrawn as the cart, client or payment changes. -->
+            <DockPanel x:Name="CheckoutPreviewPanel" Grid.Column="0" Visibility="Collapsed"
+                       Background="{DynamicResource SurfaceSunken}">
+                <Border DockPanel.Dock="Top" Style="{StaticResource ToolbarPanel}">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Left" Style="{StaticResource SecondaryButton}"
+                                Padding="10,4" Margin="0,0,12,0" Click="PreviewBack_Click"
+                                ToolTip="Revenir aux produits pour modifier le panier">
+                            <TextBlock Text="← Produits" Style="{StaticResource ButtonContentText}" />
+                        </Button>
+                        <TextBlock x:Name="PreviewTitleText" Text="Aperçu du reçu" FontWeight="SemiBold" FontSize="14"
+                                   VerticalAlignment="Center" />
+                        <Border DockPanel.Dock="Right" Background="{DynamicResource AccentLight}" CornerRadius="4"
+                                Padding="8,2" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <TextBlock Text="APERÇU" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource Accent}" />
+                        </Border>
+                    </DockPanel>
+                </Border>
+                <!-- The paper reads "Statut : Payé" as it will once recorded; this says plainly that
+                     nothing is paid or saved yet, so a cashier never mistakes the preview for a done sale. -->
+                <Border DockPanel.Dock="Top" Background="{DynamicResource DangerLight}"
+                        BorderBrush="{DynamicResource Danger}" BorderThickness="0,0,0,2" Padding="14,8">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE7BA;" FontFamily="Segoe MDL2 Assets" FontSize="16" Margin="0,0,10,0"
+                                   Foreground="{DynamicResource Danger}" VerticalAlignment="Center" />
+                        <TextBlock x:Name="PreviewWarningText" FontWeight="SemiBold" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource Danger}" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+                <!-- Shrinks an A4 facture to the panel's width on a small screen (never enlarges a
+                     narrow ticket); the height is left to scroll, so the text stays readable. -->
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <Viewbox Stretch="Uniform" StretchDirection="DownOnly" Margin="24" VerticalAlignment="Top">
+                        <ContentControl x:Name="PreviewHost" />
+                    </Viewbox>
+                </ScrollViewer>
+            </DockPanel>
+
             <!-- Products -->
-            <DockPanel Grid.Column="0">
+            <DockPanel x:Name="CataloguePanel" Grid.Column="0">
 
                 <Border DockPanel.Dock="Top" Style="{StaticResource ToolbarPanel}">
                     <StackPanel>
@@ -505,6 +545,14 @@
                                                      can slice through the product itself instead of
                                                      the margin. Uniform always shows the whole photo. -->
                                                 <Image Source="{Binding Thumbnail}" Stretch="Uniform" />
+                                                <!-- Out of stock: the phone app's dark veil and red "Rupture" tag. -->
+                                                <Border Background="#99000000"
+                                                        Visibility="{Binding IsOutOfStock, Converter={StaticResource BoolToVis}}">
+                                                    <Border Background="#E6FFFFFF" CornerRadius="4" Padding="10,3"
+                                                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                        <TextBlock Text="Rupture" FontWeight="Bold" FontSize="13" Foreground="#EF4444" />
+                                                    </Border>
+                                                </Border>
                                             </Grid>
                                         </Border>
                                         <StackPanel Margin="2,8,2,0">
@@ -580,7 +628,7 @@
                          Hidden, not Auto: the scrollbar track itself still read as clutter
                          sitting over the panel's own content: Hidden keeps the mouse wheel
                          working as the escape hatch without drawing a visible bar for it. -->
-                    <ScrollViewer DockPanel.Dock="Bottom" MaxHeight="360"
+                    <ScrollViewer x:Name="CheckoutScroll" DockPanel.Dock="Bottom" MaxHeight="360"
                                   VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Margin="0,10,0,0">
 
@@ -661,6 +709,13 @@
                             <CheckBox x:Name="AvecFactureCheck" Content="Facture" DockPanel.Dock="Right"
                                       Checked="AvecFacture_Checked" Unchecked="AvecFacture_Unchecked" />
                             <CheckBox x:Name="VenteRapideCheck" Content="Paiement" DockPanel.Dock="Left" />
+                            <!-- Brings the preview back after "← Produits", and is the only way in
+                                 for a facture-only user, whose Facture box is ticked for good. -->
+                            <Button x:Name="ShowPreviewButton" DockPanel.Dock="Left" Visibility="Collapsed"
+                                    Style="{StaticResource SecondaryButton}" Padding="8,1" Margin="12,0,0,0"
+                                    Click="ShowPreview_Click" ToolTip="Voir le reçu / la facture">
+                                <TextBlock Text="👁 Aperçu" FontSize="11" Style="{StaticResource ButtonContentText}" />
+                            </Button>
                         </DockPanel>
 
                         <!-- Shown instead of the checkboxes above for a user without
@@ -824,7 +879,7 @@
                     <!-- MinHeight so the product list always keeps some real space, even
                          alongside the (now capped, see the ScrollViewer above) checkout
                          section on a short window - it should never be squeezed to nothing. -->
-                    <Grid MinHeight="120">
+                    <Grid x:Name="CartListHost" MinHeight="120">
                         <Border x:Name="CartEmptyPanel">
                             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                                 <TextBlock Text="🛒" FontSize="34" HorizontalAlignment="Center"

@@ -42,6 +42,11 @@ public partial class CaisseStatusDialog : Window
         _canClose = canClose;
         InitializeComponent();
 
+        // Amounts read "1 000" while they are typed (see MoneyInput).
+        MoneyInput.GroupAsYouType(MontantFinalBox);
+        MoneyInput.GroupAsYouType(MontantFinalMobileBox);
+        MoneyInput.GroupAsYouType(MontantFinalCarteBox);
+
         ClosePanel.Visibility = canClose ? Visibility.Visible : Visibility.Collapsed;
         NoCloseNotice.Visibility = canClose ? Visibility.Collapsed : Visibility.Visible;
         CloseCaisseButton.Visibility = canClose ? Visibility.Visible : Visibility.Collapsed;

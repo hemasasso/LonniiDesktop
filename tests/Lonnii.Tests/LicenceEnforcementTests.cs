@@ -34,11 +34,19 @@ public class LicenceEnforcementTests : IAsyncLifetime
     private const string AdminPassword = "Motdepasse123";
     private const string Device = "till-1";
 
+    /// <summary>The licence key for these tests: the fake server signs with it, the guard trusts it.</summary>
+    private static readonly System.Security.Cryptography.ECDsa TestKey =
+        System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+    private static readonly string TestPublicKey = Convert.ToBase64String(TestKey.ExportSubjectPublicKeyInfo());
+
+    private static string Sign(LicenceClaims claims) => LicenceToken.Issue(TestKey.ExportPkcs8PrivateKey(), claims);
+
     private sealed class FakeLicenceServer : ILicenceServer
     {
         public Exception? Refuse { get; set; }
         public int MaxOfflineDays { get; set; } = 14;
         public string? BackupToken { get; set; }
+        public List<string> Devices { get; } = [Device, "till-2"];
         public int Calls { get; private set; }
 
         public Task<ActivationResponse> ActivateAsync(
@@ -52,11 +60,28 @@ public class LicenceEnforcementTests : IAsyncLifetime
             if (Refuse is not null) throw Refuse;
 
             var now = DateTime.UtcNow;
+            var deadline = now.AddDays(MaxOfflineDays);
             return Task.FromResult(new LicenceRefreshResponse(
                 request.GroupId, "Pharmacie Nord", DeploymentModes.Online, 5, 1, "FCFA",
-                true, "Active", now.AddDays(200), false, null, now, now.AddDays(MaxOfflineDays), BackupToken));
+                true, "Active", now.AddDays(200), false, null, now, deadline, BackupToken,
+                Sign(new LicenceClaims(request.GroupId, DeploymentModes.Online, deadline, now, Devices, false, null))));
         }
     }
+
+    /// <summary>Stores a licence as the host would have it after a refresh.</summary>
+    private async Task StoreLicence(string? token)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+        var row = await db.HostLicences.FirstOrDefaultAsync(h => h.GroupId == GroupId);
+        if (row is null) db.HostLicences.Add(row = new HostLicence { GroupId = GroupId });
+        row.Token = token;
+        await db.SaveChangesAsync();
+    }
+
+    private Task StoreSigned(string mode, DateTime? deadline, DateTime? issuedAt = null, bool blocked = false, string[]? devices = null) =>
+        StoreLicence(Sign(new LicenceClaims(GroupId, mode, deadline, issuedAt ?? DateTime.UtcNow,
+            devices ?? [Device, "till-2"], blocked, blocked ? "Impayé depuis deux mois" : null)));
 
     public async Task InitializeAsync()
     {
@@ -71,6 +96,9 @@ public class LicenceEnforcementTests : IAsyncLifetime
             {
                 s.RemoveAll<ILicenceServer>();
                 s.AddSingleton<ILicenceServer>(_licences);
+                s.RemoveAll<LicenceGuard>();
+                s.AddScoped(sp => new LicenceGuard(
+                    sp.GetRequiredService<Lonnii.Api.Features.Remote.ControlDb>().Db, TestPublicKey));
             });
         });
 
@@ -162,7 +190,7 @@ public class LicenceEnforcementTests : IAsyncLifetime
     [Fact]
     public async Task Before_the_deadline_the_workspace_opens_and_counts_down()
     {
-        await Mutate(g => g.LicenceDeadline = DateTime.UtcNow.AddDays(3));
+        await StoreSigned(DeploymentModes.Online, DateTime.UtcNow.AddDays(3));
 
         Assert.Equal(HttpStatusCode.OK, (await OpenSessionAsync()).StatusCode);
 
@@ -175,7 +203,7 @@ public class LicenceEnforcementTests : IAsyncLifetime
     [Fact]
     public async Task Past_the_deadline_the_workspace_is_locked()
     {
-        await Mutate(g => g.LicenceDeadline = DateTime.UtcNow.AddMinutes(-1));
+        await StoreSigned(DeploymentModes.Online, DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddDays(-14));
 
         var response = await OpenSessionAsync();
 
@@ -185,14 +213,34 @@ public class LicenceEnforcementTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_workspace_with_no_deadline_yet_starts_a_full_period_instead_of_locking()
+    public async Task A_host_with_no_signed_licence_gets_fourteen_days_to_fetch_one()
     {
-        // An installation from before the deadline existed, or a fresh setup.
+        // An installation from before signed licences, or a fresh setup.
         Assert.Equal(HttpStatusCode.OK, (await OpenSessionAsync()).StatusCode);
 
-        var groupe = await ReadGroupe();
-        Assert.NotNull(groupe.LicenceDeadline);
-        Assert.InRange((groupe.LicenceDeadline!.Value - DateTime.UtcNow).TotalDays, 13.9, 14.1);
+        var status = await _client.GetFromJsonAsync<LicenceStatusDto>($"/api/licence/status/{GroupId}");
+        Assert.True(status!.Enforced);
+        Assert.InRange((status.Deadline!.Value - DateTime.UtcNow).TotalDays, 13.9, 14.1);
+    }
+
+    [Fact]
+    public async Task Past_the_unsigned_window_the_host_locks_until_it_connects_once()
+    {
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+            db.HostLicences.Add(new HostLicence { GroupId = GroupId, UnsignedSince = DateTime.UtcNow.AddDays(-15) });
+            await db.SaveChangesAsync();
+        }
+        await Mutate(g => g.Mode = DeploymentModes.Local);
+
+        var response = await OpenSessionAsync();
+        Assert.Equal(HttpStatusCode.Locked, response.StatusCode);
+        Assert.Contains("Internet", (await response.Content.ReadFromJsonAsync<ApiError>())!.Error);
+
+        // Connecting once brings the signed licence and lifts it.
+        Assert.Equal(HttpStatusCode.OK, (await SyncAsync()).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await OpenSessionAsync()).StatusCode);
     }
 
     [Fact]
@@ -200,24 +248,77 @@ public class LicenceEnforcementTests : IAsyncLifetime
     {
         // The installation has already seen a moment after the deadline; the computer's own
         // clock now says it is earlier. "Now" must stay at the later of the two.
+        await StoreSigned(DeploymentModes.Online, DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(-15));
+        await Mutate(g => g.LicenceClockMark = DateTime.UtcNow.AddDays(2));
+
+        Assert.Equal(HttpStatusCode.Locked, (await OpenSessionAsync()).StatusCode);
+    }
+
+    [Fact]
+    public async Task Clearing_the_clock_mark_does_not_take_now_below_the_licence_issue_time()
+    {
+        // Clock wound back and the mark row emptied: the signature's own issue time still holds.
+        await StoreSigned(DeploymentModes.Online, DateTime.UtcNow.AddDays(1), issuedAt: DateTime.UtcNow.AddDays(3));
+        await Mutate(g => g.LicenceClockMark = null);
+
+        Assert.Equal(HttpStatusCode.Locked, (await OpenSessionAsync()).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_signed_local_licence_is_never_locked_whatever_the_dates()
+    {
+        await StoreSigned(DeploymentModes.Local, deadline: null);
+        await Mutate(g => g.LicenceDeadline = DateTime.UtcNow.AddDays(-400));
+
+        Assert.Equal(HttpStatusCode.OK, (await OpenSessionAsync()).StatusCode);
+    }
+
+    // --- The database cracks the signature closes ---
+
+    [Fact]
+    public async Task Setting_the_mode_to_local_in_the_database_does_not_unlock_an_online_licence()
+    {
+        await StoreSigned(DeploymentModes.Online, DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddDays(-15));
         await Mutate(g =>
         {
-            g.LicenceDeadline = DateTime.UtcNow.AddDays(-1);
-            g.LicenceClockMark = DateTime.UtcNow.AddDays(2);
+            g.Mode = DeploymentModes.Local;
+            g.LicenceDeadline = DateTime.UtcNow.AddYears(10);
         });
 
         Assert.Equal(HttpStatusCode.Locked, (await OpenSessionAsync()).StatusCode);
     }
 
     [Fact]
-    public async Task Local_mode_is_never_locked_whatever_the_dates()
+    public async Task An_altered_licence_counts_as_none()
     {
-        await Mutate(g =>
-        {
-            g.Mode = DeploymentModes.Local;
-            g.LicenceDeadline = DateTime.UtcNow.AddDays(-400);
-        });
+        // A signed online licence, its deadline rewritten in the stored text: the signature no
+        // longer matches, so the host is back on the unsigned window, not the forged date.
+        var genuine = Sign(new LicenceClaims(GroupId, DeploymentModes.Local, null, DateTime.UtcNow, [Device], false, null));
+        var parts = genuine.Split('.');
+        var forged = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(
+            parts[0].Replace('-', '+').Replace('_', '/').PadRight(parts[0].Length + (4 - parts[0].Length % 4) % 4, '=')))
+            .Replace("\"local\"", "\"online\"");
+        await StoreLicence(Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(forged)).TrimEnd('=')
+            .Replace('+', '-').Replace('/', '_') + "." + parts[1]);
 
+        var status = await _client.GetFromJsonAsync<LicenceStatusDto>($"/api/licence/status/{GroupId}");
+        Assert.True(status!.Enforced);
+        Assert.InRange((status.Deadline!.Value - DateTime.UtcNow).TotalDays, 13.9, 14.1);
+    }
+
+    [Fact]
+    public async Task A_machine_added_to_the_devices_table_is_refused_when_the_licence_does_not_list_it()
+    {
+        // A copied installation: the copier adds their own machine to the local table.
+        await StoreSigned(DeploymentModes.Online, DateTime.UtcNow.AddDays(10), devices: [Device]);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+            db.Devices.Add(new Device { GroupId = GroupId, DeviceId = "copied-pc", DeviceName = "Copie" });
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await OpenSessionAsync("copied-pc")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await OpenSessionAsync()).StatusCode);
     }
 
@@ -238,7 +339,7 @@ public class LicenceEnforcementTests : IAsyncLifetime
     [Fact]
     public async Task Reaching_the_server_lifts_the_lock_and_sets_a_fresh_deadline()
     {
-        await Mutate(g => g.LicenceDeadline = DateTime.UtcNow.AddDays(-5));
+        await StoreSigned(DeploymentModes.Online, DateTime.UtcNow.AddDays(-5), DateTime.UtcNow.AddDays(-19));
         Assert.Equal(HttpStatusCode.Locked, (await OpenSessionAsync()).StatusCode);
 
         var sync = await SyncAsync();
@@ -254,7 +355,7 @@ public class LicenceEnforcementTests : IAsyncLifetime
     [Fact]
     public async Task A_refused_refresh_leaves_the_lock_in_place()
     {
-        await Mutate(g => g.LicenceDeadline = DateTime.UtcNow.AddDays(-5));
+        await StoreSigned(DeploymentModes.Online, DateTime.UtcNow.AddDays(-5), DateTime.UtcNow.AddDays(-19));
         _licences.Refuse = new ActivationRefusedException("Abonnement inactif ou expiré.", HttpStatusCode.PaymentRequired);
 
         var sync = await SyncAsync();
@@ -382,8 +483,9 @@ public class LicenceEnforcementTests : IAsyncLifetime
 
         var sync = await SyncAsync();
 
+        // The refusal itself locks nothing; the shop is on its window to confirm its licence.
         Assert.Equal(HttpStatusCode.OK, sync.StatusCode);
-        Assert.False((await sync.Content.ReadFromJsonAsync<LicenceStatusDto>())!.Enforced);
+        Assert.False((await sync.Content.ReadFromJsonAsync<LicenceStatusDto>())!.Expired);
         Assert.Equal(HttpStatusCode.OK, (await OpenSessionAsync()).StatusCode);
     }
 

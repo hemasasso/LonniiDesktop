@@ -26,6 +26,10 @@ public partial class BilanEcritureDialog : Window
     {
         InitializeComponent();
 
+        // Amounts read "1 000" while they are typed (see MoneyInput).
+        MoneyInput.GroupAsYouType(DebitBox);
+        MoneyInput.GroupAsYouType(CreditBox);
+
         var choices = comptes.BilanComptes.Select(c => new CompteChoice(c, TablesCompte.Bilan))
             .Concat(comptes.ResultatComptes
                 .Where(c => TypesCompteResultat.IsManuel(c.TypeCompte) || !calculAutomatique)

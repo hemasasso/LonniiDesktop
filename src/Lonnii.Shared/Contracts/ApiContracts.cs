@@ -45,7 +45,8 @@ public sealed record ResetMemberPasswordRequest(string NewPassword);
 /// False on a shipped host: the first account can only come from registering with Lonnii (or the
 /// credentials file), so the sign-in window does not offer to create one by hand.
 /// </param>
-public sealed record SetupStateResponse(bool HasAnyAccount, bool ManualSetupAllowed = true, string? HostId = null);
+/// <param name="HostMachineId">The shop computer, stable across reinstalls of Lonnii (see HostMachineIdentity) - what tills pin. HostId is kept for tills pinned before it existed.</param>
+public sealed record SetupStateResponse(bool HasAnyAccount, bool ManualSetupAllowed = true, string? HostId = null, string? HostMachineId = null);
 
 /// <summary>A user, as returned to the client. Never carries a password hash.</summary>
 public sealed record UserDto(
@@ -1322,7 +1323,8 @@ public sealed record LicenceRefreshResponse(
     string? BlockReason,
     DateTime ServerTime,
     DateTime? MustReconnectBy,
-    string? BackupToken = null);
+    string? BackupToken = null,
+    string? LicenceToken = null);
 
 /// <summary>Asks this installation to reach the licence server now and renew its deadline.</summary>
 public sealed record LicenceSyncRequest(string GroupId);
@@ -2189,7 +2191,8 @@ public sealed record ConnexionResponse(string Mode, bool Active, IReadOnlyList<C
 /// <param name="Kind">stock, backup, annonce or caisse - the client picks an icon from it.</param>
 /// <param name="Severity">info, warning or danger.</param>
 /// <param name="Module">The menu key the line opens when clicked, or null.</param>
-public sealed record NotificationDto(string Kind, string Severity, string Title, string Message, string? Module);
+/// <param name="ActionId">What an action on the line acts on - for a caisse, its id (force close).</param>
+public sealed record NotificationDto(string Kind, string Severity, string Title, string Message, string? Module, string? ActionId = null);
 
 /// <summary>Response of <c>GET /api/notifications</c>.</summary>
 public sealed record NotificationsResponse(IReadOnlyList<NotificationDto> Items);

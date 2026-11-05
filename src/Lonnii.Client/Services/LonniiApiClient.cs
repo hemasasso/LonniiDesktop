@@ -575,6 +575,9 @@ public class LonniiApiClient
     public Task<NotificationsResponse> GetNotificationsAsync(CancellationToken ct = default) =>
         GetAsync<NotificationsResponse>("api/notifications", ct);
 
+    public Task<CaisseDto> ForceCloseCaisseAsync(int id, CancellationToken ct = default) =>
+        PostAsync<CaisseDto>($"api/caisse/{id}/cloture-forcee", new { }, ct);
+
     public Task<CaisseStatusResponse> GetCaisseStatusAsync(CancellationToken ct = default) =>
         GetAsync<CaisseStatusResponse>("api/caisse/status", ct);
 

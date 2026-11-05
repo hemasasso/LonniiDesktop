@@ -11,6 +11,11 @@ public partial class OpenCaisseDialog : Window
     public OpenCaisseDialog()
     {
         InitializeComponent();
+
+        // Amounts read "1 000" while they are typed (see MoneyInput).
+        MoneyInput.GroupAsYouType(MontantCashBox);
+        MoneyInput.GroupAsYouType(MontantMobileBox);
+        MoneyInput.GroupAsYouType(MontantCarteBox);
         MontantCashBox.Text = Money.FormatPlain(0m);
         MontantMobileBox.Text = Money.FormatPlain(0m);
         MontantCarteBox.Text = Money.FormatPlain(0m);

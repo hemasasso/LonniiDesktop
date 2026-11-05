@@ -43,6 +43,9 @@ public partial class StockAdjustDialog : Window
         _product = product;
         InitializeComponent();
 
+        // Amounts read "1 000" while they are typed (see MoneyInput).
+        MoneyInput.GroupAsYouType(QuantityBox);
+
         ProductName.Text = product.Name;
         CurrentStock.Text = $"Stock actuel : {Money.FormatPlain(product.Quantity)}  •  " +
                              $"seuil d'alerte : {Money.FormatPlain(product.MinimumThreshold)}";

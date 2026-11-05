@@ -247,7 +247,33 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
-                    <DataGridTextColumn Header="Produit" Binding="{Binding Product.Name}" Width="2*" />
+                    <!-- A raw material reads apart at a glance, as on the phone: name in blue and a
+                         blue "Matière 1ère" tag. -->
+                    <DataGridTemplateColumn Header="Produit" Width="2*" SortMemberPath="Product.Name">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <DockPanel VerticalAlignment="Center" LastChildFill="True">
+                                    <Border DockPanel.Dock="Right" Background="#3B82F6" CornerRadius="4" Padding="7,2"
+                                            Margin="8,0,4,0" VerticalAlignment="Center"
+                                            Visibility="{Binding IsMatierePremiere, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Text="Matière 1ère" FontSize="10" FontWeight="Bold" Foreground="White" />
+                                    </Border>
+                                    <TextBlock Text="{Binding Product.Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsMatierePremiere}" Value="True">
+                                                        <Setter Property="Foreground" Value="#3B82F6" />
+                                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </DockPanel>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                     <DataGridTextColumn Header="SKU" Binding="{Binding Product.Sku}" Width="110" />
                     <DataGridTextColumn Header="Catégorie" Binding="{Binding Product.CategoryName}" Width="130" />
                     <DataGridTextColumn Header="Type" Binding="{Binding Product.TypeProduitDisplay}" Width="130"
@@ -373,6 +399,20 @@
                                              product itself instead of the margin. Uniform always
                                              shows the whole photo. -->
                                         <Image Source="{Binding Thumbnail}" Stretch="Uniform" />
+                                        <!-- Out of stock: the same dark veil and red "Rupture" tag as Ventes. -->
+                                        <Border Background="#99000000"
+                                                Visibility="{Binding IsOutOfStock, Converter={StaticResource BoolToVis}}">
+                                            <Border Background="#E6FFFFFF" CornerRadius="4" Padding="10,3"
+                                                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <TextBlock Text="Rupture" FontWeight="Bold" FontSize="13" Foreground="#EF4444" />
+                                            </Border>
+                                        </Border>
+                                        <!-- The phone's corner tag for a raw material. -->
+                                        <Border Background="#3B82F6" CornerRadius="0,7,0,6" Padding="8,3"
+                                                HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                Visibility="{Binding IsMatierePremiere, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock Text="Matière 1ère" FontSize="10" FontWeight="Bold" Foreground="White" />
+                                        </Border>
                                     </Grid>
                                 </Border>
                                 <StackPanel Margin="2,8,2,0">

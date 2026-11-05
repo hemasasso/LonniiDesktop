@@ -22,6 +22,10 @@ public partial class AddPaymentDialog : Window
         _montantRestant = montantRestant;
         _canCreateAvoir = canCreateAvoir;
         InitializeComponent();
+
+        // Amounts read "1 000" while they are typed (see MoneyInput).
+        MoneyInput.GroupAsYouType(MontantBox);
+        MoneyInput.GroupAsYouType(MontantRecuBox);
         SubtitleText.Text = $"Vente {numeroVente} — restant à payer : {Money.Format(montantRestant)}";
 
         // Left empty rather than pre-filled with the amount owed: a cashier who is not

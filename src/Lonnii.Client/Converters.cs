@@ -8,6 +8,45 @@ using Lonnii.Shared.Security;
 namespace Lonnii.Client;
 
 /// <summary>
+/// Groups thousands in a money box while it is typed in ("20000" reads "20 000" at once), with
+/// the cursor kept after the same digit. A whole amount only: as soon as a decimal separator is
+/// typed the text is left alone, so "1 500,5" can be entered without being fought.
+/// </summary>
+public static class MoneyInput
+{
+    public static void GroupAsYouType(TextBox box)
+    {
+        var busy = false;
+        box.TextChanged += (_, _) =>
+        {
+            if (busy) return;
+            var text = box.Text;
+            if (text.Contains(',') || text.Contains('.')) return;
+
+            var digits = new string(text.Where(char.IsDigit).ToArray());
+            if (digits.Length != text.Count(c => !char.IsWhiteSpace(c))) return; // not just a number
+            if (digits.Length > 0) digits = digits.TrimStart('0') is { Length: > 0 } d ? d : "0";
+            var grouped = digits.Length == 0 ? "" : decimal.Parse(digits, CultureInfo.InvariantCulture)
+                .ToString("#,0", new NumberFormatInfo { NumberGroupSeparator = " " });
+            if (grouped == text) return;
+
+            // Where the cursor was, counted in digits, so typing in the middle stays in place.
+            var digitsBefore = Math.Min(digits.Length,
+                text[..Math.Min(box.CaretIndex, text.Length)].Count(char.IsDigit));
+
+            busy = true;
+            box.Text = grouped;
+            busy = false;
+
+            var caret = 0;
+            for (var seen = 0; caret < grouped.Length && seen < digitsBefore; caret++)
+                if (char.IsDigit(grouped[caret])) seen++;
+            box.CaretIndex = caret;
+        };
+    }
+}
+
+/// <summary>
 /// Formats amounts for display, e.g. <c>1 000 FCFA</c>: a plain space for the thousands
 /// separator (the way it is written locally) and no decimal places, since the franc has
 /// none in practice.

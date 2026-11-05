@@ -40,6 +40,51 @@ public static class CaisseEndpoints
         // server itself, for avoir refunds.
         caisse.MapPost("/retrait", RetraitAsync)
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.CloseCaisse);
+        // Admin Général only, checked inside: closing someone else's till without counting it.
+        caisse.MapPost("/{id:int}/cloture-forcee", ForceCloseAsync).RequireGroupScope();
+    }
+
+    /// <summary>
+    /// Closes a till its owner left open (the bell's "Caisse non clôturée"), from the Admin
+    /// Général's seat. Nobody counted the drawer, so the counted amounts are taken to be what
+    /// the till expects and the écart is 0 - and the note says so, so the history never reads
+    /// as a real count.
+    /// </summary>
+    private static async Task<IResult> ForceCloseAsync(int id, GroupScope scope, LonniiDbContext db, CancellationToken ct)
+    {
+        if (!scope.IsAdminGeneral)
+            return Results.Json(new ApiError("Seul l'administrateur général peut clôturer la caisse d'un autre utilisateur."),
+                statusCode: StatusCodes.Status403Forbidden);
+
+        var caisse = await db.Caisses.FirstOrDefaultAsync(
+            c => c.Id == id && c.GroupId == scope.GroupId && c.Status == CaisseStatus.Open, ct);
+        if (caisse is null) return Results.NotFound(new ApiError("Caisse introuvable ou déjà clôturée."));
+
+        var closingAt = DateTime.UtcNow;
+        var stats = await ComputeLiveStatsAsync(db, caisse, closingAt, ct);
+        var by = await DisplayNameAsync(db, scope.UserId, ct) ?? scope.UserId;
+
+        caisse.DateFermeture = closingAt;
+        caisse.MontantFinal = stats.ExpectedCash(caisse);
+        caisse.MontantFinalMobile = stats.ExpectedMobile(caisse);
+        caisse.MontantFinalCarte = stats.ExpectedCarte(caisse);
+        caisse.TotalVentes = stats.TotalVentes;
+        caisse.TotalChiffreAffaires = stats.ChiffreAffaires;
+        caisse.TotalAvoir = stats.TotalAvoir;
+        caisse.PaiementCash = stats.PaiementCash;
+        caisse.PaiementMobile = stats.PaiementMobile;
+        caisse.PaiementCarte = stats.PaiementCarte;
+        caisse.PaiementAutres = stats.PaiementAutres;
+        caisse.TotalEncaisse = stats.TotalEncaisse;
+        caisse.TotalRestant = Math.Max(0, stats.ChiffreAffaires - stats.TotalEncaisse);
+        caisse.Ecart = 0;
+        var note = $"Clôture forcée par {by} le {closingAt.ToLocalTime():dd/MM/yyyy à HH:mm} (montants non comptés).";
+        caisse.Notes = string.IsNullOrWhiteSpace(caisse.Notes) ? note : $"{caisse.Notes}\n{note}";
+        caisse.Status = CaisseStatus.Closed;
+        caisse.UpdatedAt = closingAt;
+
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(await ToDtoAsync(db, caisse, ct));
     }
 
     /// <summary>"Ouvrir Caisse": one open session per user per group, enforced by the

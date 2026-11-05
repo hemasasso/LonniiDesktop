@@ -197,6 +197,10 @@ public partial class VentesView : UserControl
     {
         public bool HasNoThumbnail => Thumbnail is null;
 
+        /// <summary>Nothing left to sell - the phone app's rule: a product whose stock is not
+        /// counted (vente libre, stock illimité) is never out.</summary>
+        public bool IsOutOfStock => !Product.VenteLibre && !Product.StockIllimite && Product.Quantity <= 0;
+
         /// <summary>Product.Price doubles as an optional négociable minimum: shown as a "from"
         /// price when the product has one set, "À Définir" only when it truly has none - so the
         /// catalogue does not hide a floor the shop actually wants the cashier to see.</summary>
@@ -218,6 +222,14 @@ public partial class VentesView : UserControl
     public VentesView(AppSession session)
     {
         _session = session;
+
+        // MainWindow rebuilds screens on a theme switch, but keeps this one while a sale is in
+        // progress so the cart survives - so the cart rows, painted with copied brushes, redraw
+        // themselves here. Only while shown, so a closed view does not stay subscribed.
+        EventHandler onTheme = (_, _) => { RenderCart(); SchedulePreview(); };
+        Loaded += (_, _) => { ThemeManager.Changed += onTheme; RenderCart(); };
+        Unloaded += (_, _) => ThemeManager.Changed -= onTheme;
+
         _canAddPayment = _session.Can(Priv.Gestion.AddPayment);
         _canApplyDiscount = _session.Can(Priv.Gestion.ApplyDiscount);
         _canViewVenteDetails = _session.Can(Priv.Gestion.ViewVenteDetails);
@@ -327,10 +339,24 @@ public partial class VentesView : UserControl
         ClientEmailBox.TextChanged += (_, _) =>
             ClientEmailPlaceholder.Visibility = ClientEmailBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
 
+        // The preview shows the client too, so it redraws as they are typed in.
+        ClientNomBox.TextChanged += (_, _) => SchedulePreview();
+        ClientTelephoneBox.TextChanged += (_, _) => SchedulePreview();
+        ClientEmailBox.TextChanged += (_, _) => SchedulePreview();
+        _previewDebounce.Tick += async (_, _) =>
+        {
+            _previewDebounce.Stop();
+            await RenderPreviewAsync();
+        };
+
         // Wired here rather than in XAML: a XAML-declared handler is connected as soon as
         // this element is built, so the "0" in Text="0" above would fire it immediately -
         // while later elements like SubtotalText do not exist yet, crashing UpdateTotals().
         RemiseGlobaleBox.TextChanged += RemiseGlobale_Changed;
+
+        // "20 000" as it is typed, so the cashier reads the amount right while entering it.
+        MoneyInput.GroupAsYouType(MontantRecuBox);
+        MoneyInput.GroupAsYouType(RemiseGlobaleBox);
 
         // Wired programmatically for the same reason as RemiseGlobaleBox above, in case
         // something later sets IsChecked before AvecFactureCheck exists.
@@ -406,8 +432,10 @@ public partial class VentesView : UserControl
         var label = new TextBlock { Text = "🏦 Statut / Fermer", VerticalAlignment = VerticalAlignment.Center };
         var square = new Border
         {
-            Width = 10, Height = 10, CornerRadius = new CornerRadius(2),
-            Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+            // Nudged down: a text line reserves room below the letters, so a box centred on the
+            // line sits above the middle of the letters themselves.
+            Width = 9, Height = 9, CornerRadius = new CornerRadius(2),
+            Margin = new Thickness(8, 2, 0, 0), VerticalAlignment = VerticalAlignment.Center,
         };
         square.SetResourceReference(Border.BackgroundProperty, "Danger");
 
@@ -994,6 +1022,10 @@ public partial class VentesView : UserControl
         _displayTva = tva;
         PushCustomerDisplay();
 
+        // An emptied cart (sale recorded, "Vider") closes the preview; otherwise it follows along.
+        if (_cart.Count == 0 && _previewOpen) ApplyPreviewLayout();
+        else SchedulePreview();
+
         if (_cartRestored) SaveCart();
     }
 
@@ -1389,6 +1421,7 @@ public partial class VentesView : UserControl
                 HorizontalAlignment = HorizontalAlignment.Left,
                 ToolTip = minimum > 0 ? $"Prix pour cette vente - minimum {Money.Format(minimum)}" : "Prix pour cette vente",
             };
+            MoneyInput.GroupAsYouType(priceBox);
             priceBox.TextChanged += (_, _) =>
             {
                 Money.TryParse(priceBox.Text, out decimal price);
@@ -1527,6 +1560,7 @@ public partial class VentesView : UserControl
                 Margin = new Thickness(8, 0, 2, 0), VerticalContentAlignment = VerticalAlignment.Center,
                 ToolTip = "Remise sur cette ligne",
             };
+            MoneyInput.GroupAsYouType(discountBox);
             var discountOptions = new[]
             {
                 new DiscountOption(DiscountTypes.Amount, Money.Label),
@@ -1602,7 +1636,106 @@ public partial class VentesView : UserControl
     private void VenteRapide_Checked(object sender, RoutedEventArgs e)
     {
         AvecFactureCheck.IsChecked = false;
+        _previewOpen = true;
         UpdateCheckoutMode();
+    }
+
+    // --- Checkout preview ---
+
+    /// <summary>Whether the cashier wants the reçu / facture in place of the catalogue. Opened by
+    /// ticking Paiement or Facture (or "Aperçu"), closed by "← Produits" and whenever the cart
+    /// empties, so the next sale starts on the catalogue again.</summary>
+    private bool _previewOpen;
+
+    private readonly System.Windows.Threading.DispatcherTimer _previewDebounce = new() { Interval = TimeSpan.FromMilliseconds(150) };
+
+    private void PreviewBack_Click(object sender, RoutedEventArgs e)
+    {
+        _previewOpen = false;
+        ApplyPreviewLayout();
+    }
+
+    private void ShowPreview_Click(object sender, RoutedEventArgs e)
+    {
+        _previewOpen = true;
+        ApplyPreviewLayout();
+    }
+
+    /// <summary>
+    /// Swaps the catalogue for the preview, and on the right gives the checkout section (total,
+    /// client, payment) the whole column instead of a strip under the cart rows - the lines are
+    /// on the preview already, and "← Produits" brings the rows back to edit them.
+    /// </summary>
+    private void ApplyPreviewLayout()
+    {
+        var hasCheckoutMode = VenteRapideCheck.IsChecked == true || AvecFactureCheck.IsChecked == true;
+        if (_cart.Count == 0) _previewOpen = false;
+        var show = _previewOpen && hasCheckoutMode;
+
+        CheckoutPreviewPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        CataloguePanel.Visibility = show ? Visibility.Collapsed : Visibility.Visible;
+        CartListHost.Visibility = show ? Visibility.Collapsed : Visibility.Visible;
+        CheckoutScroll.MaxHeight = show ? double.PositiveInfinity : 360;
+        DockPanel.SetDock(CheckoutScroll, show ? Dock.Top : Dock.Bottom);
+        ShowPreviewButton.Visibility = !show && hasCheckoutMode && _cart.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        if (show) SchedulePreview();
+    }
+
+    private void SchedulePreview()
+    {
+        if (CheckoutPreviewPanel.Visibility != Visibility.Visible) return;
+        _previewDebounce.Stop();
+        _previewDebounce.Start();
+    }
+
+    private async Task RenderPreviewAsync()
+    {
+        try
+        {
+            _receiptSettings ??= await _session.GetReceiptSettingsAsync();
+        }
+        catch (ApiException)
+        {
+            PreviewHost.Content = new TextBlock { Text = "Aperçu indisponible : paramètres du reçu non chargés." };
+            return;
+        }
+        if (CheckoutPreviewPanel.Visibility != Visibility.Visible) return;
+
+        var facture = AvecFactureCheck.IsChecked == true;
+        PreviewTitleText.Text = facture ? "Aperçu de la facture" : "Aperçu du reçu";
+        PreviewWarningText.Text = facture
+            ? "Facture pas encore créée : cliquez sur « Créer Facture » pour l'enregistrer."
+            : "Pas encore payé : cliquez sur « Payer & Valider » pour encaisser et enregistrer la vente.";
+        PreviewHost.Content = ReceiptDocument.Build(PreviewData(facture), _receiptSettings,
+            _session.ReceiptLogo, _session.ReceiptQrCode, _session.Groupe?.Nom ?? "Lonnii", forPrint: false);
+    }
+
+    /// <summary>The sale as it stands, in the shape the printed document takes. Paid in full by
+    /// the chosen method for Paiement; nothing paid for a facture. The number is only given
+    /// when the sale is recorded, so it reads "Aperçu" here.</summary>
+    private ReceiptData PreviewData(bool facture)
+    {
+        var user = _session.User;
+        var me = user is null ? null
+            : string.Join(' ', new[] { user.FirstName, user.LastName }.Where(s => !string.IsNullOrWhiteSpace(s))) is { Length: > 0 } full
+                ? full : user.Username;
+
+        var lines = _cart.Select(c => new ReceiptLine(
+            c.Product.Name, c.Quantity, c.UnitPrice, c.LineTotal,
+            c.Product.VenteMixte ? (c.VenteEnGros ? c.Product.UniteVente : c.Product.UniteAffichage) : null)).ToList();
+
+        static string? Blank(string text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+        var now = DateTime.Now;
+        decimal? tvaRate = _displayTva > 0 ? _receiptSettings?.AddedTvaRate : null;
+        decimal? tva = _displayTva > 0 ? _displayTva : null;
+
+        return facture
+            ? new ReceiptData("Aperçu", now, Blank(ClientNomBox.Text), Blank(ClientTelephoneBox.Text), Blank(ClientEmailBox.Text),
+                me, null, lines, _currentTotal, 0m, _currentTotal, "en_attente", null, 0m, false, [], tvaRate, tva)
+            : new ReceiptData("Aperçu", now, Blank(ClientNomBox.Text), Blank(ClientTelephoneBox.Text), Blank(ClientEmailBox.Text),
+                me, me, lines, _currentTotal, _currentTotal, 0m, "paye", _modePaiement, 0m, false,
+                [new ReceiptPayment(_currentTotal, _modePaiement, now, me)], tvaRate, tva);
     }
 
     private void VenteRapide_Unchecked(object sender, RoutedEventArgs e) => UpdateCheckoutMode();
@@ -1610,6 +1743,7 @@ public partial class VentesView : UserControl
     private void AvecFacture_Checked(object sender, RoutedEventArgs e)
     {
         VenteRapideCheck.IsChecked = false;
+        _previewOpen = true;
         UpdateCheckoutMode();
     }
 
@@ -1638,6 +1772,7 @@ public partial class VentesView : UserControl
 
         UpdateMontantRecuVisibility();
         UpdateTotals();
+        ApplyPreviewLayout();
     }
 
     /// <summary>Only meaningful for an actual cash payment - a card or mobile payment is
@@ -1660,6 +1795,7 @@ public partial class VentesView : UserControl
         _modePaiement = (string)((Button)sender).Tag;
         UpdateMontantRecuVisibility();
         ApplyPaymentVisuals();
+        SchedulePreview();
 
         // Back on cash, the kept amount shows its change again straight away.
         UpdateMonnaieARendre();
@@ -1686,7 +1822,10 @@ public partial class VentesView : UserControl
         var missingPrice = _cart.FirstOrDefault(c => !c.Product.PrixFixe && c.UnitPrice <= 0);
         if (missingPrice is not null)
         {
-            ShowMessage($"Indiquez un prix pour « {missingPrice.Product.Name} ».");
+            // The price box is on the cart row, which the preview hides - say how to get back to it.
+            ShowMessage(CheckoutPreviewPanel.Visibility == Visibility.Visible
+                ? $"Retournez au panier (« ← Produits ») et indiquez un prix pour « {missingPrice.Product.Name} »."
+                : $"Indiquez un prix pour « {missingPrice.Product.Name} ».");
             return;
         }
 

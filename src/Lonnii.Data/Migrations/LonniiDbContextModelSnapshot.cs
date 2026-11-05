@@ -1353,6 +1353,29 @@ namespace Lonnii.Data.Migrations
                     b.ToTable("groupe_sessions");
                 });
 
+            modelBuilder.Entity("Lonnii.Data.Entities.HostLicence", b =>
+                {
+                    b.Property<string>("GroupId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("group_id");
+
+                    b.Property<string>("Token")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("token");
+
+                    b.Property<DateTime?>("UnsignedSince")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("unsigned_since");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("GroupId");
+
+                    b.ToTable("host_licence");
+                });
+
             modelBuilder.Entity("Lonnii.Data.Entities.Immobilisation", b =>
                 {
                     b.Property<int>("Id")

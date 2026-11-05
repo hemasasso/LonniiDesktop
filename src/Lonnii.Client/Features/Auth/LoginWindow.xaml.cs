@@ -160,13 +160,20 @@ public partial class LoginWindow : Window
 
             // Trust on first use: the first host this till signs in against is its own. After
             // that, any other host is refused - found by search or typed by hand.
+            // The host is pinned by its computer (HostMachineId), which survives reinstalling Lonnii;
+            // a host too old to send one is pinned by its HostId as before. A pin made from HostId
+            // still matches once and is upgraded on the spot, so updating never locks a till out.
+            // And a host running on this very computer is this computer's own, whatever the old
+            // pin says - the shop computer reinstalled with its data folder deleted.
             var pinned = App.Settings.PinnedHostId;
-            if (state.HostId is not null && pinned is null)
+            var identity = state.HostMachineId ?? state.HostId;
+            var onThisComputer = state.HostMachineId is not null && state.HostMachineId == DeviceIdentity.AsHostMachineId;
+            if (identity is not null && (pinned is null || onThisComputer || (pinned == state.HostId && pinned != identity)))
             {
-                App.Settings.PinnedHostId = state.HostId;
+                App.Settings.PinnedHostId = identity;
                 App.Settings.Save();
             }
-            else if (pinned is not null && state.HostId != pinned)
+            else if (pinned is not null && pinned != identity)
             {
                 WrongHost();
                 return;

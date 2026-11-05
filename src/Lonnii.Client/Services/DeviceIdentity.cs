@@ -103,6 +103,15 @@ public static class DeviceIdentity
         }
     }
 
+    /// <summary>
+    /// This computer as a shop computer reports itself (the API's HostMachineIdentity, same salt
+    /// and shape). Equal to a server's HostMachineId only when that server runs on this very PC -
+    /// which lets the shop computer's own app accept its host after a reinstall changed the old pin.
+    /// </summary>
+    public static string? AsHostMachineId { get; } = MachineGuid() is { } guid
+        ? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("lonnii-host-machine-v1|" + guid)))[..32].ToLowerInvariant()
+        : null;
+
     private static string Hash(string source) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Salt + "|" + source)))
             .ToLowerInvariant();

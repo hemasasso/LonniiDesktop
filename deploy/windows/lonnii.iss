@@ -47,6 +47,11 @@ Name: "api"; Description: "Serveur Lonnii Business (base de données de la bouti
 Source: "{#PublishDir}\Client\*"; DestDir: "{app}\Client"; Components: client; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#PublishDir}\Api\*"; DestDir: "{app}\Api"; Components: api; Flags: recursesubdirs createallsubdirs ignoreversion
 
+[Dirs]
+; The shop's data (database, signing key, backups). Created here so its permissions can be set
+; below before the API first writes to it.
+Name: "{commonappdata}\Lonnii"; Components: api
+
 [InstallDelete]
 ; Shortcuts from the builds named plain "Lonnii".
 Type: files; Name: "{autodesktop}\Lonnii.lnk"
@@ -67,6 +72,11 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""Lonnii API"" dir=in action=allow protocol=TCP localport=5280 profile=private,domain"; Components: api; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Lonnii Discovery"""; Components: api; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""Lonnii Discovery"" dir=in action=allow protocol=UDP localport=5281 profile=private,domain"; Components: api; Flags: runhidden
+; Only SYSTEM (the API) and administrators may open the data folder: by default ProgramData lets
+; every Windows account read it - the database, and jwt.key, with which a cashier's own account
+; could forge an administrator's sign-in. SIDs, not names: French Windows says "Administrateurs".
+; Re-applied on every install, so an update also repairs a folder opened up by hand.
+Filename: "{sys}\icacls.exe"; Parameters: """{commonappdata}\Lonnii"" /inheritance:r /grant:r *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F /T /C /Q"; Components: api; Flags: runhidden
 Filename: "{sys}\schtasks.exe"; Parameters: "/Create /F /TN ""Lonnii API"" /SC ONSTART /RU SYSTEM /RL HIGHEST /TR ""\""{app}\Api\Lonnii.Api.exe\"""""; Components: api; Flags: runhidden
 Filename: "{sys}\schtasks.exe"; Parameters: "/Run /TN ""Lonnii API"""; Components: api; Flags: runhidden
 Filename: "{app}\Client\Lonnii.Client.exe"; Description: "Lancer Lonnii Business"; Flags: nowait postinstall skipifsilent

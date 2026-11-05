@@ -97,7 +97,8 @@ public static class NotificationEndpoints
             "caisse", "warning",
             c.UserId == userId ? "Votre caisse n'est pas clôturée" : $"Caisse de {c.UserName} non clôturée",
             $"Ouverte le {c.DateOuverture.ToLocalTime():dd/MM/yyyy à HH:mm}.",
-            "ventes"));
+            // Only someone else's till can be force-closed; one's own is closed by counting it.
+            "ventes", c.UserId == userId ? null : c.Id.ToString()));
     }
 
     /// <summary>Out of stock and low stock, one line each, naming the first few products.

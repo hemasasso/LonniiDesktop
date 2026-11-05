@@ -116,6 +116,7 @@ public static class LicenceEndpoints
         LonniiDbContext db,
         HttpContext http,
         BackupTokens backupTokens,
+        LicenceSigner signer,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.GroupId) || string.IsNullOrWhiteSpace(request.DeviceId))
@@ -194,8 +195,16 @@ public static class LicenceEndpoints
 
         await db.SaveChangesAsync(ct);
 
-        var devicesUsed = await db.Devices
-            .CountAsync(d => d.GroupId == groupe.Id && d.RevokedAt == null, ct);
+        var bound = await db.Devices
+            .Where(d => d.GroupId == groupe.Id && d.RevokedAt == null)
+            .Select(d => d.DeviceId)
+            .ToListAsync(ct);
+        var devicesUsed = bound.Count;
+        var mustReconnectBy = subscriptionRequired ? now.AddDays(groupe.MaxOfflineDays) : (DateTime?)null;
+
+        // What the shop's host will enforce, signed so its own database cannot overrule it.
+        var licenceToken = signer.Sign(new LicenceClaims(
+            groupe.Id, groupe.Mode, mustReconnectBy, now, bound, groupe.IsBlocked, groupe.BlockReason));
 
         return Results.Ok(new LicenceRefreshResponse(
             GroupId: groupe.Id,
@@ -217,9 +226,10 @@ public static class LicenceEndpoints
             // internet - a deadline there would punish the customer who paid the most.
             // Such a shop still calls this when we change something for it, which is what
             // "only at installation and when the machine allowance changes" means.
-            MustReconnectBy: subscriptionRequired ? now.AddDays(groupe.MaxOfflineDays) : null,
+            MustReconnectBy: mustReconnectBy,
             // Also sent here, not only at activation, so an installation activated before
             // backups existed picks up its key on its next refresh.
-            BackupToken: subscriptionRequired ? backupTokens.Create(groupe.Id, request.DeviceId) : null));
+            BackupToken: subscriptionRequired ? backupTokens.Create(groupe.Id, request.DeviceId) : null,
+            LicenceToken: licenceToken));
     }
 }

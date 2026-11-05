@@ -14,6 +14,9 @@ public partial class SupplierDialog : Window
     {
         InitializeComponent();
 
+        // Amounts read "1 000" while they are typed (see MoneyInput).
+        MoneyInput.GroupAsYouType(MontantDuBox);
+
         if (existing is null)
         {
             Title = "Nouveau fournisseur";

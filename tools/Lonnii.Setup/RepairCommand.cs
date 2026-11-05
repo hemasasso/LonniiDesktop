@@ -12,9 +12,15 @@ public static class RepairCommand
     private static readonly string DefaultKeyPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".lonnii", "repair-signing.key");
 
-    public static int Keygen(string[] args)
+    /// <summary>Where <c>licence-keygen</c> writes the licence server's signing key by default.</summary>
+    public static readonly string LicenceKeyPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".lonnii", "licence-signing.key");
+
+    public static int Keygen(string[] args) => Keygen(args, DefaultKeyPath, "RepairCode.PublicKey");
+
+    public static int Keygen(string[] args, string defaultPath, string publicKeyConstant)
     {
-        var path = Option(args, "key") ?? DefaultKeyPath;
+        var path = Option(args, "key") ?? defaultPath;
         if (File.Exists(path))
         {
             Console.Error.WriteLine($"La clé existe déjà : {path}\nL'écraser rendrait tous les postes déjà livrés incapables de vérifier vos codes.");
@@ -30,7 +36,7 @@ public static class RepairCommand
             Clé privée enregistrée : {path}
             Sauvegardez-la hors de ce disque et ne la partagez jamais.
 
-            Clé publique, à coller dans RepairCode.PublicKey :
+            Clé publique, à coller dans {publicKeyConstant} :
             {Convert.ToBase64String(key.ExportSubjectPublicKeyInfo())}
 
             """);

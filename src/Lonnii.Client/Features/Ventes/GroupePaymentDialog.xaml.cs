@@ -38,6 +38,10 @@ public partial class GroupePaymentDialog : Window
     {
         _session = session;
         InitializeComponent();
+
+        // Amounts read "1 000" while they are typed (see MoneyInput).
+        MoneyInput.GroupAsYouType(MontantRecuBox);
+        MoneyInput.GroupAsYouType(MontantRemisBox);
         SelectedGrid.ItemsSource = _selected;
         _selected.CollectionChanged += (_, _) => RefreshTotals();
         RefreshTotals();

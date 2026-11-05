@@ -20,6 +20,30 @@ namespace Lonnii.Data;
 /// </summary>
 public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbContext(options)
 {
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        ApplyProductRules();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        ApplyProductRules();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    /// <summary>
+    /// A Vente Libre product has no stock to count, so it is always "stock illimité" - whichever
+    /// app saved it (an older phone app sent the two flags apart, leaving "Qté : 0" and a false
+    /// "Rupture" on a product that never runs out). Enforced here so no save path can miss it.
+    /// </summary>
+    private void ApplyProductRules()
+    {
+        foreach (var entry in ChangeTracker.Entries<Product>())
+            if (entry.State is EntityState.Added or EntityState.Modified && entry.Entity is { VenteLibre: true, StockIllimite: false })
+                entry.Entity.StockIllimite = true;
+    }
+
     /// <summary>Scale used by the money converter: two decimal places, as DECIMAL(15,2) in the source schema.</summary>
     private const decimal MoneyScale = 100m;
 
@@ -39,6 +63,7 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
     public DbSet<RegistrationRequest> RegistrationRequests => Set<RegistrationRequest>();
     public DbSet<CloudBackupState> CloudBackupStates => Set<CloudBackupState>();
     public DbSet<PushDevice> PushDevices => Set<PushDevice>();
+    public DbSet<HostLicence> HostLicences => Set<HostLicence>();
 
     // Identity
     public DbSet<User> Users => Set<User>();
@@ -161,6 +186,7 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         [typeof(Device)] = "devices",
         [typeof(CloudBackupState)] = "cloud_backup_state",
         [typeof(PushDevice)] = "push_tokens",
+        [typeof(HostLicence)] = "host_licence",
         [typeof(RegistrationRequest)] = "registration_requests",
         [typeof(User)] = "users",
         [typeof(Groupe)] = "groupes",
@@ -335,6 +361,8 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
 
         // Local to each installation; see CloudBackupState. One row per workspace.
         b.Entity<CloudBackupState>(e => e.HasKey(x => x.GroupId));
+        // Local to each installation; see HostLicence. One row per workspace.
+        b.Entity<HostLicence>(e => e.HasKey(x => x.GroupId));
 
         // Lonnii Business's UNIQUE(user_id, push_token): re-registering only refreshes the row.
         b.Entity<PushDevice>(e => e.HasIndex(x => new { x.UserId, x.PushToken }).IsUnique());

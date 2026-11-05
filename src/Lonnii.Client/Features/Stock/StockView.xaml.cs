@@ -160,6 +160,10 @@ public partial class StockView : UserControl
     private sealed record IconRow(ProductDto Product, BitmapImage? Thumbnail)
     {
         public bool HasNoThumbnail => Thumbnail is null;
+        public bool IsMatierePremiere => Product.TypeProduit == ProductTypes.MatierePremiere;
+
+        /// <summary>Same rule as Ventes: an uncounted stock (vente libre, illimité) is never out.</summary>
+        public bool IsOutOfStock => !Product.VenteLibre && !Product.StockIllimite && Product.Quantity <= 0;
     }
 
     /// <summary>Same pairing for the list view's DataGrid - binding the photo column straight
@@ -167,7 +171,10 @@ public partial class StockView : UserControl
     /// <see cref="_thumbnailCache"/> handed to it (a runtime-registered resource, rather than
     /// one declared in XAML, that a DataGridTemplateColumn's deferred CellTemplate turned out
     /// not to resolve reliably once the grid actually generated rows).</summary>
-    private sealed record ListRow(ProductDto Product, BitmapImage? Thumbnail);
+    private sealed record ListRow(ProductDto Product, BitmapImage? Thumbnail)
+    {
+        public bool IsMatierePremiere => Product.TypeProduit == ProductTypes.MatierePremiere;
+    }
 
     public StockView(AppSession session)
     {

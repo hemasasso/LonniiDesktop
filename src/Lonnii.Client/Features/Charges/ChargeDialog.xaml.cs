@@ -19,6 +19,9 @@ public partial class ChargeDialog : Window
         _existing = existing;
         InitializeComponent();
 
+        // Amounts read "1 000" while they are typed (see MoneyInput).
+        MoneyInput.GroupAsYouType(MontantBox);
+
         // Wired here rather than in XAML: a XAML-declared handler is connected as soon as
         // this element is built (TypeCombo has an IsSelected="True" item), which fires it
         // immediately during InitializeComponent - while RecurringCheck, declared later in

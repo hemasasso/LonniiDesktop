@@ -22,6 +22,10 @@ public partial class MixteQuantityDialog : Window
         _factor = Math.Max(product.FacteurConversion ?? 1, 1);
         InitializeComponent();
 
+        // Amounts read "1 000" while they are typed (see MoneyInput).
+        MoneyInput.GroupAsYouType(GrosBox);
+        MoneyInput.GroupAsYouType(DetailBox);
+
         HeaderText.Text = product.Name;
         SubtitleText.Text = $"Disponible : {product.QuantityDisplay}";
         GrosLabel.Text = product.UniteVente ?? "Gros";

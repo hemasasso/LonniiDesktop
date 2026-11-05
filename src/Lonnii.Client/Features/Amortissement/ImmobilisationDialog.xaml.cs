@@ -29,6 +29,10 @@ public partial class ImmobilisationDialog : Window
         _simulation = simulation;
         InitializeComponent();
 
+        // Amounts read "1 000" while they are typed (see MoneyInput).
+        MoneyInput.GroupAsYouType(ValeurBox);
+        MoneyInput.GroupAsYouType(ResiduelleBox);
+
         CategorieCombo.ItemsSource = CategoriesImmobilisation.All
             .Select(c => new Choice<string>(c, CategoriesImmobilisation.Label(c))).ToList();
         MethodeCombo.ItemsSource = MethodesAmortissement.All

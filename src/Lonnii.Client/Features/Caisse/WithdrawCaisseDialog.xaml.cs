@@ -23,6 +23,9 @@ public partial class WithdrawCaisseDialog : Window
         _availableMobile = availableMobile;
         InitializeComponent();
 
+        // Amounts read "1 000" while they are typed (see MoneyInput).
+        MoneyInput.GroupAsYouType(MontantBox);
+
         UpdateMode();
 
         MontantBox.LostFocus += (_, _) =>

@@ -23,6 +23,9 @@ public partial class CederImmobilisationDialog : Window
 
         InitializeComponent();
 
+        // Amounts read "1 000" while they are typed (see MoneyInput).
+        MoneyInput.GroupAsYouType(ValeurBox);
+
         HeaderHint.Text = $"{immo.Nom} — acquise le {immo.DateAcquisition:dd/MM/yyyy} pour {Money.Format(immo.ValeurAcquisition)}";
         DatePicker.SelectedDate = DateTime.Today;
         DatePicker.DisplayDateStart = immo.DateAcquisition.ToDateTime(TimeOnly.MinValue);

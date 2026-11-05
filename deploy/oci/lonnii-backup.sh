@@ -6,6 +6,7 @@
 #     looks like a backup.
 #   * /var/lib/lonnii-api/jwt.key: the key every backup token is derived from. Without it, no shop's cloud
 #     backup can be authorised again. Tiny.
+#   * /etc/lonnii-licence-signing.key: signs every shop's licence. Without it, no licence can be renewed.
 #   * old copies beyond KEEP_DAYS are deleted.
 #
 # The customers' CLOUD BACKUPS (/var/lib/lonnii-api/backups) are not copied here: they are themselves backups
@@ -22,6 +23,7 @@ DEST="${BACKUP_DIR:-/var/backups/lonnii}"
 KEEP_DAYS="${KEEP_DAYS:-14}"
 PG="${PG_BIN:-/usr/pgsql-16/bin}"
 DATA_DIR="${API_DATA_DIR:-/var/lib/lonnii-api}"
+LICENCE_KEY="${LICENCE_KEY:-/etc/lonnii-licence-signing.key}"
 STAMP="$(date +%F-%H%M)"
 
 log() { echo "$(date '+%F %T') $*"; }
@@ -47,7 +49,16 @@ else
   log "WARNING: $DATA_DIR/jwt.key not found"
 fi
 
+# The key every shop's licence is signed with (see LicenceToken). Lost, no shop can be given a
+# renewed licence again - so it is kept with the others.
+if [ -f "$LICENCE_KEY" ]; then
+  log "licence signing key"
+  install -m 600 -o root -g root "$LICENCE_KEY" "$DEST/licence-signing-$STAMP.key"
+else
+  log "WARNING: $LICENCE_KEY not found"
+fi
+
 log "removing copies older than $KEEP_DAYS days"
-find "$DEST" -maxdepth 1 -type f \( -name 'db-*.dump' -o -name 'jwt-*.key' \) -mtime +"$KEEP_DAYS" -delete
+find "$DEST" -maxdepth 1 -type f \( -name 'db-*.dump' -o -name 'jwt-*.key' -o -name 'licence-signing-*.key' \) -mtime +"$KEEP_DAYS" -delete
 
 log "done: $(find "$DEST" -maxdepth 1 -type f | wc -l) files, $(du -sh "$DEST" | cut -f1) in $DEST; latest dump $(du -h "$DEST/db-$STAMP.dump" | cut -f1)"

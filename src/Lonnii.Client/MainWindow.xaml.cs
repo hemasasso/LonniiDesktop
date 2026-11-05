@@ -346,7 +346,15 @@ public partial class MainWindow : Window
                                     "(dernière sauvegarde envoyée par le serveur de la boutique).";
         }
 
-        AvatarButton.Content = Initials(_session.DisplayName);
+        // A TextBlock with its own colour, not a bare string: a string is wrapped in a TextBlock
+        // that takes the theme's text colour (white at night) over the button's, unreadable on gold.
+        AvatarButton.Content = new TextBlock
+        {
+            Text = Initials(_session.DisplayName),
+            Foreground = new SolidColorBrush(Color.FromRgb(0x1B, 0x1F, 0x27)),
+            FontWeight = FontWeights.Bold,
+            FontSize = 12,
+        };
         AvatarGroupHeader.Header = groupe?.Nom ?? "Aucun espace";
         AvatarRoleHeader.Header = DescribeRole();
         AvatarRoleHeader.Visibility = string.IsNullOrEmpty(DescribeRole()) ? Visibility.Collapsed : Visibility.Visible;
@@ -680,15 +688,14 @@ public partial class MainWindow : Window
                 items.Insert(0, new NotificationDto("update", "info",
                     $"Mise à jour disponible : {_update.Version}",
                     $"Vous avez la version {AppUpdater.CurrentVersion}.", null));
-            _notifications = items;
+            _notifications = items.Where(n => !_dismissedNotifications.Contains(DismissKey(n))).ToList();
         }
         catch (Exception ex) when (ex is ApiException or System.Net.Http.HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
         {
             return;
         }
 
-        NotificationBadge.Visibility = _notifications.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        NotificationBadgeText.Text = _notifications.Count > 9 ? "9+" : _notifications.Count.ToString();
+        ApplyNotificationBadge();
         if (NotificationsPopup.IsOpen) FillNotificationsPanel();
     }
 
@@ -717,6 +724,86 @@ public partial class MainWindow : Window
         }
 
         foreach (var item in _notifications) NotificationsPanel.Children.Add(NotificationRow(item));
+    }
+
+    /// <summary>Lines this user closed with "×". Keyed by the whole text, so an alert that changes
+    /// (a third product out of stock) shows again; kept until the app closes.</summary>
+    private readonly HashSet<string> _dismissedNotifications = [];
+
+    private static string DismissKey(NotificationDto item) => $"{item.Kind}|{item.Title}|{item.Message}";
+
+    /// <summary>The line's own buttons, on the right: "Clôturer" on someone else's open till for
+    /// the Admin Général, and "×" to hide the line. Their clicks are marked handled so they do
+    /// not also open the line's screen.</summary>
+    private StackPanel Actions(NotificationDto item)
+    {
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(6, 0, 0, 0) };
+        DockPanel.SetDock(panel, Dock.Right);
+
+        if (item.Kind == "caisse" && int.TryParse(item.ActionId, out var caisseId) && _session.IsAdminGeneral && !_session.IsRemote)
+        {
+            var close = new Button
+            {
+                Content = new TextBlock { Text = "Clôturer", FontSize = 11, Style = (Style)FindResource("ButtonContentText") },
+                Style = (Style)FindResource("DangerButton"),
+                MinWidth = 0, Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 0, 4, 0),
+                ToolTip = "Clôturer cette caisse sans comptage",
+            };
+            close.Click += async (_, e) =>
+            {
+                e.Handled = true;
+                await ForceCloseCaisseAsync(caisseId, item);
+            };
+            panel.Children.Add(close);
+        }
+
+        var dismiss = new Button
+        {
+            Content = new TextBlock { Text = "", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 10 },
+            Background = Brushes.Transparent, BorderThickness = new Thickness(0), Cursor = Cursors.Hand,
+            Padding = new Thickness(4), FocusVisualStyle = null, ToolTip = "Masquer",
+            Template = (ControlTemplate)Resources["DropdownRowTemplate"]!,
+        };
+        ((TextBlock)dismiss.Content).SetResourceReference(TextBlock.ForegroundProperty, "TextMuted");
+        dismiss.Click += (_, e) =>
+        {
+            e.Handled = true;
+            _dismissedNotifications.Add(DismissKey(item));
+            _notifications = _notifications.Where(n => DismissKey(n) != DismissKey(item)).ToList();
+            ApplyNotificationBadge();
+            FillNotificationsPanel();
+        };
+        panel.Children.Add(dismiss);
+        return panel;
+    }
+
+    /// <summary>The Admin Général closing a till its owner left open. Asked first, since the
+    /// drawer is not counted: the history records the close as forced.</summary>
+    private async Task ForceCloseCaisseAsync(int caisseId, NotificationDto item)
+    {
+        NotificationsPopup.IsOpen = false;
+        var answer = MessageBox.Show(this,
+            $"{item.Title}\n{item.Message}\n\nClôturer cette caisse maintenant ? Les montants ne seront pas comptés : " +
+            "la caisse est fermée sur les montants attendus, et l'historique indiquera une clôture forcée.",
+            "Clôturer la caisse", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (answer != MessageBoxResult.Yes) return;
+
+        try
+        {
+            await _session.Api.ForceCloseCaisseAsync(caisseId);
+            StatusText.Text = "Caisse clôturée";
+        }
+        catch (ApiException ex)
+        {
+            ShowApiError(ex);
+        }
+        await RefreshNotificationsAsync();
+    }
+
+    private void ApplyNotificationBadge()
+    {
+        NotificationBadge.Visibility = _notifications.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        NotificationBadgeText.Text = _notifications.Count > 9 ? "9+" : _notifications.Count.ToString();
     }
 
     /// <summary>A coloured icon by kind and urgency, a bold title and a muted detail line.
@@ -756,6 +843,7 @@ public partial class MainWindow : Window
         var row = new DockPanel();
         DockPanel.SetDock(icon, Dock.Left);
         row.Children.Add(icon);
+        row.Children.Add(Actions(item));
         row.Children.Add(text);
 
         var button = new Button

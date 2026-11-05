@@ -22,11 +22,62 @@ namespace Lonnii.Api.Features.Licensing;
 /// instant this installation has seen, so winding the computer's clock back does not extend it.
 /// </para>
 /// </summary>
-public class LicenceGuard(LonniiDbContext db)
+/// <para>
+/// On a shop's host, what is enforced comes from the <see cref="LicenceToken"/> the licence server
+/// signed - mode, deadline, block, bound machines - not from the <c>groupes</c> columns, which the
+/// shop can edit. Without a signed licence (an installation from before tokens, or one whose token
+/// was deleted) the host has <see cref="UnsignedDays"/> to fetch one, capped at
+/// <see cref="UnsignedBuildCap"/> after this build, then locks until it connects once.
+/// </para>
+/// <param name="publicKey">The key licences are checked against; tests only. Production always
+/// uses the built-in <see cref="LicenceToken.PublicKey"/>.</param>
+public class LicenceGuard(LonniiDbContext db, string? publicKey = null)
 {
     public const string ExpiredMessage =
         "La licence de cet espace a expiré : l'ordinateur n'a pas pu joindre le serveur Lonnii " +
         "depuis trop longtemps. Connectez-le à Internet puis cliquez sur « Réessayer ».";
+
+    public const string UnsignedMessage =
+        "Cet ordinateur doit se connecter une fois à Internet pour confirmer la licence de l'espace. " +
+        "Connectez-le puis cliquez sur « Réessayer ».";
+
+    /// <summary>How long a host may run without a signed licence before it must fetch one.</summary>
+    public const int UnsignedDays = 14;
+
+    /// <summary>However often that window is restarted by deleting the row that records it, it
+    /// never runs past this long after the build was made.</summary>
+    public static readonly TimeSpan UnsignedBuildCap = TimeSpan.FromDays(60);
+
+    /// <summary>When this build was made (stamped by the project file); null in a build without it,
+    /// where the cap does not apply.</summary>
+    public static readonly DateTime? BuildDate =
+        typeof(LicenceGuard).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false)
+            .OfType<System.Reflection.AssemblyMetadataAttribute>()
+            .FirstOrDefault(a => a.Key == "BuildDateUtc")?.Value is { } stamp
+            && DateTime.TryParse(stamp, null, System.Globalization.DateTimeStyles.RoundtripKind, out var built)
+            ? built.ToUniversalTime() : null;
+
+    /// <summary>The verified claims for <paramref name="groupId"/>'s stored token, or null when it
+    /// has none, or one that is altered, foreign, or for another espace.</summary>
+    public async Task<LicenceClaims?> SignedClaimsAsync(string groupId, CancellationToken ct)
+    {
+        var token = await db.HostLicences.AsNoTracking()
+            .Where(h => h.GroupId == groupId).Select(h => h.Token).FirstOrDefaultAsync(ct);
+        return Verified(token, groupId);
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, LicenceClaims?> VerifiedTokens = new();
+
+    /// <summary>ECDSA checks are cheap but run on every request; a token's verdict never changes.</summary>
+    private LicenceClaims? Verified(string? token, string groupId)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return null;
+        if (VerifiedTokens.Count > 256) VerifiedTokens.Clear(); // a new token every refresh: keep it small
+        var claims = publicKey is null
+            ? VerifiedTokens.GetOrAdd(token, t => LicenceToken.Verify(t))
+            : LicenceToken.Verify(token, publicKey);
+        return claims?.GroupId == groupId ? claims : null;
+    }
 
     /// <summary>How often the clock high-water mark is written, so a busy till does not
     /// write to the database on every request.</summary>
@@ -50,6 +101,10 @@ public class LicenceGuard(LonniiDbContext db)
         // where sessions open, and this guard never runs for it.
         if (groupe.IsBlocked && !string.IsNullOrWhiteSpace(groupe.LicenceServerUrl))
             return Locked(groupe.BlockReason ?? "Cet espace est bloqué. Contactez le support.", groupe.LicenceDeadline);
+
+        // A shop's host answers to its signed licence, whatever its database says.
+        if (!string.IsNullOrWhiteSpace(groupe.LicenceServerUrl))
+            return await CheckSignedAsync(groupe, ct);
 
         if (!IsEnforced(groupe)) return NotEnforced();
 
@@ -88,6 +143,72 @@ public class LicenceGuard(LonniiDbContext db)
             Deadline: deadline,
             DaysLeft: daysLeft,
             Message: expired ? ExpiredMessage : null);
+    }
+
+    /// <summary>
+    /// A host's licence, from its signed token. Signed local: never locked. Signed online: locked
+    /// after the token's deadline. Blocked in the token: locked. No valid token: the unsigned
+    /// window. "Now" never goes below the latest moment seen nor below the token's own issue time,
+    /// so winding the clock back, even with the mark row edited, gains nothing past the signature.
+    /// </summary>
+    private async Task<LicenceStatusDto> CheckSignedAsync(Groupe groupe, CancellationToken ct)
+    {
+        var claims = await SignedClaimsAsync(groupe.Id, ct);
+
+        var now = DateTime.UtcNow;
+        if (groupe.LicenceClockMark is { } mark && mark > now) now = mark;
+        if (claims is not null && claims.IssuedAt > now) now = claims.IssuedAt;
+        if (groupe.LicenceClockMark is null || now - groupe.LicenceClockMark > MarkInterval)
+        {
+            groupe.LicenceClockMark = now;
+            await db.SaveChangesAsync(ct);
+        }
+
+        if (claims is not null)
+        {
+            if (claims.IsBlocked)
+                return Locked(claims.BlockReason ?? "Cet espace est bloqué. Contactez le support.", claims.MustReconnectBy);
+            if (claims.MustReconnectBy is not { } signedDeadline) return NotEnforced();
+            return Status(signedDeadline, now, ExpiredMessage);
+        }
+
+        // No signed licence yet: a window to fetch one, which deleting the row cannot stretch past
+        // the build's own cap.
+        var state = await db.HostLicences.FirstOrDefaultAsync(h => h.GroupId == groupe.Id, ct);
+        if (state is null) db.HostLicences.Add(state = new HostLicence { GroupId = groupe.Id });
+        if (state.UnsignedSince is null || state.UnsignedSince > now)
+        {
+            state.UnsignedSince = now;
+            state.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+        }
+
+        var deadline = state.UnsignedSince.Value.AddDays(UnsignedDays);
+        if (BuildDate is { } built && built + UnsignedBuildCap < deadline) deadline = built + UnsignedBuildCap;
+        return Status(deadline, now, UnsignedMessage);
+    }
+
+    private static LicenceStatusDto Status(DateTime deadline, DateTime now, string expiredMessage)
+    {
+        var expired = now > deadline;
+        return new LicenceStatusDto(
+            Enforced: true,
+            Expired: expired,
+            Deadline: deadline,
+            DaysLeft: expired ? 0 : (int)Math.Ceiling((deadline - now).TotalDays),
+            Message: expired ? expiredMessage : null);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="deviceId"/> may open the espace according to its signed licence:
+    /// true or false when there is one, null when there is none (the caller falls back to the
+    /// device table, the unsigned window bounding how long that lasts).
+    /// </summary>
+    public async Task<bool?> SignedDeviceAllowedAsync(string groupId, string? deviceId, CancellationToken ct)
+    {
+        var claims = await SignedClaimsAsync(groupId, ct);
+        if (claims is null) return null;
+        return !string.IsNullOrWhiteSpace(deviceId) && claims.Devices.Contains(deviceId);
     }
 
     /// <summary>The status that puts the lock screen up with <paramref name="message"/>.</summary>
@@ -145,6 +266,16 @@ public class LicenceGuard(LonniiDbContext db)
 
         // Null from a local-mode answer: nothing to enforce.
         groupe.LicenceDeadline = response.MustReconnectBy;
+
+        // The signed licence is what this host enforces from now on; only one that verifies, for
+        // this espace, replaces the stored one (an unsigned answer leaves it as it was).
+        if (Verified(response.LicenceToken, groupe.Id) is not null)
+        {
+            var state = await db.HostLicences.FirstOrDefaultAsync(h => h.GroupId == groupe.Id, ct);
+            if (state is null) db.HostLicences.Add(state = new HostLicence { GroupId = groupe.Id });
+            state.Token = response.LicenceToken;
+            state.UpdatedAt = DateTime.UtcNow;
+        }
 
         groupe.LicenceClockMark = new[]
         {

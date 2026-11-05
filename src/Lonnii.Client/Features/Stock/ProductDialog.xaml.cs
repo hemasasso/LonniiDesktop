@@ -68,6 +68,13 @@ public partial class ProductDialog : Window
         _session = session;
         InitializeComponent();
 
+        // Amounts read "1 000" while they are typed (see MoneyInput).
+        MoneyInput.GroupAsYouType(CostBox);
+        MoneyInput.GroupAsYouType(PriceBox);
+        MoneyInput.GroupAsYouType(MargeBox);
+        MoneyInput.GroupAsYouType(QuantityBox);
+        MoneyInput.GroupAsYouType(ThresholdBox);
+
         // Same correction as the search boxes: a scan into this field must be the code, not symbols.
         _ = new Lonnii.Client.Services.ScanKeyCapture(BarcodeBox);
 

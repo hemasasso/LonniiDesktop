@@ -39,6 +39,7 @@ public static class DeviceEndpoints
         RegisterDeviceRequest request,
         LonniiDbContext db,
         ILicenceServer licences,
+        LicenceGuard guard,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.DeviceId))
@@ -121,6 +122,22 @@ public static class DeviceEndpoints
         if (existing is null) db.Devices.Add(device);
 
         await db.SaveChangesAsync(ct);
+
+        // The machine is bound on our server now, but this host's signed licence still lists the
+        // old set and would keep refusing it: fetch the new one while we are online anyway.
+        // Best effort - the next licence sync brings it otherwise.
+        if (!string.IsNullOrWhiteSpace(groupe.LicenceServerUrl))
+        {
+            try
+            {
+                var refreshed = await licences.RefreshAsync(groupe.LicenceServerUrl,
+                    new LicenceRefreshRequest(groupe.Id, request.DeviceId, request.AppVersion), ct);
+                await guard.ApplyRefreshAsync(groupe, refreshed, request.DeviceId, ct);
+            }
+            catch (Exception e) when (e is ActivationRefusedException or NotSupportedException or HttpRequestException)
+            {
+            }
+        }
 
         return Results.Ok(ToDto(device, request.DeviceId));
     }

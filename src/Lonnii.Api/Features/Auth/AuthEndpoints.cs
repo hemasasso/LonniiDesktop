@@ -94,7 +94,8 @@ public static class AuthEndpoints
     /// </summary>
     private static async Task<IResult> SetupStateAsync(
         LonniiDbContext db, IConfiguration config, TokenService tokens, CancellationToken ct) =>
-        Results.Ok(new SetupStateResponse(await db.Users.AnyAsync(ct), ManualSetupAllowed(config), tokens.HostId));
+        Results.Ok(new SetupStateResponse(await db.Users.AnyAsync(ct), ManualSetupAllowed(config), tokens.HostId,
+            Lonnii.Api.Features.Infrastructure.HostMachineIdentity.Current));
 
     /// <summary>
     /// Whether the first account may be created by hand on this host. Off unless

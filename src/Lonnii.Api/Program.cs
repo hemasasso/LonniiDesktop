@@ -121,7 +121,11 @@ builder.Services.AddHttpClient(Lonnii.Api.Features.Remote.RemoteRequestReplayer.
     client.Timeout = TimeSpan.FromMinutes(2);
 });
 builder.Services.AddScoped<LicenceGuard>(services =>
+    // The key that licences are checked against is built in (LicenceToken.PublicKey), never read
+    // from configuration: a key a shop could set is a key a shop could sign its own licence with.
     new LicenceGuard(services.GetRequiredService<Lonnii.Api.Features.Remote.ControlDb>().Db));
+// Signs licences on the licence server; holds no key (and signs nothing) on a shop's host.
+builder.Services.AddSingleton<LicenceSigner>();
 
 // Populated per request by GroupScopeFilter, then injected into group-scoped endpoints.
 builder.Services.AddScoped<GroupScope>();

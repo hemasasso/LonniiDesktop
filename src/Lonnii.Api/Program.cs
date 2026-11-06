@@ -110,6 +110,7 @@ builder.Services.AddScoped<PrivilegeResolver>();
 builder.Services.AddScoped<DatabaseSeeder>();
 builder.Services.AddSingleton<Lonnii.Api.Features.Live.ShopChangeNotifier>();
 builder.Services.AddSingleton<Lonnii.Api.Features.Print.PrintQueue>();
+builder.Services.AddSingleton<Lonnii.Api.Features.Auth.LoginThrottle>();
 builder.Services.AddScoped<GroupSessionService>();
 // Who the caller is and whether the shop's licence is current are facts of the server's own
 // database, even when the request's data comes from a shop's copy.

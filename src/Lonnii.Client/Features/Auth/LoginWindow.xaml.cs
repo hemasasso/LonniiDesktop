@@ -53,14 +53,19 @@ public partial class LoginWindow : Window
         SetDiscovery("Recherche du serveur… Veuillez patienter jusqu'à la connexion au serveur.", "TextSecondary", "Success", blink: true);
 
         var deadline = DateTime.UtcNow.AddSeconds(SearchSeconds);
+        var attempt = 0;
         do
         {
+            // A computer busy enough (a big update, a scan, another heavy program) answers more
+            // slowly than 1.5 s: give each try longer than the last instead of calling it gone.
+            var patience = TimeSpan.FromMilliseconds(Math.Min(1500 * (1 << Math.Min(attempt++, 3)), 8000));
+
             // Only an address that proves itself is tried without searching: this machine, or
             // one we authorised. Whatever else the settings file says is ignored.
             var known = ServerTrust.RepairedAddress(App.Settings) ?? _host;
             if (_remote) return;
 
-            if (ServerTrust.IsAllowedWithoutSearch(known, App.Settings) && await ReachableAsync(known))
+            if (ServerTrust.IsAllowedWithoutSearch(known, App.Settings) && await ReachableAsync(known, patience))
             {
                 if (_remote) return;
                 _host = known;
@@ -128,10 +133,10 @@ public partial class LoginWindow : Window
     private void UpdateSignIn() =>
         SignInButton.IsEnabled = _serverFound && !_blocked && !_needsSetup && !_busy;
 
-    private async Task<bool> ReachableAsync(string address)
+    private async Task<bool> ReachableAsync(string address, TimeSpan patience)
     {
         _session.Api.Connect(address);
-        using var quickly = new CancellationTokenSource(TimeSpan.FromMilliseconds(1500));
+        using var quickly = new CancellationTokenSource(patience);
         return await _session.Api.PingAsync(quickly.Token);
     }
 

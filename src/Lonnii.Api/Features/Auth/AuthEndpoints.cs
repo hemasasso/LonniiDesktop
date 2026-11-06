@@ -198,11 +198,17 @@ public static class AuthEndpoints
         LonniiDbContext db,
         TokenService tokens,
         GroupSessionService sessions,
+        LoginThrottle throttle,
         HttpContext http,
         CancellationToken ct)
     {
         var identifier = request.Identifier.Trim();
         var email = identifier.ToLowerInvariant();
+        var address = http.Connection.RemoteIpAddress?.ToString();
+
+        // Locked: refused before the password is even looked at, so the lock cannot test one.
+        if (throttle.Remaining(identifier, address) is { } wait)
+            return Results.Json(new ApiError(LoginThrottle.Message(wait)), statusCode: StatusCodes.Status429TooManyRequests);
 
         var user = await db.Users
             .FirstOrDefaultAsync(u => u.Email == email || u.Username == identifier, ct);
@@ -210,9 +216,14 @@ public static class AuthEndpoints
         // Same message either way, so a failed sign-in does not reveal which accounts exist.
         const string failure = "Identifiants incorrects";
 
-        if (user?.Password is null) return Results.Json(new ApiError(failure), statusCode: StatusCodes.Status401Unauthorized);
-        if (!BCrypt.Net.BCrypt.Verify(request.Password, user.Password))
-            return Results.Json(new ApiError(failure), statusCode: StatusCodes.Status401Unauthorized);
+        if (user?.Password is null || !BCrypt.Net.BCrypt.Verify(request.Password, user.Password))
+        {
+            return throttle.Failed(identifier, address) is { } locked
+                ? Results.Json(new ApiError(LoginThrottle.Message(locked)), statusCode: StatusCodes.Status429TooManyRequests)
+                : Results.Json(new ApiError(failure), statusCode: StatusCodes.Status401Unauthorized);
+        }
+
+        throttle.Succeeded(identifier, address);
 
         if (user.IsBlocked)
             return Results.Json(new ApiError("Ce compte est bloqué."), statusCode: StatusCodes.Status403Forbidden);

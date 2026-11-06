@@ -109,6 +109,7 @@ builder.Services.AddHttpClient<ILicenceServer, HttpLicenceServer>(
 builder.Services.AddScoped<PrivilegeResolver>();
 builder.Services.AddScoped<DatabaseSeeder>();
 builder.Services.AddSingleton<Lonnii.Api.Features.Live.ShopChangeNotifier>();
+builder.Services.AddSingleton<Lonnii.Api.Features.Print.PrintQueue>();
 builder.Services.AddScoped<GroupSessionService>();
 // Who the caller is and whether the shop's licence is current are facts of the server's own
 // database, even when the request's data comes from a shop's copy.
@@ -291,6 +292,7 @@ app.MapAmortissementEndpoints();
 app.MapBilanEndpoints();
 app.MapProgrammeEndpoints();
 app.MapNotificationEndpoints();
+Lonnii.Api.Features.Print.PrintEndpoints.MapPrintEndpoints(app);
 app.MapParametresEndpoints();
 app.MapEspaceTransferEndpoints();
 app.MapConsommationEndpoints();

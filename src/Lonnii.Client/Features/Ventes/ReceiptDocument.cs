@@ -99,7 +99,22 @@ public sealed class ReceiptDocument
     {
         var dialog = new PrintDialog();
         if (dialog.ShowDialog() != true) return;
+        PrintOn(dialog, buildForPrint, singlePage, jobName);
+    }
 
+    /// <summary>
+    /// Prints on this computer's default printer without asking - a phone's request, the person
+    /// being at the counter rather than at this screen. Throws when Windows has no printer.
+    /// </summary>
+    public static void PrintSilently(Func<Border> buildForPrint, bool singlePage, string jobName)
+    {
+        var dialog = new PrintDialog();
+        _ = dialog.PrintQueue ?? throw new InvalidOperationException("Aucune imprimante par défaut sur ce poste.");
+        PrintOn(dialog, buildForPrint, singlePage, jobName);
+    }
+
+    private static void PrintOn(PrintDialog dialog, Func<Border> buildForPrint, bool singlePage, string jobName)
+    {
         var paper = buildForPrint();
         var unbounded = new Size(double.PositiveInfinity, double.PositiveInfinity);
         paper.Measure(unbounded);

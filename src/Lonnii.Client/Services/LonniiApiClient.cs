@@ -583,6 +583,20 @@ public class LonniiApiClient
     public Task<NotificationsResponse> GetNotificationsAsync(CancellationToken ct = default) =>
         GetAsync<NotificationsResponse>("api/notifications", ct);
 
+    // --- Phone print jobs (Features/Print) ---
+
+    /// <summary>The next sale a phone asked this computer to print, or null. Asking also keeps this
+    /// computer on the phones' list of open postes.</summary>
+    public async Task<PhonePrintJob?> NextPrintJobAsync(string name, CancellationToken ct = default)
+    {
+        using var response = await SendCoreAsync(HttpMethod.Get, $"api/print/jobs/next?name={Uri.EscapeDataString(name)}", null, ct);
+        if (response.StatusCode == HttpStatusCode.NoContent) return null;
+        return await response.Content.ReadFromJsonAsync<PhonePrintJob>(JsonOptions, ct);
+    }
+
+    public Task ReportPrintJobAsync(string id, bool ok, string? message, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, $"api/print/jobs/{id}/result", new { ok, message }, ct);
+
     public Task<CaisseDto> ForceCloseCaisseAsync(int id, CancellationToken ct = default) =>
         PostAsync<CaisseDto>($"api/caisse/{id}/cloture-forcee", new { }, ct);
 
@@ -1369,3 +1383,6 @@ public class LonniiApiClient
 /// <summary>What creating an espace gave: the espace, or - while Lonnii has not approved it yet - the
 /// pending request.</summary>
 public sealed record CreateGroupeOutcome(GroupeDto? Created, PendingEspaceDto? Pending);
+
+/// <summary>A sale a phone asked this computer to print (<c>/api/print/jobs/next</c>).</summary>
+public sealed record PhonePrintJob(string Id, string VenteId, string Format, string RequestedBy, DateTime CreatedAt, string Status, string? Message);

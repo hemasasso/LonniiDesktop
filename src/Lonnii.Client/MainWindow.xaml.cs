@@ -77,8 +77,13 @@ public partial class MainWindow : Window
         _notificationTimer.Start();
         Loaded += async (_, _) => await RefreshNotificationsAsync();
         _session.Changed += async (_, _) => await RefreshNotificationsAsync();
+        // Phones at the shop printing on this computer's printer.
+        var phonePrint = new Features.Print.PhonePrintService(_session);
+        phonePrint.Start();
+
         Closing += (_, _) =>
         {
+            phonePrint.Stop();
             EndPresence();
             CustomerDisplayService.Instance.Stop();
         };

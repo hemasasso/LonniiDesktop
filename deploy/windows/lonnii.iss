@@ -116,3 +116,35 @@ begin
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Lonnii.Api.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Result := '';
 end;
+
+// The earlier Lonnii Business app (installed per user in AppData\Local\Programs) left a desktop
+// shortcut with this very name. Windows shows only one of two same-named desktop icons, the user's
+// own, so the new shortcut stayed hidden behind the old app's. Only a shortcut that points into that
+// old app's folder is removed - never one the person made to anything else.
+procedure RemoveOldAppShortcut(const Folder: String);
+var
+  Shell, Link: Variant;
+  Path, Target: String;
+begin
+  Path := AddBackslash(Folder) + 'Lonnii Business.lnk';
+  if not FileExists(Path) then Exit;
+  try
+    Shell := CreateOleObject('WScript.Shell');
+    Link := Shell.CreateShortcut(Path);
+    Target := Link.TargetPath;
+    Target := Lowercase(Target);
+    if Pos('\appdata\local\programs\lonnii business\', Target) > 0 then
+      DeleteFile(Path);
+  except
+    // Unreadable shortcut: leave it alone.
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+  begin
+    RemoveOldAppShortcut(ExpandConstant('{userdesktop}'));
+    RemoveOldAppShortcut(ExpandConstant('{commondesktop}'));
+  end;
+end;

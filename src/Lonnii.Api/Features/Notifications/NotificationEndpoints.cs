@@ -19,6 +19,9 @@ public static class NotificationEndpoints
     public static void MapNotificationEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/api/notifications", ListAsync).WithTags("Notifications").RequireGroupScope();
+        // Same list for phones signed in online: on www.lonnii.com Node owns /api/notifications, and
+        // nginx already sends /api/live/ to this API.
+        app.MapGet("/api/live/notifications", ListAsync).WithTags("Notifications").RequireGroupScope();
 
         // The phone app's own routes, kept at Lonnii Business's path and body. The user comes from
         // the sign-in token, never from the body's userId: a phone cannot subscribe to someone else.

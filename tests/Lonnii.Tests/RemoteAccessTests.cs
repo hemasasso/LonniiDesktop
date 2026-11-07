@@ -1,3 +1,4 @@
+using Lonnii.Api.Features.Print;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
@@ -352,13 +353,19 @@ public class RemoteAccessTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task An_ordinary_member_cannot_open_a_remote_session()
+    public async Task An_ordinary_member_can_open_a_remote_session_but_not_manage_the_shop()
     {
         await UploadSnapshotAsync();
 
-        var response = await OpenRemoteAsync(await LoginAsync(StaffEmail));
+        var jwt = await LoginAsync(StaffEmail);
+        var response = await OpenRemoteAsync(jwt);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        // Privileges, roles and members stay with administrators.
+        var session = (await response.Content.ReadFromJsonAsync<RemoteSessionResponse>())!;
+        var queued = await QueueAsync(jwt, session.SessionToken, new RemoteCommandRequest(
+            RemoteCommandTypes.Privilege, _staffId, PrivilegeName: Priv.Gestion.EditProducts, Granted: true, Catalog: "gestion"));
+        Assert.Equal(HttpStatusCode.Forbidden, queued.StatusCode);
     }
 
     [Fact]
@@ -725,6 +732,59 @@ public class RemoteAccessTests : IAsyncLifetime
         using var stream = new MemoryStream();
         SixLabors.ImageSharp.ImageExtensions.SaveAsJpeg(image, stream);
         return stream.ToArray();
+    }
+
+    [Fact]
+    public async Task A_phone_online_prints_on_a_shop_poste_through_the_hosts_relay()
+    {
+        var (jwt, session) = await AdminSessionAsync();
+
+        // The host says its till is open; nothing waits yet.
+        var poll = await _client.SendAsync(await HostRequestAsync(HttpMethod.Post, "print/poll",
+            JsonContent.Create(new PrintRelayPoll([new PrintRelayPoste("till-1", "Caisse 1", false)]))));
+        Assert.Equal(HttpStatusCode.OK, poll.StatusCode);
+        Assert.Empty((await poll.Content.ReadFromJsonAsync<PrintRelayJobs>())!.Jobs);
+
+        // The phone sees the till and sends a job.
+        var postes = await (await _client.SendAsync(Remote(HttpMethod.Get, "/api/print/postes", jwt, session.SessionToken)))
+            .Content.ReadFromJsonAsync<List<PrintPosteDto>>();
+        Assert.Equal("till-1", Assert.Single(postes!).DeviceId);
+
+        var send = Remote(HttpMethod.Post, "/api/print/jobs", jwt, session.SessionToken);
+        send.Content = JsonContent.Create(new PrintJobRequest("till-1", "v-1", "a4"));
+        var sent = await _client.SendAsync(send);
+        Assert.Equal(HttpStatusCode.OK, sent.StatusCode);
+        var job = (await sent.Content.ReadFromJsonAsync<PrintJobDto>())!;
+
+        // The host collects it once, for the right poste, and reports.
+        var collected = (await (await _client.SendAsync(await HostRequestAsync(HttpMethod.Post, "print/poll",
+            JsonContent.Create(new PrintRelayPoll([]))))).Content.ReadFromJsonAsync<PrintRelayJobs>())!;
+        var relayed = Assert.Single(collected.Jobs);
+        Assert.Equal((job.Id, "till-1", "v-1", "a4"), (relayed.Id, relayed.DeviceId, relayed.VenteId, relayed.Format));
+        Assert.Empty((await (await _client.SendAsync(await HostRequestAsync(HttpMethod.Post, "print/poll",
+            JsonContent.Create(new PrintRelayPoll([]))))).Content.ReadFromJsonAsync<PrintRelayJobs>())!.Jobs);
+
+        var reported = await _client.SendAsync(await HostRequestAsync(HttpMethod.Post, $"print/jobs/{job.Id}/result",
+            JsonContent.Create(new PrintJobResult(true, null))));
+        Assert.Equal(HttpStatusCode.NoContent, reported.StatusCode);
+
+        var followed = await (await _client.SendAsync(Remote(HttpMethod.Get, $"/api/print/jobs/{job.Id}", jwt, session.SessionToken)))
+            .Content.ReadFromJsonAsync<PrintJobDto>();
+        Assert.Equal("done", followed!.Status);
+    }
+
+    [Fact]
+    public async Task A_remote_session_cannot_pose_as_a_poste()
+    {
+        var (jwt, session) = await AdminSessionAsync();
+
+        var next = Remote(HttpMethod.Get, "/api/print/jobs/next", jwt, session.SessionToken);
+        next.Headers.Add("x-device-id", "till-1");
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, (await _client.SendAsync(next)).StatusCode);
+
+        var result = Remote(HttpMethod.Post, "/api/print/jobs/abc/result", jwt, session.SessionToken);
+        result.Content = JsonContent.Create(new PrintJobResult(true, null));
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, (await _client.SendAsync(result)).StatusCode);
     }
 
     private async Task<HttpResponseMessage> UploadPhotoAsync(string jwt, string session, byte[] bytes)

@@ -18,6 +18,17 @@ public sealed record PrintJobDto(
 /// <summary>The computer's answer once it has tried.</summary>
 public sealed record PrintJobResult(bool Ok, string? Message);
 
+/// <summary>A poste open at the shop, as the shop's host tells our server about it.</summary>
+public sealed record PrintRelayPoste(string DeviceId, string Name, bool IsHost);
+
+/// <summary>The shop's host, every few seconds: these postes are open; anything to print?</summary>
+public sealed record PrintRelayPoll(List<PrintRelayPoste>? Postes);
+
+/// <summary>A job a phone left on our server, for the shop's host to hand to the named poste.</summary>
+public sealed record PrintRelayJob(string Id, string DeviceId, string VenteId, string Format, string RequestedBy);
+
+public sealed record PrintRelayJobs(List<PrintRelayJob> Jobs);
+
 /// <summary>
 /// Phones printing on a shop computer's printer.
 ///
@@ -34,8 +45,11 @@ public sealed record PrintJobResult(bool Ok, string? Message);
 /// phone cannot make a till print anything but a real sale of this espace.
 /// </para>
 /// <para>
-/// On our server (a phone off-site, in a remote session) no till ever polls, so the list is empty
-/// and the phone falls back to its own printer.
+/// On our server (a phone signed in online, in a remote session) the tills cannot be reached, so
+/// the shop's host relays: it tells us every few seconds which postes are open
+/// (<see cref="Relayed"/>), collects the jobs phones left here (<see cref="TakeRelayed"/>), hands
+/// them to its own queue, and reports each result back (<see cref="FinishRelayed"/>). Nothing
+/// reaches into the shop: the host only ever calls out, as it already does for backups.
 /// </para>
 /// </summary>
 public sealed class PrintQueue
@@ -65,6 +79,43 @@ public sealed class PrintQueue
 
     public void Seen(string groupId, string deviceId, string name, bool isHost) =>
         _postes[(groupId, deviceId)] = new Poste(groupId, deviceId, name, isHost, DateTime.UtcNow);
+
+    /// <summary>
+    /// The shop's host's list of its open postes, as of now. Postes it no longer names drop off
+    /// within <see cref="OpenFor"/>, like a till that stops polling.
+    /// </summary>
+    public void Relayed(string groupId, IEnumerable<PrintRelayPoste> postes)
+    {
+        foreach (var p in postes.Take(MaxRelayedPostes))
+        {
+            if (string.IsNullOrWhiteSpace(p.DeviceId) || p.DeviceId.Length > 128) continue;
+            var name = string.IsNullOrWhiteSpace(p.Name) ? "Poste" : p.Name.Trim();
+            Seen(groupId, p.DeviceId, name[..Math.Min(name.Length, 60)], p.IsHost);
+        }
+    }
+
+    private const int MaxRelayedPostes = 50;
+
+    /// <summary>Every job waiting for this shop, whichever poste it is for, marked as handed out.</summary>
+    public IReadOnlyList<PrintRelayJob> TakeRelayed(string groupId)
+    {
+        Sweep();
+        var taken = new List<PrintRelayJob>();
+        foreach (var job in _jobs.Values.Where(j => j.GroupId == groupId && j.Status == "pending").OrderBy(j => j.CreatedAt))
+        {
+            lock (job)
+            {
+                if (job.Status != "pending") continue;
+                job.Status = "sent";
+            }
+            taken.Add(new PrintRelayJob(job.Id, job.DeviceId, job.VenteId, job.Format, job.RequestedBy));
+        }
+        return taken;
+    }
+
+    /// <summary>The shop's host reporting for one of its postes: the shop is the check, not the device.</summary>
+    public bool FinishRelayed(string groupId, string id, bool ok, string? message) =>
+        _jobs.TryGetValue(id, out var j) && j.GroupId == groupId && Finish(groupId, j.DeviceId, id, ok, message);
 
     public IReadOnlyList<PrintPosteDto> Open(string groupId)
     {
@@ -134,6 +185,24 @@ public sealed class PrintQueue
 public static class PrintEndpoints
 {
     public static readonly string[] Formats = ["ticket", "a4"];
+
+    /// <summary>
+    /// The routes a phone uses (list postes, send a job, follow it): the only ones a remote session
+    /// may reach. Polling for jobs and reporting results are for a poste at the shop, never for an
+    /// account signed in from afar, which could otherwise pose as a till.
+    /// </summary>
+    public static bool IsPhoneRoute(string method, PathString path)
+    {
+        if (!path.StartsWithSegments("/api/print", out var rest)) return false;
+        var parts = rest.Value?.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries) ?? [];
+        return (HttpMethods.IsGet(method), HttpMethods.IsPost(method), parts) switch
+        {
+            (true, _, ["postes"]) => true,
+            (_, true, ["jobs"]) => true,
+            (true, _, ["jobs", var id]) => id != "next",
+            _ => false,
+        };
+    }
 
     public static void MapPrintEndpoints(this IEndpointRouteBuilder app)
     {

@@ -50,13 +50,6 @@ public static class RemoteEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        if (!scope.IsAdmin && !scope.IsAdminGeneral)
-        {
-            return Results.Json(
-                new ApiError("L'accès à distance est réservé aux administrateurs de l'espace."),
-                statusCode: StatusCodes.Status403Forbidden);
-        }
-
         if (!scope.Privileges.HasGestion(Priv.Gestion.AddProducts) && !scope.Privileges.HasGestion(Priv.Gestion.EditProducts))
         {
             return Results.Json(new ApiError("Privilège insuffisant", Priv.Gestion.EditProducts),
@@ -189,10 +182,14 @@ public static class RemoteEndpoints
 
         var privileges = await new PrivilegeResolver(copy).ResolveAsync(shopUserId, groupId, ct);
 
-        if (!privileges.IsAdminGeneral && !privileges.IsAdmin)
+        // Every member of the shop may work from afar for now (phones sign in online only); what
+        // each may see and do is still their privileges. Admin control of who may comes later.
+        var isMember = privileges.IsAdminGeneral
+            || await copy.GroupMembers.AnyAsync(m => m.IdGroupe == groupId && m.IdUser == shopUserId, ct);
+        if (!isMember)
         {
             return Results.Json(
-                new ApiError("L'accès à distance est réservé aux administrateurs de l'espace."),
+                new ApiError("Vous n'êtes pas membre de cet espace."),
                 statusCode: StatusCodes.Status403Forbidden);
         }
 
@@ -239,10 +236,10 @@ public static class RemoteEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        if (!scope.IsAdmin && !scope.IsAdminGeneral)
+        if (RemoteCommandTypes.NeedsAdmin(request.Type) && !scope.IsAdmin && !scope.IsAdminGeneral)
         {
             return Results.Json(
-                new ApiError("L'accès à distance est réservé aux administrateurs de l'espace."),
+                new ApiError("Réservé aux administrateurs de l'espace."),
                 statusCode: StatusCodes.Status403Forbidden);
         }
 

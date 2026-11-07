@@ -182,6 +182,10 @@ public static class RemoteCommandTypes
 
     public static bool IsMember(string type) => type is MemberAdd or MemberRemove;
 
+    /// <summary>True for changes only an administrator may ask for from afar. Sales, payments and
+    /// product changes (<see cref="Request"/>, product types) run under the sender's own privileges.</summary>
+    public static bool NeedsAdmin(string type) => type != Request && !IsProduct(type);
+
     /// <summary>Rename the espace (<c>Name</c>). <c>UserId</c> is the sender.</summary>
     public const string EspaceRename = "espace.rename";
 

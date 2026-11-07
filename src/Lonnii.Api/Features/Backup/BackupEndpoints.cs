@@ -91,6 +91,21 @@ public static class BackupEndpoints
                 ? Results.File(photo, "application/octet-stream")
                 : Results.NotFound(new ApiError("Photo introuvable.")));
 
+        // Printing for phones signed in online: the host says which postes are open and collects
+        // the jobs left for them, then reports each result (see PrintQueue).
+        group.MapPost("/print/poll", (Lonnii.Api.Features.Print.PrintRelayPoll poll, HttpContext http,
+            Lonnii.Api.Features.Print.PrintQueue queue) =>
+        {
+            var groupId = GroupOf(http);
+            queue.Relayed(groupId, poll.Postes ?? []);
+            return Results.Ok(new Lonnii.Api.Features.Print.PrintRelayJobs([.. queue.TakeRelayed(groupId)]));
+        });
+        group.MapPost("/print/jobs/{id}/result", (string id, Lonnii.Api.Features.Print.PrintJobResult result,
+            HttpContext http, Lonnii.Api.Features.Print.PrintQueue queue) =>
+            queue.FinishRelayed(GroupOf(http), id, result.Ok, result.Message)
+                ? Results.NoContent()
+                : Results.NotFound(new ApiError("Impression introuvable.")));
+
         group.MapPost("/commands/{id}/result", (
             string id, RemoteCommandResult result, HttpContext http,
             Lonnii.Api.Features.Remote.RemoteCommandStore commands) =>

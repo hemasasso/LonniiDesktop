@@ -81,6 +81,19 @@ public sealed class RemoteRoutingMiddleware(RequestDelegate next)
         var readOnly = HttpMethods.IsGet(http.Request.Method) || HttpMethods.IsHead(http.Request.Method);
         var isCommand = http.Request.Path.StartsWithSegments("/api/remote/commands");
 
+        // Printing from afar: the phone's routes run here, against our relay queue (see PrintQueue);
+        // the shop's host collects the jobs. A poste's own routes are refused: no till signs in remotely.
+        if (http.Request.Path.StartsWithSegments("/api/print"))
+        {
+            if (!Lonnii.Api.Features.Print.PrintEndpoints.IsPhoneRoute(http.Request.Method, http.Request.Path))
+            {
+                await Refuse(http, StatusCodes.Status405MethodNotAllowed,
+                    "Cette action n'est pas possible à distance : faites-la depuis la boutique.");
+                return;
+            }
+            isCommand = true;
+        }
+
         // Leaving the shop from afar: there is no session row to close.
         if (HttpMethods.IsDelete(http.Request.Method) && http.Request.Path.StartsWithSegments("/api/groupe/session"))
         {

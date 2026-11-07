@@ -117,7 +117,16 @@ public sealed class RemoteCommandApplier(
     {
         var sender = await privileges.ResolveAsync(command.RequestedBy, groupId, ct);
 
-        if (!sender.IsAdmin && !sender.IsAdminGeneral)
+        // Any member may send sales and product changes (under their own privileges, checked again
+        // here); privileges, roles, members and the espace stay with administrators.
+        if (!sender.IsAdminGeneral
+            && !await db.GroupMembers.AnyAsync(m => m.IdGroupe == groupId && m.IdUser == command.RequestedBy, ct))
+        {
+            return new RemoteCommandResult(RemoteCommandStatuses.Failed,
+                "Cette personne n'est plus membre de la boutique.");
+        }
+
+        if (RemoteCommandTypes.NeedsAdmin(command.Type) && !sender.IsAdmin && !sender.IsAdminGeneral)
         {
             return new RemoteCommandResult(RemoteCommandStatuses.Failed,
                 "Cette personne n'est plus administrateur de la boutique.");

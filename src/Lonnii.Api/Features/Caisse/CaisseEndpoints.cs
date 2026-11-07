@@ -504,6 +504,17 @@ public static class CaisseEndpoints
             FacturesAnterieuresCount: anterieures.Select(p => p.VenteId).Distinct().Count() + parAutres.Count);
     }
 
+    /// <summary>One session as the report shows it (live figures while open), or null if not in
+    /// this espace. For a poste printing a till report a phone asked for.</summary>
+    internal static async Task<CaisseDto?> LoadReportAsync(LonniiDbContext db, string groupId, int id, CancellationToken ct)
+    {
+        var caisse = await db.Caisses.AsNoTracking().FirstOrDefaultAsync(c => c.GroupId == groupId && c.Id == id, ct);
+        if (caisse is null) return null;
+        var own = (await LoadRetraitsAsync(db, [caisse.Id], ct)).GetValueOrDefault(caisse.Id);
+        var dto = caisse.Status == CaisseStatus.Open ? await ToDtoAsync(db, caisse, ct, own) : ToDto(caisse, own);
+        return dto.Origine is null ? dto with { Origine = await ComputeOrigineAsync(db, caisse, ct) } : dto;
+    }
+
     private static CaisseDto ToDto(Lonnii.Data.Entities.Caisse caisse, List<CaisseRetraitDto>? retraits) => new(
         caisse.Id, caisse.UserId, caisse.UserName, caisse.DateOuverture,
         caisse.MontantInitial, caisse.MontantInitialCash, caisse.MontantInitialMobile,

@@ -94,7 +94,8 @@
                     </DockPanel>
 
                     <TextBlock Text="Nom du client (optionnel)" Style="{StaticResource FieldLabel}" Margin="0,14,0,0" />
-                    <TextBox x:Name="ClientNameBox" Margin="0,4,0,0" Padding="8,6" />
+                    <TextBox x:Name="ClientNameBox" Margin="0,4,0,0" Padding="8,6" TextChanged="ClientName_TextChanged" />
+                    <TextBlock x:Name="ClientDueText" Visibility="Collapsed" Foreground="{DynamicResource Danger}" FontSize="12" Margin="0,4,0,0" />
 
                     <TextBlock Text="Mode de paiement" Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
                     <ComboBox x:Name="ModeCombo" Margin="0,4,0,0" SelectionChanged="Mode_Changed">

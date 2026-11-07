@@ -95,7 +95,8 @@ public sealed class PrintRelay(
         var found = new Dictionary<string, string>();
         foreach (var job in jobs)
         {
-            if (job.SaleKey is not null) { if (byKey.TryGetValue(job.SaleKey, out var id)) found[job.Id] = id; }
+            if (job.Format == PrintEndpoints.CaisseReport) found[job.Id] = job.VenteId; // a till, not a sale
+            else if (job.SaleKey is not null) { if (byKey.TryGetValue(job.SaleKey, out var id)) found[job.Id] = id; }
             else if (knownIds.Contains(job.VenteId)) found[job.Id] = job.VenteId;
         }
         return found;

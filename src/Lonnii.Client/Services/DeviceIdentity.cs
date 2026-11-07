@@ -46,6 +46,11 @@ public static class DeviceIdentity
     /// <summary>A name for the device list, so a shop can tell its tills apart.</summary>
     public static string FriendlyName => Environment.MachineName;
 
+    /// <summary>The name shown to phones printing on this computer: the one set in Configuration,
+    /// or the Windows name.</summary>
+    public static string PosteName =>
+        string.IsNullOrWhiteSpace(App.Settings.PosteName) ? FriendlyName : App.Settings.PosteName.Trim();
+
     private static string Compute()
     {
         var source = MachineGuid() ?? StoredFallback();

@@ -334,6 +334,7 @@ public partial class VentesView : UserControl
         ClientTelephoneBox.TextChanged += (_, _) =>
         {
             ClientTelephonePlaceholder.Visibility = ClientTelephoneBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (!_fillingClient) SuggestClients();
             UpdateClientDue();
         };
         ClientEmailBox.TextChanged += (_, _) =>
@@ -1191,8 +1192,31 @@ public partial class VentesView : UserControl
 
     private void SuggestClients()
     {
-        var text = ClientNomBox.Text.Trim();
-        if (text.Length == 0 || !ClientNomBox.IsKeyboardFocusWithin)
+        // Typed in the name box (a name or a phone number) or in the phone box.
+        var inPhone = ClientTelephoneBox.IsKeyboardFocusWithin;
+        var box = inPhone ? ClientTelephoneBox : ClientNomBox;
+        var text = box.Text.Trim();
+        if (text.Length == 0 || !box.IsKeyboardFocusWithin)
+        {
+            ClientSuggestPopup.IsOpen = false;
+            return;
+        }
+
+        // Digits match the client's phone, whatever spacing either was written with.
+        var digits = new string(text.Where(char.IsDigit).ToArray());
+        if (digits.Length >= 2 && (inPhone || digits.Length == text.Count(c => !char.IsWhiteSpace(c))))
+        {
+            var byPhone = _clients
+                .Where(c => c.IsActive && c.Telephone is { } t && new string(t.Where(char.IsDigit).ToArray()).Contains(digits))
+                .Where(c => new string(c.Telephone!.Where(char.IsDigit).ToArray()) != digits)
+                .Take(8)
+                .Select(c => new ClientSuggestion(c))
+                .ToList();
+            ClientSuggestList.ItemsSource = byPhone;
+            ClientSuggestPopup.IsOpen = byPhone.Count > 0;
+            return;
+        }
+        if (inPhone)
         {
             ClientSuggestPopup.IsOpen = false;
             return;

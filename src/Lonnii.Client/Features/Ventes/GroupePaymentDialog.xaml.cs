@@ -102,14 +102,16 @@ public partial class GroupePaymentDialog : Window
             .Where(v => !chosen.Contains(v.Id))
             .Where(v => term.Length == 0
                 || v.NumeroVente.Contains(term, StringComparison.OrdinalIgnoreCase)
-                || (v.ClientNom?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false))
+                || (v.ClientNom?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
+                || PhoneMatches(v, term))
             .ToList();
 
         PickerGrid.ItemsSource = matches.Take(MaxSuggestions).Select(v => new FactureRow(v)).ToList();
 
         // What each matching client owes in all, as the sale's client suggestions show it.
         ClientMatches.ItemsSource = term.Length == 0 ? null : matches
-            .Where(v => v.ClientNom?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
+            .Where(v => !string.IsNullOrWhiteSpace(v.ClientNom)
+                && (v.ClientNom.Contains(term, StringComparison.OrdinalIgnoreCase) || PhoneMatches(v, term)))
             .GroupBy(v => v.ClientNom!.Trim(), StringComparer.OrdinalIgnoreCase)
             .Select(g => new ClientMatch(g.First().ClientNom!.Trim(), g.ToList()))
             .OrderByDescending(c => c.Du)
@@ -118,6 +120,26 @@ public partial class GroupePaymentDialog : Window
         PickerHint.Text = matches.Count > MaxSuggestions
             ? $"{matches.Count} factures — affinez la recherche"
             : $"{matches.Count} facture(s) impayée(s)";
+    }
+
+    private static string Digits(string? s) => new((s ?? "").Where(char.IsDigit).ToArray());
+
+    /// <summary>A number typed (2 digits or more) finds the client by phone, spacing ignored.</summary>
+    private static bool PhoneMatches(VenteListItemDto v, string term)
+    {
+        var digits = Digits(term);
+        return digits.Length >= 2 && Digits(v.ClientTelephone).Contains(digits);
+    }
+
+    /// <summary>Under "Nom du client": what the client typed there owes in all unpaid factures.</summary>
+    private void ClientName_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        var name = ClientNameBox.Text.Trim();
+        var theirs = name.Length == 0 ? [] : _unpaid
+            .Where(v => string.Equals(v.ClientNom?.Trim(), name, StringComparison.OrdinalIgnoreCase)).ToList();
+        ClientDueText.Text = theirs.Count == 0 ? ""
+            : $"{theirs.Count} facture(s) impayée(s)  •  doit {Money.Format(theirs.Sum(v => Math.Max(0, v.MontantRestant)))}";
+        ClientDueText.Visibility = theirs.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private sealed class ClientMatch(string nom, List<VenteListItemDto> factures)

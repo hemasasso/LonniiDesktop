@@ -90,6 +90,22 @@
                     </Border>
                 </StackPanel>
 
+                <!-- This computer's name, as the shop's phones see it when printing on a poste. -->
+                <StackPanel x:Name="PosteNamePanel">
+                    <TextBlock Text="NOM DE CE POSTE" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12">
+                        <StackPanel>
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Content="Enregistrer" Margin="8,0,0,0" VerticalAlignment="Center"
+                                        Style="{StaticResource SecondaryButton}" Click="SavePosteName_Click" />
+                                <TextBox x:Name="PosteNameBox" Padding="8,6" MaxLength="40" VerticalContentAlignment="Center" />
+                            </DockPanel>
+                            <TextBlock x:Name="PosteNameHint" Style="{StaticResource PageSubtitle}" Margin="0,6,0,0" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
                 <!-- Écran client: drives hardware plugged into this till. -->
                 <StackPanel x:Name="CustomerDisplaySettingsPanel" Visibility="Collapsed">
                     <TextBlock Text="ÉCRAN CLIENT" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />

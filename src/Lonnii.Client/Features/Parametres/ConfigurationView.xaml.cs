@@ -37,15 +37,33 @@ public partial class ConfigurationView : UserControl
         // Whichever section comes first on screen should not open with a gap above it.
         var first = new FrameworkElement[]
         {
-            ConnexionPanel, CurrencyPanel, VentesSettingsPanel, CustomerDisplaySettingsPanel,
+            ConnexionPanel, CurrencyPanel, VentesSettingsPanel, PosteNamePanel, CustomerDisplaySettingsPanel,
             BilanSettingsPanel, ConsumptionPanel, EspaceDataPanel,
         }.FirstOrDefault(p => p.Visibility == Visibility.Visible);
         if (first is Panel { Children.Count: > 0 } panel && panel.Children[0] is FrameworkElement header)
             header.Margin = new Thickness(header.Margin.Left, 0, header.Margin.Right, header.Margin.Bottom);
 
         Populate();
+        FillPosteName();
         if (_session.Can(Priv.Gestion.ViewConsommation)) PopulateConsumptionYears();
         if (_session.Can(Priv.Gestion.ViewConnexion)) _ = LoadConnexionAsync();
+    }
+
+    /// <summary>The name phones show for this computer in "Imprimer sur un poste". Kept on this
+    /// computer only; empty goes back to the Windows name.</summary>
+    private void FillPosteName()
+    {
+        PosteNameBox.Text = DeviceIdentity.PosteName;
+        PosteNameHint.Text = $"Affiché sur les téléphones pour imprimer sur ce poste. Vide : nom de l'ordinateur ({DeviceIdentity.FriendlyName}).";
+    }
+
+    private void SavePosteName_Click(object sender, RoutedEventArgs e)
+    {
+        var name = PosteNameBox.Text.Trim();
+        App.Settings.PosteName = name.Length == 0 ? null : name;
+        App.Settings.Save();
+        FillPosteName();
+        PosteNameHint.Text = "Enregistré : les téléphones verront ce nom dans quelques secondes.";
     }
 
     private void Show(UIElement panel, string privilege) =>

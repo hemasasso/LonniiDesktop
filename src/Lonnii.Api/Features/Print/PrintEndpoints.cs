@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Lonnii.Api.Features.Auth;
 using Lonnii.Shared.Contracts;
+using Microsoft.EntityFrameworkCore;
 
 namespace Lonnii.Api.Features.Print;
 
@@ -171,6 +172,10 @@ public sealed class PrintQueue
     public PrintJobDto? Get(string groupId, string id) =>
         _jobs.TryGetValue(id, out var j) && j.GroupId == groupId ? j.ToDto() : null;
 
+    /// <summary>The job's target id, for the computer it was sent to only.</summary>
+    public (string VenteId, string Format)? ForDevice(string groupId, string deviceId, string id) =>
+        _jobs.TryGetValue(id, out var j) && j.GroupId == groupId && j.DeviceId == deviceId ? (j.VenteId, j.Format) : null;
+
     /// <summary>Only the computer the job was for may report on it.</summary>
     public bool Finish(string groupId, string deviceId, string id, bool ok, string? message)
     {
@@ -193,7 +198,10 @@ public sealed class PrintQueue
 
 public static class PrintEndpoints
 {
-    public static readonly string[] Formats = ["ticket", "a4"];
+    /// <summary>"caisse" prints a till's report: the job's VenteId then holds the caisse id.</summary>
+    public const string CaisseReport = "caisse";
+
+    public static readonly string[] Formats = ["ticket", "a4", CaisseReport];
 
     /// <summary>
     /// The routes a phone uses (list postes, send a job, follow it): the only ones a remote session
@@ -219,8 +227,23 @@ public static class PrintEndpoints
 
         // Phone side.
         group.MapGet("/postes", (GroupScope scope, PrintQueue queue) => Results.Ok(queue.Open(scope.GroupId))).RequireGroupScope();
-        group.MapPost("/jobs", (PrintJobRequest request, GroupScope scope, PrintQueue queue) =>
+        group.MapPost("/jobs", async (PrintJobRequest request, GroupScope scope, PrintQueue queue,
+            Lonnii.Data.LonniiDbContext db, CancellationToken ct) =>
         {
+            // A till report: one's own session, or anyone's for an admin (as the history shows them).
+            if (request.Format == CaisseReport)
+            {
+                if (string.IsNullOrWhiteSpace(request.DeviceId) || !int.TryParse(request.VenteId, out var caisseId))
+                    return Results.BadRequest(new ApiError("Poste et caisse obligatoires."));
+                var owner = await db.Caisses.Where(c => c.GroupId == scope.GroupId && c.Id == caisseId)
+                    .Select(c => c.UserId).FirstOrDefaultAsync(ct);
+                if (owner is null) return Results.NotFound(new ApiError("Caisse introuvable."));
+                if (owner != scope.UserId && !scope.IsAdmin && !scope.IsAdminGeneral) return Results.Forbid();
+                if (!queue.IsOpen(scope.GroupId, request.DeviceId))
+                    return Results.Conflict(new ApiError("Ce poste n'est plus ouvert. Choisissez-en un autre."));
+                return Results.Ok(queue.Add(scope.GroupId, request.DeviceId, caisseId.ToString(), CaisseReport, scope.UserId));
+            }
+
             var saleKey = string.IsNullOrWhiteSpace(request.SaleKey) ? null : request.SaleKey.Trim();
             if (string.IsNullOrWhiteSpace(request.DeviceId)
                 || (string.IsNullOrWhiteSpace(request.VenteId) && saleKey is null)
@@ -245,6 +268,16 @@ public static class PrintEndpoints
             var label = string.IsNullOrWhiteSpace(name) ? "Poste" : name.Trim()[..Math.Min(name.Trim().Length, 60)];
             queue.Seen(scope.GroupId, deviceId, label, isHost);
             return queue.Next(scope.GroupId, deviceId) is { } job ? Results.Ok(job) : Results.NoContent();
+        }).RequireGroupScope();
+        // The till report of a job sent to this computer - whoever is signed in on it: the phone's
+        // user was checked when the job was made.
+        group.MapGet("/jobs/{id}/caisse", async (string id, HttpContext http, GroupScope scope, PrintQueue queue,
+            Lonnii.Data.LonniiDbContext db, CancellationToken ct) =>
+        {
+            var job = queue.ForDevice(scope.GroupId, http.Request.Headers["x-device-id"].ToString(), id);
+            if (job is not { Format: CaisseReport } || !int.TryParse(job.Value.VenteId, out var caisseId)) return Results.NotFound();
+            return await Caisse.CaisseEndpoints.LoadReportAsync(db, scope.GroupId, caisseId, ct) is { } dto
+                ? Results.Ok(dto) : Results.NotFound();
         }).RequireGroupScope();
         group.MapPost("/jobs/{id}/result", (string id, PrintJobResult result, HttpContext http, GroupScope scope, PrintQueue queue) =>
             queue.Finish(scope.GroupId, http.Request.Headers["x-device-id"].ToString(), id, result.Ok, result.Message)

@@ -192,6 +192,26 @@ public partial class CaisseReportDialog : Window
             StrokeDashArray = [4, 2], Margin = new Thickness(0, 10, 0, 10),
         });
 
+    /// <summary>
+    /// Prints a report on this computer's default printer with no dialog: a phone asked for it
+    /// (PhonePrintService), and nobody is at this screen to answer one.
+    /// </summary>
+    public static void PrintSilently(CaisseDto caisse, string? groupName)
+    {
+        var printDialog = new PrintDialog();
+        _ = printDialog.PrintQueue ?? throw new InvalidOperationException("Aucune imprimante par défaut sur ce poste.");
+
+        var window = new CaisseReportDialog(caisse, groupName);
+        var paper = window.ReportPaper;
+        ((System.Windows.Controls.ScrollViewer)paper.Parent).Content = null; // printed on its own, never shown
+        paper.BorderThickness = new Thickness(0);
+        paper.Measure(new Size(paper.Width, double.PositiveInfinity));
+        paper.Arrange(new Rect(paper.DesiredSize));
+        paper.UpdateLayout();
+        printDialog.PrintVisual(paper, $"Rapport de caisse {caisse.Id}");
+        window.Close();
+    }
+
     private void Print_Click(object sender, RoutedEventArgs e)
     {
         var printDialog = new PrintDialog();

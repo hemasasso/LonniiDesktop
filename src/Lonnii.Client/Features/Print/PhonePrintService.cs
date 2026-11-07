@@ -40,7 +40,7 @@ public sealed class PhonePrintService(AppSession session)
         _busy = true;
         try
         {
-            var job = await session.Api.NextPrintJobAsync(DeviceIdentity.FriendlyName);
+            var job = await session.Api.NextPrintJobAsync(DeviceIdentity.PosteName);
             if (job is null) return;
 
             string? error = null;
@@ -68,6 +68,14 @@ public sealed class PhonePrintService(AppSession session)
 
     private async Task PrintAsync(PhonePrintJob job)
     {
+        // A till report ("Imprimer" in the phone's Historique caisse): VenteId holds the caisse id.
+        if (job.Format == "caisse")
+        {
+            var caisse = await session.Api.GetPrintJobCaisseAsync(job.Id);
+            Caisse.CaisseReportDialog.PrintSilently(caisse, session.Groupe?.Nom);
+            return;
+        }
+
         var vente = await session.Api.GetVenteAsync(job.VenteId);
         var settings = await session.GetReceiptSettingsAsync();
         if (job.Format == "a4")

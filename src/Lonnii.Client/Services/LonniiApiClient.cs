@@ -594,6 +594,10 @@ public class LonniiApiClient
         return await response.Content.ReadFromJsonAsync<PhonePrintJob>(JsonOptions, ct);
     }
 
+    /// <summary>The till report a phone asked this computer to print.</summary>
+    public Task<CaisseDto> GetPrintJobCaisseAsync(string id, CancellationToken ct = default) =>
+        GetAsync<CaisseDto>($"api/print/jobs/{id}/caisse", ct);
+
     public Task ReportPrintJobAsync(string id, bool ok, string? message, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Post, $"api/print/jobs/{id}/result", new { ok, message }, ct);
 

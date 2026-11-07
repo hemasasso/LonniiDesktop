@@ -197,6 +197,9 @@ public class ClientSettings
     /// <summary>The identifier last used to sign in, pre-filled on the next start.</summary>
     public string? LastIdentifier { get; set; }
 
+    /// <summary>This computer's name for the shop's phones (print on a poste); null = Windows name.</summary>
+    public string? PosteName { get; set; }
+
     /// <summary>The group last worked in, so the picker can preselect it.</summary>
     public string? LastGroupId { get; set; }
 

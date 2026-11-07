@@ -201,7 +201,10 @@ public static class PrintEndpoints
     /// <summary>"caisse" prints a till's report: the job's VenteId then holds the caisse id.</summary>
     public const string CaisseReport = "caisse";
 
-    public static readonly string[] Formats = ["ticket", "a4", CaisseReport];
+    /// <summary>"groupe" prints a group payment's receipt: VenteId then holds its id.</summary>
+    public const string GroupeReceipt = "groupe";
+
+    public static readonly string[] Formats = ["ticket", "a4", CaisseReport, GroupeReceipt];
 
     /// <summary>
     /// The routes a phone uses (list postes, send a job, follow it): the only ones a remote session
@@ -230,6 +233,18 @@ public static class PrintEndpoints
         group.MapPost("/jobs", async (PrintJobRequest request, GroupScope scope, PrintQueue queue,
             Lonnii.Data.LonniiDbContext db, CancellationToken ct) =>
         {
+            // A group payment's receipt: anyone who may see the shop's sales.
+            if (request.Format == GroupeReceipt)
+            {
+                if (string.IsNullOrWhiteSpace(request.DeviceId) || string.IsNullOrWhiteSpace(request.VenteId) || request.VenteId.Length > 64)
+                    return Results.BadRequest(new ApiError("Poste et paiement obligatoires."));
+                if (!await db.GroupePayments.AnyAsync(g => g.GroupId == scope.GroupId && g.Id == request.VenteId, ct))
+                    return Results.NotFound(new ApiError("Paiement groupé introuvable."));
+                if (!queue.IsOpen(scope.GroupId, request.DeviceId))
+                    return Results.Conflict(new ApiError("Ce poste n'est plus ouvert. Choisissez-en un autre."));
+                return Results.Ok(queue.Add(scope.GroupId, request.DeviceId, request.VenteId, GroupeReceipt, scope.UserId));
+            }
+
             // A till report: one's own session, or anyone's for an admin (as the history shows them).
             if (request.Format == CaisseReport)
             {
@@ -277,6 +292,14 @@ public static class PrintEndpoints
             var job = queue.ForDevice(scope.GroupId, http.Request.Headers["x-device-id"].ToString(), id);
             if (job is not { Format: CaisseReport } || !int.TryParse(job.Value.VenteId, out var caisseId)) return Results.NotFound();
             return await Caisse.CaisseEndpoints.LoadReportAsync(db, scope.GroupId, caisseId, ct) is { } dto
+                ? Results.Ok(dto) : Results.NotFound();
+        }).RequireGroupScope();
+        group.MapGet("/jobs/{id}/groupe", async (string id, HttpContext http, GroupScope scope, PrintQueue queue,
+            Lonnii.Data.LonniiDbContext db, CancellationToken ct) =>
+        {
+            var job = queue.ForDevice(scope.GroupId, http.Request.Headers["x-device-id"].ToString(), id);
+            if (job is not { Format: GroupeReceipt }) return Results.NotFound();
+            return await Ventes.GroupePaymentEndpoints.LoadOneAsync(db, scope.GroupId, job.Value.VenteId, ct) is { } dto
                 ? Results.Ok(dto) : Results.NotFound();
         }).RequireGroupScope();
         group.MapPost("/jobs/{id}/result", (string id, PrintJobResult result, HttpContext http, GroupScope scope, PrintQueue queue) =>

@@ -598,6 +598,10 @@ public class LonniiApiClient
     public Task<CaisseDto> GetPrintJobCaisseAsync(string id, CancellationToken ct = default) =>
         GetAsync<CaisseDto>($"api/print/jobs/{id}/caisse", ct);
 
+    /// <summary>The group payment receipt a phone asked this computer to print.</summary>
+    public Task<GroupePaiementDto> GetPrintJobGroupeAsync(string id, CancellationToken ct = default) =>
+        GetAsync<GroupePaiementDto>($"api/print/jobs/{id}/groupe", ct);
+
     public Task ReportPrintJobAsync(string id, bool ok, string? message, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Post, $"api/print/jobs/{id}/result", new { ok, message }, ct);
 

@@ -76,6 +76,19 @@ public sealed class PhonePrintService(AppSession session)
             return;
         }
 
+        // A Paiement groupé receipt: VenteId holds the group payment's id.
+        if (job.Format == "groupe")
+        {
+            var payment = await session.Api.GetPrintJobGroupeAsync(job.Id);
+            var receipt = await session.GetReceiptSettingsAsync();
+            var logoBytes = session.ReceiptLogo;
+            var fallback = session.Groupe?.Nom ?? "Lonnii";
+            ReceiptDocument.PrintSilently(
+                () => GroupeReceiptDocument.Build(payment, receipt, logoBytes, fallback, forPrint: true),
+                singlePage: false, "Reçu paiement groupé");
+            return;
+        }
+
         var vente = await session.Api.GetVenteAsync(job.VenteId);
         var settings = await session.GetReceiptSettingsAsync();
         if (job.Format == "a4")

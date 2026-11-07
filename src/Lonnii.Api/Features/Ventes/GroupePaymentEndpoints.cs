@@ -253,6 +253,21 @@ public static class GroupePaymentEndpoints
         });
     }
 
+    /// <summary>One group payment as its receipt shows it, or null if not in this espace. For a
+    /// poste printing a receipt a phone asked for.</summary>
+    internal static async Task<GroupePaiementDto?> LoadOneAsync(LonniiDbContext db, string groupId, string id, CancellationToken ct)
+    {
+        var p = await db.GroupePayments.AsNoTracking().FirstOrDefaultAsync(g => g.GroupId == groupId && g.Id == id, ct);
+        if (p is null) return null;
+        var ids = p.FactureIds.Select(g => g.ToString()).ToList();
+        var totals = await db.Ventes.AsNoTracking()
+            .Where(v => v.GroupId == groupId && ids.Contains(v.Id))
+            .Select(v => new { v.Id, v.MontantTotal })
+            .ToDictionaryAsync(v => v.Id, v => v.MontantTotal, ct);
+        var soldeur = p.AvoirSoldedBy is null ? null : await VentesEndpoints.DisplayNameAsync(db, p.AvoirSoldedBy, ct);
+        return ToDto(p, totals, soldeur);
+    }
+
     private static GroupePaiementDto ToDto(
         GroupePayment p, IReadOnlyDictionary<string, decimal> ventesTotals, string? soldeurName)
     {

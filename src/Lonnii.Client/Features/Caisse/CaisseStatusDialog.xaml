@@ -99,6 +99,10 @@
                 </Grid>
             </Border>
 
+            <!-- Where the encaissé came from: this session's sales, and older factures settled now. -->
+            <TextBlock x:Name="OrigineText" Margin="2,8,0,0" TextWrapping="Wrap"
+                       Style="{StaticResource PageSubtitle}" Visibility="Collapsed" />
+
             <StackPanel x:Name="ClosePanel" Margin="0,16,0,0">
                 <Grid>
                     <Grid.ColumnDefinitions>

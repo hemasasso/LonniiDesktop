@@ -859,7 +859,8 @@ public sealed record CaisseDto(
     IReadOnlyList<CaisseRetraitDto>? Retraits = null,
     decimal? MontantFinalMobile = null,
     decimal MontantInitialCarte = 0,
-    decimal? MontantFinalCarte = null)
+    decimal? MontantFinalCarte = null,
+    CaisseOrigineDto? Origine = null)
 {
     public decimal TotalRetraits => Retraits?.Sum(r => r.Montant) ?? 0;
 
@@ -908,6 +909,13 @@ public sealed record CaisseDto(
 /// <summary>One manual withdrawal ("Retirer de la caisse") from a session. <paramref name="ModePaiement"/>
 /// is <c>cash</c> or <c>mobile_money</c> - which pool it came out of - defaulting to <c>cash</c>
 /// for a row written before this distinction existed, since every withdrawal was cash then.</summary>
+/// <summary>
+/// Where a session's encaissements came from, for whoever checks the till: payments on sales made
+/// during the session, and payments settling factures sold before it opened (an earlier shift's or
+/// an older credit), with how many such factures.
+/// </summary>
+public sealed record CaisseOrigineDto(decimal VentesSession, decimal FacturesAnterieures, int FacturesAnterieuresCount);
+
 public sealed record CaisseRetraitDto(decimal Montant, string Motif, DateTime Date, string ModePaiement = "cash");
 
 /// <summary>Response of <c>GET /api/caisse/status</c> - null when the caller has no open

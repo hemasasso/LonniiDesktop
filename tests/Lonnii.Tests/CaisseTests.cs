@@ -166,6 +166,9 @@ public class CaisseTests : IAsyncLifetime
         Assert.Equal(5_000m, caisse.PaiementMobile);
         Assert.Equal(0m, caisse.PaiementCash);
         Assert.Equal(5_000m, caisse.TotalEncaisse);
+
+        // And the boss sees where it came from: an earlier facture, not a sale of this session.
+        Assert.Equal(new CaisseOrigineDto(0m, 5_000m, 1), caisse.Origine);
     }
 
     [Fact]

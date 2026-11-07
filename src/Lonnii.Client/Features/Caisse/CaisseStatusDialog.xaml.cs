@@ -83,6 +83,10 @@ public partial class CaisseStatusDialog : Window
         AutresModesText.Text =
             $"{Money.Format(_caisse.PaiementMobile)} / {Money.Format(_caisse.PaiementCarte)} / {Money.Format(_caisse.PaiementAutres)}";
 
+        OrigineText.Visibility = _caisse.Origine is null ? Visibility.Collapsed : Visibility.Visible;
+        if (_caisse.Origine is { } origine)
+            OrigineText.Text = OrigineLine(origine);
+
         var retraits = _caisse.Retraits ?? [];
         RetraitsPanel.Visibility = retraits.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         RetraitsText.Text = $"-{Money.Format(_caisse.TotalRetraits)}";
@@ -91,6 +95,13 @@ public partial class CaisseStatusDialog : Window
                 $"{r.Date.ToLocalTime():HH:mm}  {Money.Format(r.Montant)} " +
                 $"({(r.ModePaiement == "mobile_money" ? "mobile" : "espèces")})  —  {r.Motif}"));
     }
+
+    /// <summary>"Dont ventes de la session : X · Factures antérieures réglées : Y (n)".</summary>
+    internal static string OrigineLine(CaisseOrigineDto origine) =>
+        $"Dont ventes de la session : {Money.Format(origine.VentesSession)}"
+        + (origine.FacturesAnterieuresCount > 0
+            ? $"  ·  Factures antérieures réglées : {Money.Format(origine.FacturesAnterieures)} ({origine.FacturesAnterieuresCount})"
+            : "  ·  Aucune facture antérieure réglée");
 
     private void MontantFinal_Changed(object sender, TextChangedEventArgs e) => UpdateExpectedPreview();
 

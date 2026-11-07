@@ -210,9 +210,10 @@ public static class CaisseEndpoints
             var own = retraits.GetValueOrDefault(caisse.Id);
             // An open session's totals are stale the instant they're read, so it gets the same
             // live recompute as GetStatusAsync; a closed one already has its final figures.
-            dtos.Add(caisse.Status == CaisseStatus.Open
+            var dto = caisse.Status == CaisseStatus.Open
                 ? await ToDtoAsync(db, caisse, ct, own)
-                : ToDto(caisse, own));
+                : ToDto(caisse, own);
+            dtos.Add(dto.Origine is null ? dto with { Origine = await ComputeOrigineAsync(db, caisse, ct) } : dto);
         }
 
         return Results.Ok(new CaisseHistoryResponse(dtos, total));
@@ -470,7 +471,37 @@ public static class CaisseEndpoints
             stats.PaiementCash, stats.PaiementMobile, stats.PaiementCarte, stats.PaiementAutres,
             Ecart: 0, EcartResolved: false, EcartResolutionNote: null,
             caisse.Status, caisse.Notes, retraits ?? [], caisse.MontantFinalMobile,
-            MontantInitialCarte: caisse.MontantInitialCarte, MontantFinalCarte: caisse.MontantFinalCarte);
+            MontantInitialCarte: caisse.MontantInitialCarte, MontantFinalCarte: caisse.MontantFinalCarte,
+            Origine: await ComputeOrigineAsync(db, caisse, ct));
+    }
+
+    /// <summary>
+    /// Splits the session's encaissements by where they came from - same payments as
+    /// <see cref="ComputeLiveStatsAsync"/> (this cashier's, during the session) - into those on the
+    /// session's own sales and those settling factures sold before it opened. A facture_anterieure
+    /// movement taken by someone else into this drawer counts with the earlier factures.
+    /// </summary>
+    private static async Task<CaisseOrigineDto> ComputeOrigineAsync(
+        LonniiDbContext db, Lonnii.Data.Entities.Caisse caisse, CancellationToken ct)
+    {
+        var asOf = caisse.DateFermeture ?? DateTime.UtcNow;
+        var paiements = await db.PaiementsVentes.AsNoTracking()
+            .Where(p => p.Vente!.GroupId == caisse.GroupId
+                && p.DatePaiement >= caisse.DateOuverture && p.DatePaiement <= asOf
+                && (p.CreatedBy ?? p.Vente.CreatedBy) == caisse.UserId)
+            .Select(p => new { p.Montant, p.VenteId, p.Vente!.DateVente })
+            .ToListAsync(ct);
+
+        var anterieures = paiements.Where(p => p.DateVente < caisse.DateOuverture).ToList();
+        var parAutres = await db.CaisseTransactions.AsNoTracking()
+            .Where(t => t.CaisseId == caisse.Id && t.Type == "entree" && t.CreatedBy != caisse.UserId)
+            .Select(t => t.Montant)
+            .ToListAsync(ct);
+
+        return new CaisseOrigineDto(
+            VentesSession: paiements.Where(p => p.DateVente >= caisse.DateOuverture).Sum(p => p.Montant),
+            FacturesAnterieures: anterieures.Sum(p => p.Montant) + parAutres.Sum(),
+            FacturesAnterieuresCount: anterieures.Select(p => p.VenteId).Distinct().Count() + parAutres.Count);
     }
 
     private static CaisseDto ToDto(Lonnii.Data.Entities.Caisse caisse, List<CaisseRetraitDto>? retraits) => new(

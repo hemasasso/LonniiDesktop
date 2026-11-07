@@ -61,6 +61,11 @@ public partial class CaisseReportDialog : Window
         Row("Carte", Money.Format(c.PaiementCarte));
         if (c.PaiementAutres != 0) Row("Autres", Money.Format(c.PaiementAutres));
         Row("Total encaissé", Money.Format(c.TotalEncaisse), bold: true);
+        if (c.Origine is { } origine)
+        {
+            Row("  dont ventes de la session", Money.Format(origine.VentesSession));
+            Row($"  dont factures antérieures ({origine.FacturesAnterieuresCount})", Money.Format(origine.FacturesAnterieures));
+        }
         Divider();
 
         Section("FONDS INITIAL");

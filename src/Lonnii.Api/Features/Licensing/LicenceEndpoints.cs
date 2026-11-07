@@ -71,6 +71,14 @@ public static class LicenceEndpoints
     /// so both follow the same rules. Returns the answer to give when the renewal ended the matter
     /// (a removed machine, a refusal), or null when the stored state now speaks for itself.
     /// </summary>
+    /// <summary>
+    /// The installed version, stamped by the installer build on the API and the client alike. Sent
+    /// with every check-in so the dashboard follows updates; without it the server kept the version
+    /// recorded at activation forever.
+    /// </summary>
+    internal static readonly string HostVersion =
+        typeof(LicenceEndpoints).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+
     internal static async Task<IResult?> RenewAsync(
         Groupe groupe, string deviceId, LonniiDbContext db, LicenceGuard guard, ILicenceServer licences, CancellationToken ct)
     {
@@ -83,7 +91,7 @@ public static class LicenceEndpoints
         try
         {
             var response = await licences.RefreshAsync(
-                groupe.LicenceServerUrl!, new LicenceRefreshRequest(groupe.Id, deviceId), ct);
+                groupe.LicenceServerUrl!, new LicenceRefreshRequest(groupe.Id, deviceId, HostVersion), ct);
 
             await guard.ApplyRefreshAsync(groupe, response, deviceId, ct);
         }

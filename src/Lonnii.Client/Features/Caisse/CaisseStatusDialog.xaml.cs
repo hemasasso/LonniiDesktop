@@ -115,7 +115,9 @@ public partial class CaisseStatusDialog : Window
 
         var cash = Money.TryParse(MontantFinalBox.Text, out decimal c) ? c : (decimal?)null;
         var mobile = Money.TryParse(MontantFinalMobileBox.Text, out decimal m) ? m : (decimal?)null;
-        var carte = Money.TryParse(MontantFinalCarteBox.Text, out decimal a) ? a : (decimal?)null;
+        // Carte is optional: left blank it counts as 0, like a shop with no card terminal.
+        var carte = string.IsNullOrWhiteSpace(MontantFinalCarteBox.Text) ? 0m
+            : Money.TryParse(MontantFinalCarteBox.Text, out decimal a) ? a : (decimal?)null;
 
         ExpectedCashText.Text = Line(ExpectedCash, cash);
         ExpectedMobileText.Text = Line(ExpectedMobile, mobile);
@@ -178,9 +180,11 @@ public partial class CaisseStatusDialog : Window
             return;
         }
 
-        if (!Money.TryParse(MontantFinalCarteBox.Text, out decimal carte) || carte < 0)
+        decimal carte = 0;
+        if (!string.IsNullOrWhiteSpace(MontantFinalCarteBox.Text)
+            && (!Money.TryParse(MontantFinalCarteBox.Text, out carte) || carte < 0))
         {
-            ErrorText.Text = "Indiquez le solde carte constaté (0 s'il n'y en a pas).";
+            ErrorText.Text = "Le solde carte constaté n'est pas un montant valide.";
             MontantFinalCarteBox.Focus();
             return;
         }

@@ -53,6 +53,25 @@
                                    VerticalAlignment="Center" IsHitTestVisible="False" />
                     </Grid>
 
+                    <!-- Typing a name: each matching client with what they owe in all; a click takes all their factures. -->
+                    <ItemsControl x:Name="ClientMatches" Margin="0,6,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Click="AddClient_Click" Margin="0,0,0,4" Padding="10,6"
+                                        HorizontalContentAlignment="Stretch" Style="{StaticResource SecondaryButton}">
+                                    <DockPanel>
+                                        <TextBlock DockPanel.Dock="Right" Text="Tout ajouter" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource Accent}" Margin="10,0,0,0" />
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Nom}" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Detail}" Foreground="{DynamicResource Danger}" FontSize="12" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
                     <DataGrid x:Name="PickerGrid" Height="130" Margin="0,6,0,0" RowHeight="30"
                               AutoGenerateColumns="False" IsReadOnly="True" CanUserSortColumns="False"
                               SelectionMode="Extended" MouseDoubleClick="PickerGrid_DoubleClick">

@@ -106,9 +106,33 @@ public partial class GroupePaymentDialog : Window
             .ToList();
 
         PickerGrid.ItemsSource = matches.Take(MaxSuggestions).Select(v => new FactureRow(v)).ToList();
+
+        // What each matching client owes in all, as the sale's client suggestions show it.
+        ClientMatches.ItemsSource = term.Length == 0 ? null : matches
+            .Where(v => v.ClientNom?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
+            .GroupBy(v => v.ClientNom!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(g => new ClientMatch(g.First().ClientNom!.Trim(), g.ToList()))
+            .OrderByDescending(c => c.Du)
+            .Take(5)
+            .ToList();
         PickerHint.Text = matches.Count > MaxSuggestions
             ? $"{matches.Count} factures — affinez la recherche"
             : $"{matches.Count} facture(s) impayée(s)";
+    }
+
+    private sealed class ClientMatch(string nom, List<VenteListItemDto> factures)
+    {
+        public string Nom { get; } = nom;
+        public List<VenteListItemDto> Factures { get; } = factures;
+        public decimal Du => Factures.Sum(f => Math.Max(0, f.MontantRestant));
+        public string Detail => $"{Factures.Count} facture(s) impayée(s)  •  doit {Money.Format(Du)}";
+    }
+
+    private void AddClient_Click(object sender, RoutedEventArgs e)
+    {
+        if (((FrameworkElement)sender).DataContext is not ClientMatch client) return;
+        foreach (var vente in client.Factures) Add(vente);
+        SearchBox.Clear();
     }
 
     private void PickerGrid_DoubleClick(object sender, MouseButtonEventArgs e)

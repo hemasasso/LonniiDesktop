@@ -497,19 +497,54 @@ public partial class VentesView : UserControl
             return;
         }
 
+        await OpenCaisseAsync();
+    }
+
+    /// <summary>Shows the open-caisse dialog and opens it. True when a caisse is open afterwards.</summary>
+    private async Task<bool> OpenCaisseAsync()
+    {
         var openDialog = new OpenCaisseDialog { Owner = Window.GetWindow(this) };
-        if (openDialog.ShowDialog() != true || openDialog.Result is not { } openRequest) return;
+        if (openDialog.ShowDialog() != true || openDialog.Result is not { } openRequest) return false;
 
         try
         {
             await _session.Api.OpenCaisseAsync(openRequest);
             await RefreshCaisseStatusAsync();
+            return true; // online, the shop opens it a few seconds later
         }
         catch (ApiException ex)
         {
             MessageBox.Show(Window.GetWindow(this), ex.Message, "Ouvrir Caisse",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
         }
+    }
+
+    /// <summary>
+    /// A paid sale with no caisse open is allowed, but the seller is asked first: the money
+    /// then belongs to no till. Those who may open one are offered to do it on the spot.
+    /// False when the seller chose to stop.
+    /// </summary>
+    private async Task<bool> ConfirmSaleWithoutCaisseAsync()
+    {
+        await RefreshCaisseStatusAsync();
+        if (_caisseStatus is not null) return true;
+
+        var owner = Window.GetWindow(this);
+        if (_canOpenCaisse)
+        {
+            var answer = MessageBox.Show(owner,
+                "Aucune caisse n'est ouverte. Voulez-vous ouvrir la caisse avant cette vente ?" + Environment.NewLine + Environment.NewLine +
+                "Oui : ouvrir la caisse    Non : vendre sans caisse    Annuler : revenir",
+                "Caisse fermée", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+            if (answer == MessageBoxResult.Cancel) return false;
+            if (answer == MessageBoxResult.Yes) return await OpenCaisseAsync();
+            return true;
+        }
+
+        return MessageBox.Show(owner,
+            "Aucune caisse n'est ouverte : cette vente ne sera comptée dans aucune caisse. Continuer ?",
+            "Caisse fermée", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
     }
 
     private void CaisseHistory_Click(object sender, RoutedEventArgs e)
@@ -1838,6 +1873,9 @@ public partial class VentesView : UserControl
             ShowMessage($"Le prix de « {belowMinimum.Product.Name} » est inférieur au minimum autorisé ({Money.Format(belowMinimum.Product.Price)}).");
             return;
         }
+
+        // A facture takes no money now, so it needs no caisse.
+        if (AvecFactureCheck.IsChecked != true && !await ConfirmSaleWithoutCaisseAsync()) return;
 
         // Same settings the server will apply, re-read so a vente rapide pays the exact TTC.
         await RefreshReceiptSettingsAsync();

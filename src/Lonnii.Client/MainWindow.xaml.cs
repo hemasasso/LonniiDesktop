@@ -687,8 +687,9 @@ public partial class MainWindow : Window
     /// there is one to check.</summary>
     // --- Notifications ---
 
-    /// <summary>Every few minutes, so a till left open or stock running out shows without F5.</summary>
-    private readonly System.Windows.Threading.DispatcherTimer _notificationTimer = new() { Interval = TimeSpan.FromMinutes(3) };
+    /// <summary>Every 20 seconds, so stock running out shows - and goes away once restocked -
+    /// without F5. The server works the list out live with one small query, so this is cheap.</summary>
+    private readonly System.Windows.Threading.DispatcherTimer _notificationTimer = new() { Interval = TimeSpan.FromSeconds(20) };
 
     private IReadOnlyList<NotificationDto> _notifications = [];
 

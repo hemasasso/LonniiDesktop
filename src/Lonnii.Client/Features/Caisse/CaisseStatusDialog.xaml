@@ -126,7 +126,7 @@
                                    TextWrapping="Wrap" />
                     </StackPanel>
                     <StackPanel Grid.Column="4">
-                        <TextBlock Text="Carte constatée" Style="{StaticResource FieldLabel}" />
+                        <TextBlock Text="Carte constatée (optionnel, 0 si vide)" Style="{StaticResource FieldLabel}" />
                         <TextBox x:Name="MontantFinalCarteBox" TextChanged="MontantFinal_Changed"
                                  ToolTip="Solde du compte carte de la caisse au moment de la fermeture" />
                         <TextBlock x:Name="ExpectedCarteText" Style="{StaticResource PageSubtitle}" Margin="0,6,0,0"

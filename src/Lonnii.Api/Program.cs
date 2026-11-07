@@ -110,6 +110,7 @@ builder.Services.AddScoped<PrivilegeResolver>();
 builder.Services.AddScoped<DatabaseSeeder>();
 builder.Services.AddSingleton<Lonnii.Api.Features.Live.ShopChangeNotifier>();
 builder.Services.AddSingleton<Lonnii.Api.Features.Print.PrintQueue>();
+builder.Services.AddScoped<Lonnii.Api.Features.Print.PrintRelay>();
 builder.Services.AddSingleton<Lonnii.Api.Features.Auth.LoginThrottle>();
 builder.Services.AddScoped<GroupSessionService>();
 // Who the caller is and whether the shop's licence is current are facts of the server's own
@@ -175,6 +176,8 @@ if (!databaseOptions.IsPostgres)
     builder.Services.AddHostedService<CloudBackupService>();
     // The same host also looks for changes administrators asked for from afar (see RemoteCommandApplier).
     builder.Services.AddHostedService<Lonnii.Api.Features.Remote.RemoteCommandService>();
+    // And prints for phones signed in online, relaying their jobs from our server to its postes.
+    builder.Services.AddHostedService<Lonnii.Api.Features.Print.PrintRelayService>();
     // And fetches new versions of the app for itself and its tills - online espaces only.
     builder.Services.AddHostedService<Lonnii.Api.Features.Updates.UpdateService>();
     // And renews its espaces' licences every hour, whether or not anyone has the app open.

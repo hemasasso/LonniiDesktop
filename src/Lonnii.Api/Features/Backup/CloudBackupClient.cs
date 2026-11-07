@@ -88,6 +88,26 @@ public sealed class CloudBackupClient(IHttpClientFactory factory)
             Request(HttpMethod.Post, $"commands/{Uri.EscapeDataString(id)}/result", JsonContent.Create(result)), ct);
     }
 
+    /// <summary>Tells the server which postes are open here and collects the print jobs phones left for them.</summary>
+    public async Task<IReadOnlyList<Lonnii.Api.Features.Print.PrintRelayJob>> PollPrintAsync(
+        IEnumerable<Lonnii.Api.Features.Print.PrintRelayPoste> postes, CancellationToken ct)
+    {
+        using var response = await SendAsync(Request(HttpMethod.Post, "print/poll",
+            JsonContent.Create(new Lonnii.Api.Features.Print.PrintRelayPoll([.. postes]))), ct);
+        return (await response.Content.ReadFromJsonAsync<Lonnii.Api.Features.Print.PrintRelayJobs>(ct))!.Jobs;
+    }
+
+    /// <summary>What became of a relayed print job; a job the server has already forgotten is fine.</summary>
+    public async Task ReportPrintAsync(string id, Lonnii.Api.Features.Print.PrintJobResult result, CancellationToken ct)
+    {
+        try
+        {
+            using var _ = await SendAsync(Request(HttpMethod.Post,
+                $"print/jobs/{Uri.EscapeDataString(id)}/result", JsonContent.Create(result)), ct);
+        }
+        catch (CloudBackupException e) when (e.Status == HttpStatusCode.NotFound) { }
+    }
+
     /// <summary>The photo sent with a product request, or null when the server no longer has it.</summary>
     public async Task<byte[]?> DownloadCommandPhotoAsync(string id, CancellationToken ct)
     {

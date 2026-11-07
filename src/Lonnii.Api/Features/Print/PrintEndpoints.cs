@@ -130,12 +130,14 @@ public sealed class PrintQueue
     public bool IsOpen(string groupId, string deviceId) =>
         _postes.TryGetValue((groupId, deviceId), out var p) && p.LastSeenAt >= DateTime.UtcNow - OpenFor;
 
-    public PrintJobDto Add(string groupId, string deviceId, string venteId, string format, string requestedBy)
+    /// <param name="id">A relayed job keeps the id our server gave it, so its result goes back by the same id.</param>
+    public PrintJobDto Add(string groupId, string deviceId, string venteId, string format, string requestedBy, string? id = null)
     {
         Sweep();
+        if (id is not null && _jobs.TryGetValue(id, out var existing)) return existing.ToDto();
         var job = new Job
         {
-            Id = Guid.NewGuid().ToString("N"), GroupId = groupId, DeviceId = deviceId,
+            Id = id ?? Guid.NewGuid().ToString("N"), GroupId = groupId, DeviceId = deviceId,
             VenteId = venteId, Format = format, RequestedBy = requestedBy,
         };
         _jobs[job.Id] = job;

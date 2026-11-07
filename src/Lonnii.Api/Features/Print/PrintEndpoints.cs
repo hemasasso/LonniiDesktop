@@ -7,8 +7,12 @@ namespace Lonnii.Api.Features.Print;
 /// <summary>A computer with Lonnii open that can print for the shop's phones.</summary>
 public sealed record PrintPosteDto(string DeviceId, string Name, bool IsHost, DateTime LastSeenAt);
 
-/// <summary>What a phone asks: print this sale on that computer, as a ticket or an A4 page.</summary>
-public sealed record PrintJobRequest(string? DeviceId, string? VenteId, string? Format);
+/// <summary>
+/// What a phone asks: print this sale on that computer, as a ticket or an A4 page. A sale made
+/// online has no id yet (the shop gives it one when it applies it), so it is named by the key the
+/// phone sent it with (<c>SaleKey</c>, the sale's idempotency key) instead.
+/// </summary>
+public sealed record PrintJobRequest(string? DeviceId, string? VenteId, string? Format, string? SaleKey = null);
 
 /// <summary>A job as the printing computer receives it, and as the phone follows it.</summary>
 public sealed record PrintJobDto(
@@ -25,7 +29,8 @@ public sealed record PrintRelayPoste(string DeviceId, string Name, bool IsHost);
 public sealed record PrintRelayPoll(List<PrintRelayPoste>? Postes);
 
 /// <summary>A job a phone left on our server, for the shop's host to hand to the named poste.</summary>
-public sealed record PrintRelayJob(string Id, string DeviceId, string VenteId, string Format, string RequestedBy);
+public sealed record PrintRelayJob(string Id, string DeviceId, string VenteId, string Format, string RequestedBy,
+    string? SaleKey = null);
 
 public sealed record PrintRelayJobs(List<PrintRelayJob> Jobs);
 
@@ -61,6 +66,7 @@ public sealed class PrintQueue
 
     private sealed class Job
     {
+        public string? SaleKey { get; init; }
         public required string Id { get; init; }
         public required string GroupId { get; init; }
         public required string DeviceId { get; init; }
@@ -108,7 +114,7 @@ public sealed class PrintQueue
                 if (job.Status != "pending") continue;
                 job.Status = "sent";
             }
-            taken.Add(new PrintRelayJob(job.Id, job.DeviceId, job.VenteId, job.Format, job.RequestedBy));
+            taken.Add(new PrintRelayJob(job.Id, job.DeviceId, job.VenteId, job.Format, job.RequestedBy, job.SaleKey));
         }
         return taken;
     }
@@ -131,14 +137,15 @@ public sealed class PrintQueue
         _postes.TryGetValue((groupId, deviceId), out var p) && p.LastSeenAt >= DateTime.UtcNow - OpenFor;
 
     /// <param name="id">A relayed job keeps the id our server gave it, so its result goes back by the same id.</param>
-    public PrintJobDto Add(string groupId, string deviceId, string venteId, string format, string requestedBy, string? id = null)
+    public PrintJobDto Add(string groupId, string deviceId, string venteId, string format, string requestedBy,
+        string? id = null, string? saleKey = null)
     {
         Sweep();
         if (id is not null && _jobs.TryGetValue(id, out var existing)) return existing.ToDto();
         var job = new Job
         {
             Id = id ?? Guid.NewGuid().ToString("N"), GroupId = groupId, DeviceId = deviceId,
-            VenteId = venteId, Format = format, RequestedBy = requestedBy,
+            VenteId = venteId, Format = format, RequestedBy = requestedBy, SaleKey = saleKey,
         };
         _jobs[job.Id] = job;
         return job.ToDto();
@@ -214,12 +221,16 @@ public static class PrintEndpoints
         group.MapGet("/postes", (GroupScope scope, PrintQueue queue) => Results.Ok(queue.Open(scope.GroupId))).RequireGroupScope();
         group.MapPost("/jobs", (PrintJobRequest request, GroupScope scope, PrintQueue queue) =>
         {
-            if (string.IsNullOrWhiteSpace(request.DeviceId) || string.IsNullOrWhiteSpace(request.VenteId))
+            var saleKey = string.IsNullOrWhiteSpace(request.SaleKey) ? null : request.SaleKey.Trim();
+            if (string.IsNullOrWhiteSpace(request.DeviceId)
+                || (string.IsNullOrWhiteSpace(request.VenteId) && saleKey is null)
+                || saleKey is { Length: > 100 })
                 return Results.BadRequest(new ApiError("Poste et vente obligatoires."));
             var format = Formats.Contains(request.Format) ? request.Format! : "ticket";
             if (!queue.IsOpen(scope.GroupId, request.DeviceId))
                 return Results.Conflict(new ApiError("Ce poste n'est plus ouvert. Choisissez-en un autre."));
-            return Results.Ok(queue.Add(scope.GroupId, request.DeviceId, request.VenteId, format, scope.UserId));
+            return Results.Ok(queue.Add(scope.GroupId, request.DeviceId, request.VenteId ?? "", format, scope.UserId,
+                saleKey: saleKey));
         }).RequireGroupScope();
         group.MapGet("/jobs/{id}", (string id, GroupScope scope, PrintQueue queue) =>
             queue.Get(scope.GroupId, id) is { } job ? Results.Ok(job) : Results.NotFound()).RequireGroupScope();

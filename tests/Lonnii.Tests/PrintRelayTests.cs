@@ -73,7 +73,7 @@ public class PrintRelayTests : IAsyncLifetime
             var vente = new Vente
             {
                 GroupId = GroupId, NumeroVente = "V-TEST-0001", DateVente = DateTime.UtcNow,
-                StatutPaiement = StatutPaiement.Paye, MontantTotal = 1_000m,
+                StatutPaiement = StatutPaiement.Paye, MontantTotal = 1_000m, IdempotencyKey = "phone-key-1",
             };
             _venteId = vente.Id;
             db.Ventes.Add(vente);
@@ -129,6 +129,19 @@ public class PrintRelayTests : IAsyncLifetime
         Assert.True(HostQueue.Finish(GroupId, "till-1", job.Id, true, null));
         await PassAsync();
         Assert.Equal("done", OciQueue.Get(GroupId, job.Id)!.Status);
+    }
+
+    [Fact]
+    public async Task A_sale_made_online_is_found_by_the_key_the_phone_sent_it_with()
+    {
+        HostQueue.Seen(GroupId, "till-1", "Caisse 1", isHost: false);
+        await PassAsync();
+
+        var job = OciQueue.Add(GroupId, "till-1", "", "ticket", "u1", saleKey: "phone-key-1");
+        await PassAsync();
+
+        var local = HostQueue.Next(GroupId, "till-1");
+        Assert.Equal((job.Id, _venteId), (local!.Id, local.VenteId));
     }
 
     [Fact]

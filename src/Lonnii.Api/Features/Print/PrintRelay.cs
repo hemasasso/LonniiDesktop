@@ -49,17 +49,16 @@ public sealed class PrintRelay(
 
             // A sale made on the phone online reaches this shop as a queued request: apply those first,
             // so the poste finds the sale it is asked to print.
-            var venteIds = jobs.Select(j => j.VenteId).Distinct().ToList();
-            var known = await KnownVentesAsync(venteIds, ct);
-            if (known.Count < venteIds.Count)
+            var found = await ResolveAsync(groupId, jobs, ct);
+            if (jobs.Any(j => !found.ContainsKey(j.Id)))
             {
                 await commands.PollAsync(groupId, ct);
-                known = await KnownVentesAsync(venteIds, ct);
+                found = await ResolveAsync(groupId, jobs, ct);
             }
 
             foreach (var job in jobs)
             {
-                if (!known.Contains(job.VenteId))
+                if (!found.TryGetValue(job.Id, out var venteId))
                 {
                     await client.ReportPrintAsync(job.Id, new PrintJobResult(false,
                         "Vente introuvable à la boutique : réessayez dans un instant."), ct);
@@ -71,7 +70,7 @@ public sealed class PrintRelay(
                         "Ce poste vient de se fermer. Choisissez-en un autre."), ct);
                     continue;
                 }
-                queue.Add(groupId, job.DeviceId, job.VenteId, job.Format, job.RequestedBy, job.Id);
+                queue.Add(groupId, job.DeviceId, venteId, job.Format, job.RequestedBy, job.Id);
                 inFlight[job.Id] = 0;
             }
         }
@@ -81,8 +80,26 @@ public sealed class PrintRelay(
         }
     }
 
-    private Task<List<string>> KnownVentesAsync(List<string> ids, CancellationToken ct) =>
-        db.Ventes.AsNoTracking().Where(v => ids.Contains(v.Id)).Select(v => v.Id).ToListAsync(ct);
+    /// <summary>Each job's sale id here, by id or by the key a sale made online was sent with.</summary>
+    private async Task<Dictionary<string, string>> ResolveAsync(string groupId, IReadOnlyList<PrintRelayJob> jobs, CancellationToken ct)
+    {
+        var ids = jobs.Where(j => j.SaleKey is null).Select(j => j.VenteId).Distinct().ToList();
+        var keys = jobs.Where(j => j.SaleKey is not null).Select(j => j.SaleKey!).Distinct().ToList();
+
+        var knownIds = (await db.Ventes.AsNoTracking()
+            .Where(v => v.GroupId == groupId && ids.Contains(v.Id)).Select(v => v.Id).ToListAsync(ct)).ToHashSet();
+        var byKey = await db.Ventes.AsNoTracking()
+            .Where(v => v.GroupId == groupId && v.IdempotencyKey != null && keys.Contains(v.IdempotencyKey))
+            .ToDictionaryAsync(v => v.IdempotencyKey!, v => v.Id, ct);
+
+        var found = new Dictionary<string, string>();
+        foreach (var job in jobs)
+        {
+            if (job.SaleKey is not null) { if (byKey.TryGetValue(job.SaleKey, out var id)) found[job.Id] = id; }
+            else if (knownIds.Contains(job.VenteId)) found[job.Id] = job.VenteId;
+        }
+        return found;
+    }
 
     private async Task ReportFinishedAsync(string groupId, ConcurrentDictionary<string, byte> inFlight, CancellationToken ct)
     {

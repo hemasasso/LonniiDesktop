@@ -43,8 +43,19 @@ public sealed class RemoteCommandApplier(
     /// must not make the next poll apply the same request twice.</summary>
     private static readonly ConcurrentDictionary<string, RemoteCommandResult> Unreported = new();
 
+    /// <summary>One pass at a time: the print relay may ask for one while the regular pass runs,
+    /// and two passes would both fetch, and apply, the same request.</summary>
+    private static readonly SemaphoreSlim PassGate = new(1, 1);
+
     /// <returns>How many requests were applied successfully on this pass.</returns>
     public async Task<int> PollAsync(string groupId, CancellationToken ct)
+    {
+        await PassGate.WaitAsync(ct);
+        try { return await PollCoreAsync(groupId, ct); }
+        finally { PassGate.Release(); }
+    }
+
+    private async Task<int> PollCoreAsync(string groupId, CancellationToken ct)
     {
         var groupe = await db.Groupes.AsNoTracking().FirstOrDefaultAsync(g => g.Id == groupId, ct);
         var state = await db.CloudBackupStates.AsNoTracking().FirstOrDefaultAsync(s => s.GroupId == groupId, ct);

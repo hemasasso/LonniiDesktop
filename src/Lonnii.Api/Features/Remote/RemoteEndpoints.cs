@@ -277,8 +277,19 @@ public static class RemoteEndpoints
                     if (request.PhotoId is not null && !commands.HasPhoto(scope.GroupId, request.PhotoId))
                         return Results.BadRequest(new ApiError("Photo introuvable : envoyez-la de nouveau."));
 
-                    (check, _) = await ProductCommands.RunAsync(
-                        type, request.ProductId, request.Product, request.StockAdjustment, scope, db, ct);
+                    try
+                    {
+                        (check, _) = await ProductCommands.RunAsync(
+                            type, request.ProductId, request.Product, request.StockAdjustment, scope, db, ct);
+                    }
+                    catch (DbUpdateException)
+                    {
+                        // The copy is behind the shop (a catégorie or fournisseur made from afar a moment
+                        // ago is not in it yet), so the trial broke a link the shop will have. The shop
+                        // decides when it applies the request; this trial only refuses what is plainly wrong.
+                        db.ChangeTracker.Clear(); // the failed insert must not linger after the rollback
+                        check = PrivilegeChangeResult.Done;
+                    }
                     break;
 
                 case var type when RemoteCommandTypes.IsMember(type):

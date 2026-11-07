@@ -393,9 +393,15 @@ public static class CaisseEndpoints
         var chiffreAffaires = ventes.Sum(v => v.MontantTotal);
         var totalAvoir = ventes.Where(v => v.AvoirAmount > 0 && !v.IsAvoirSolded).Sum(v => v.AvoirAmount);
 
+        // The money this till took: payments made by its cashier during the session, whatever the
+        // sale's date - a facture settled now lands in this drawer even if it was sold yesterday.
+        // Counting every payment in the espace put one payment into every open till, and counting
+        // an earlier facture's payment here as well as through its "facture_anterieure" movement
+        // (below) doubled it. Older rows without an author fall back to the sale's seller.
         var paiements = await db.PaiementsVentes.AsNoTracking()
             .Where(p => p.Vente!.GroupId == caisse.GroupId
-                && p.DatePaiement >= caisse.DateOuverture && p.DatePaiement <= asOf)
+                && p.DatePaiement >= caisse.DateOuverture && p.DatePaiement <= asOf
+                && (p.CreatedBy ?? p.Vente.CreatedBy) == caisse.UserId)
             .Select(p => new { p.Montant, p.ModePaiement })
             .ToListAsync(ct);
 
@@ -419,13 +425,25 @@ public static class CaisseEndpoints
         // is the cashier pulling cash for something unrelated to a sale - it still has to come
         // out of the drawer (LiveStats.ExpectedCash), but counting it here made an otherwise
         // fully-paid sale's "Total encaissé" read short of its own chiffre d'affaires.
-        var transactionsIn = transactions.Where(t => t.Type == "entree").Sum(t => t.Montant);
+        // An earlier facture's payment is already one of this cashier's payments above. Its
+        // "facture_anterieure" movement only adds money when someone else took the payment into
+        // this drawer (VentesEndpoints.FindOpenCaisseAsync's fallback), and then in its own mode.
+        foreach (var t in transactions.Where(t => t.Type == "entree" && t.CreatedBy != caisse.UserId))
+        {
+            switch (t.ModePaiement)
+            {
+                case ModePaiement.MobileMoney: mobile += t.Montant; break;
+                case ModePaiement.Carte: carte += t.Montant; break;
+                case null or ModePaiement.Cash: cash += t.Montant; break;
+                default: autres += t.Montant; break;
+            }
+        }
         var transactionsOut = transactions.Where(t => t.Type == "sortie" && t.Category != RetraitCategory).Sum(t => t.Montant);
         var retraits = transactions.Where(t => t.Type == "sortie" && t.Category == RetraitCategory).ToList();
         var totalRetraitsMobile = retraits.Where(t => t.ModePaiement == ModePaiement.MobileMoney).Sum(t => t.Montant);
         var totalRetraitsCash = retraits.Sum(t => t.Montant) - totalRetraitsMobile;
 
-        cash += transactionsIn - transactionsOut;
+        cash -= transactionsOut;
 
         var totalEncaisse = cash + mobile + carte + autres;
 

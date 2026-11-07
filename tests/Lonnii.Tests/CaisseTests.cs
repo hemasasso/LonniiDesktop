@@ -139,6 +139,61 @@ public class CaisseTests : IAsyncLifetime
 
     /// <summary>Opens a session with a 10 000 cash + 2 000 mobile float and one sale paid
     /// 5 000 cash and 3 000 mobile: 15 000 cash and 5 000 mobile expected at closing.</summary>
+    [Fact]
+    public async Task Paying_an_earlier_facture_counts_once_in_its_own_mode()
+    {
+        var session = await SignUpOwnerAsync();
+        await SendAsync(session, HttpMethod.Post, "/api/caisse/ouvrir", new OpenCaisseRequest(MontantInitialCash: 0m));
+
+        // Sold yesterday on credit, paid today by mobile money.
+        var venteId = "";
+        await SeedAsync(db =>
+        {
+            var vente = new Vente
+            {
+                GroupId = session.GroupId, NumeroVente = "V-OLD-0001", DateVente = DateTime.UtcNow.AddDays(-1),
+                StatutPaiement = StatutPaiement.EnAttente, MontantTotal = 5_000m, CreatedBy = session.UserId,
+            };
+            venteId = vente.Id;
+            db.Ventes.Add(vente);
+        });
+        await SendAsync(session, HttpMethod.Post, $"/api/ventes/{venteId}/paiement",
+            new AddPaiementRequest(5_000m, ModePaiement.MobileMoney));
+
+        var caisse = (await (await SendAsync(session, HttpMethod.Get, "/api/caisse/status"))
+            .Content.ReadFromJsonAsync<CaisseStatusResponse>())!.Caisse!;
+
+        Assert.Equal(5_000m, caisse.PaiementMobile);
+        Assert.Equal(0m, caisse.PaiementCash);
+        Assert.Equal(5_000m, caisse.TotalEncaisse);
+    }
+
+    [Fact]
+    public async Task Another_cashiers_payment_is_not_in_this_till()
+    {
+        var session = await SignUpOwnerAsync();
+        await SendAsync(session, HttpMethod.Post, "/api/caisse/ouvrir", new OpenCaisseRequest(MontantInitialCash: 0m));
+
+        await SeedAsync(db =>
+        {
+            var vente = new Vente
+            {
+                GroupId = session.GroupId, NumeroVente = "V-OTHER-0001", DateVente = DateTime.UtcNow,
+                StatutPaiement = StatutPaiement.Paye, MontantTotal = 3_000m, CreatedBy = "other-cashier",
+            };
+            vente.Paiements.Add(new PaiementVente
+            {
+                VenteId = vente.Id, Montant = 3_000m, ModePaiement = ModePaiement.Cash, CreatedBy = "other-cashier",
+            });
+            db.Ventes.Add(vente);
+        });
+
+        var caisse = (await (await SendAsync(session, HttpMethod.Get, "/api/caisse/status"))
+            .Content.ReadFromJsonAsync<CaisseStatusResponse>())!.Caisse!;
+
+        Assert.Equal(0m, caisse.TotalEncaisse);
+    }
+
     private async Task<Session> OpenWithMixedSaleAsync()
     {
         var session = await SignUpOwnerAsync();

@@ -386,11 +386,11 @@ public static class VentesEndpoints
             Details = $"{vente.NumeroVente}: +{request.Montant:0.##}",
         });
 
-        // A facture created before the till opened - typically an earlier shift's - is not
-        // one of the sales CaisseEndpoints.ComputeLiveStatsAsync counts by date range, so
-        // settling it now would otherwise vanish from this session's reconciliation even
-        // though the cash lands in this drawer. Recorded as an explicit transaction instead,
-        // same as add_caisse_transactions_table.sql's "facture_anterieure" category.
+        // A facture created before the till opened - typically an earlier shift's: kept as a
+        // "facture_anterieure" movement (add_caisse_transactions_table.sql) so the session shows
+        // it. The payment itself is already one of this cashier's payments in
+        // CaisseEndpoints.ComputeLiveStatsAsync; the movement only adds money there when it went
+        // into someone else's drawer (the fallback in FindOpenCaisseAsync).
         var openCaisse = await FindOpenCaisseAsync(db, scope.GroupId, scope.UserId, ct);
         if (openCaisse is not null && vente.DateVente < openCaisse.DateOuverture)
         {

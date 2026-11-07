@@ -267,7 +267,9 @@ public sealed class RemoteCommandService(
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var seconds = Math.Max(3, configuration.GetValue("Lonnii:RemoteCommands:IntervalSeconds", 10));
+        // Every 3 s by default: a phone signed in online waits on this for a sale or a till closing
+        // to reach the shop, and the ask is one small GET that usually comes back empty.
+        var seconds = Math.Max(2, configuration.GetValue("Lonnii:RemoteCommands:IntervalSeconds", 3));
 
         // Let start-up (migrations, the first licence refresh) finish before the first look.
         try { await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken); }

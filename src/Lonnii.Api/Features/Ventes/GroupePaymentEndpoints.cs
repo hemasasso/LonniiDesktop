@@ -125,9 +125,9 @@ public static class GroupePaymentEndpoints
 
             lines.Add(new FactureLine(vente.Id, vente.NumeroVente, restant));
 
-            // A facture from before the till opened is not one the session's reconciliation
-            // counts by date, so its cash is recorded explicitly - same rule as a single
-            // facture's payment (VentesEndpoints.AddPaiementAsync).
+            // A facture from before the till opened gets its "facture_anterieure" movement, same
+            // rule as a single facture's payment (VentesEndpoints.AddPaiementAsync), which the
+            // till counts only when it went into someone else's drawer.
             if (openCaisse is not null && vente.DateVente < openCaisse.DateOuverture)
             {
                 db.CaisseTransactions.Add(new CaisseTransaction

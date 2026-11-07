@@ -20,8 +20,15 @@ public sealed class FileLoggerProvider : ILoggerProvider
 
     public FileLoggerProvider(string directory)
     {
+        // Not allowed there (the API started from Visual Studio, not as the shop's service, while the
+        // installed one owns ProgramData\Lonnii): log in this user's own folder instead of crashing.
+        try { Directory.CreateDirectory(directory); }
+        catch (UnauthorizedAccessException)
+        {
+            directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Lonnii", "logs");
+            Directory.CreateDirectory(directory);
+        }
         _directory = directory;
-        Directory.CreateDirectory(directory);
 
         foreach (var old in Directory.EnumerateFiles(directory, "api-*.log"))
         {

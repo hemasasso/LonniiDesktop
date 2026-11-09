@@ -58,9 +58,13 @@ public class LicenceGuard(LonniiDbContext db, string? publicKey = null)
             ? built.ToUniversalTime() : null;
 
     /// <summary>The verified claims for <paramref name="groupId"/>'s stored token, or null when it
-    /// has none, or one that is altered, foreign, or for another espace.</summary>
+    /// has none, or one that is altered, foreign, or for another espace. Always null on our server,
+    /// which has no <c>host_licence</c> table: callers then read the row the dashboard sets. Without
+    /// this the phone's menu (<c>GET /api/privileges/menu</c>) failed there and showed no Gestion.</summary>
     public async Task<LicenceClaims?> SignedClaimsAsync(string groupId, CancellationToken ct)
     {
+        if (IsOurServer) return null;
+
         var token = await db.HostLicences.AsNoTracking()
             .Where(h => h.GroupId == groupId).Select(h => h.Token).FirstOrDefaultAsync(ct);
         return Verified(token, groupId);

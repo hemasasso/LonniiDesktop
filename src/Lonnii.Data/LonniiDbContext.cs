@@ -42,6 +42,25 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         foreach (var entry in ChangeTracker.Entries<Product>())
             if (entry.State is EntityState.Added or EntityState.Modified && entry.Entity is { VenteLibre: true, StockIllimite: false })
                 entry.Entity.StockIllimite = true;
+
+        DropActivityLogsOnLivePostgres();
+    }
+
+    /// <summary>
+    /// On the live Postgres, ventes_user_activity and stock_user_activity are Lonnii Business's
+    /// presence tables (current_page, is_online), not this model's action log - they have no
+    /// action/target_id/details columns. Inserting a log row there failed the whole save, so a
+    /// sale made on OCI (a phone-only shop) answered "Erreur lors de la création de la vente".
+    /// The log is only kept on a shop's own SQLite.
+    /// </summary>
+    private void DropActivityLogsOnLivePostgres()
+    {
+        if (Database.ProviderName != "Npgsql.EntityFrameworkCore.PostgreSQL") return;
+
+        foreach (var entry in ChangeTracker.Entries<VentesUserActivity>().Where(e => e.State == EntityState.Added).ToList())
+            entry.State = EntityState.Detached;
+        foreach (var entry in ChangeTracker.Entries<StockUserActivity>().Where(e => e.State == EntityState.Added).ToList())
+            entry.State = EntityState.Detached;
     }
 
     /// <summary>Scale used by the money converter: two decimal places, as DECIMAL(15,2) in the source schema.</summary>

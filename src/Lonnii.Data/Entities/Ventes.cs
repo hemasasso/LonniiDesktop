@@ -52,6 +52,10 @@ public static class ModePaiement
     public const string Virement = "virement";
     public const string Cheque = "cheque";
 
+    /// <summary>Set on <see cref="Vente.ModePaiement"/> only, when the sale was paid with more
+    /// than one method at checkout. Never on a payment row: each part keeps its real method.</summary>
+    public const string Mixte = "mixte";
+
     // Reserved for the wallet providers (Features/Payments); nothing records them yet.
     public const string GooglePay = "google_pay";
     public const string ApplePay = "apple_pay";
@@ -498,6 +502,23 @@ public class VentesParametres
     public bool? ReceiptPrintAfterSale { get; set; }
 
     public bool? FacturePrintAfterSale { get; set; }
+
+    /// <summary>A4 reçu: the total also written in words under the figures. Null reads as off.</summary>
+    public bool? ReceiptAmountInWords { get; set; }
+
+    /// <summary>A4 facture: the total also written in words under the figures. Null reads as off.</summary>
+    public bool? FactureAmountInWords { get; set; }
+
+    /// <summary>"Activer remise" in Configuration: the till shows the per-line and global
+    /// remise fields only when on. Null reads as off.</summary>
+    public bool? RemiseEnabled { get; set; }
+
+    /// <summary>Configuration: show the stock quantity ("Qté") on Nouvelle Vente product tiles,
+    /// desktop and phone. Null reads as on.</summary>
+    public bool? TileShowQuantity { get; set; }
+
+    /// <summary>Configuration: show the price on Nouvelle Vente product tiles. Null reads as on.</summary>
+    public bool? TileShowPrice { get; set; }
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

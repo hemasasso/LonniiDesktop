@@ -229,7 +229,7 @@ public class LonniiApiClient
     /// <summary>Uploads a cover photo for the current espace, replacing the previous one.</summary>
     public Task<GroupeDto> UploadEspacePhotoAsync(
         byte[] content, string fileName, CancellationToken ct = default) =>
-        UploadImageAsync<GroupeDto>("api/groupe/photo", content, fileName, ct);
+        UploadPhotoAsync<GroupeDto>("api/groupe/photo", content, fileName, ct);
 
     /// <summary>
     /// An espace's cover photo, for the group picker. Needs only the signed-in user, not an open
@@ -482,6 +482,9 @@ public class LonniiApiClient
     public Task<CategoryDto> UpdateCategoryAsync(string id, SaveCategoryRequest request, CancellationToken ct = default) =>
         SendAsync<CategoryDto>(HttpMethod.Put, $"api/stock/categories/{id}", request, ct);
 
+    public Task DeleteCategoryAsync(string id, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Delete, $"api/stock/categories/{id}", null, ct);
+
     public Task<List<SupplierDto>> GetSuppliersAsync(CancellationToken ct = default) =>
         GetAsync<List<SupplierDto>>("api/stock/suppliers", ct);
 
@@ -547,14 +550,14 @@ public class LonniiApiClient
         return GetAsync<GroupePaiementsResponse>("api/ventes/groupe-payments?" + string.Join("&", query), ct);
     }
 
-    public Task SolderGroupeAvoirAsync(string id, CancellationToken ct = default) =>
-        SendAsync(HttpMethod.Put, $"api/ventes/groupe-payments/{id}/solder-avoir", null, ct);
+    public Task SolderGroupeAvoirAsync(string id, string mode, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Put, $"api/ventes/groupe-payments/{id}/solder-avoir", new SolderAvoirRequest(mode), ct);
 
     public Task CancelVenteAsync(string id, CancelVenteRequest request, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Put, $"api/ventes/{id}/annuler", request, ct);
 
-    public Task SolderAvoirAsync(string id, CancellationToken ct = default) =>
-        SendAsync(HttpMethod.Put, $"api/ventes/{id}/solder-avoir", null, ct);
+    public Task SolderAvoirAsync(string id, string mode, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Put, $"api/ventes/{id}/solder-avoir", new SolderAvoirRequest(mode), ct);
 
     public Task EditVenteAsync(string id, EditVenteRequest request, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Put, $"api/ventes/{id}", request, ct);
@@ -867,6 +870,13 @@ public class LonniiApiClient
     public Task<ReceiptSettingsDto> UpdateReceiptSettingsAsync(
         UpdateReceiptSettingsRequest request, CancellationToken ct = default) =>
         SendAsync<ReceiptSettingsDto>(HttpMethod.Put, "api/parametres/recu", request, ct);
+
+    /// <summary>"Activer remise" (Configuration).</summary>
+    public Task<ReceiptSettingsDto> SaveRemiseSettingAsync(bool enabled, CancellationToken ct = default) =>
+        SendAsync<ReceiptSettingsDto>(HttpMethod.Put, "api/parametres/recu/remise", new SaveRemiseSettingRequest(enabled), ct);
+
+    public Task<ReceiptSettingsDto> SaveTileDisplayAsync(bool showQuantity, bool showPrice, CancellationToken ct = default) =>
+        SendAsync<ReceiptSettingsDto>(HttpMethod.Put, "api/parametres/recu/tuiles", new SaveTileDisplayRequest(showQuantity, showPrice), ct);
 
     public Task<ImageUploadResponse> UploadReceiptLogoAsync(
         byte[] content, string fileName, CancellationToken ct = default) =>
@@ -1196,7 +1206,7 @@ public class LonniiApiClient
     /// <summary>Uploads a product photo, replacing whatever was there before.</summary>
     public Task<ImageUploadResponse> UploadProductImageAsync(
         string productId, byte[] content, string fileName, CancellationToken ct = default) =>
-        UploadImageAsync($"api/stock/products/{productId}/image", content, fileName, ct);
+        UploadPhotoAsync<ImageUploadResponse>($"api/stock/products/{productId}/image", content, fileName, ct);
 
     public Task DeleteProductImageAsync(string productId, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Delete, $"api/stock/products/{productId}/image", null, ct);
@@ -1204,7 +1214,7 @@ public class LonniiApiClient
     /// <summary>Uploads a category photo, replacing whatever was there before.</summary>
     public Task<ImageUploadResponse> UploadCategoryImageAsync(
         string categoryId, byte[] content, string fileName, CancellationToken ct = default) =>
-        UploadImageAsync($"api/stock/categories/{categoryId}/image", content, fileName, ct);
+        UploadPhotoAsync<ImageUploadResponse>($"api/stock/categories/{categoryId}/image", content, fileName, ct);
 
     public Task DeleteCategoryImageAsync(string categoryId, CancellationToken ct = default) =>
         SendAsync(HttpMethod.Delete, $"api/stock/categories/{categoryId}/image", null, ct);
@@ -1216,10 +1226,32 @@ public class LonniiApiClient
     /// carry. <paramref name="imageUrl"/> is the API-relative path a DTO's ImageUrl holds,
     /// e.g. <c>/api/images/products/&lt;file&gt;</c>.
     /// </summary>
+    public async Task<byte[]> GetThumbnailBytesAsync(string imageUrl, CancellationToken ct = default)
+    {
+        // "<name>.jpg" -> "<name>.t.jpg": the ~200 px copy the server keeps for grids. A server
+        // from before thumbnails answers 404 for it, so the full photo is fetched instead.
+        var dot = imageUrl.LastIndexOf('.');
+        if (imageUrl.StartsWith("/api/images/", StringComparison.Ordinal) && dot > imageUrl.LastIndexOf('/')
+            && !imageUrl.EndsWith(".t.jpg", StringComparison.OrdinalIgnoreCase))
+        {
+            try { return await GetImageBytesAsync(imageUrl[..dot] + ".t.jpg", ct); }
+            catch (ApiException e) when (e.StatusCode == HttpStatusCode.NotFound) { }
+        }
+        return await GetImageBytesAsync(imageUrl, ct);
+    }
+
+    /// <summary>The full photo (detail views); grids use <see cref="GetThumbnailBytesAsync"/>.</summary>
     public async Task<byte[]> GetImageBytesAsync(string imageUrl, CancellationToken ct = default)
     {
         using var response = await SendCoreAsync(HttpMethod.Get, imageUrl.TrimStart('/'), null, ct);
         return await response.Content.ReadAsByteArrayAsync(ct);
+    }
+
+    /// <summary>A photo (product, category, espace): shrunk on this computer first, see <see cref="PhotoShrinker"/>.</summary>
+    private Task<T> UploadPhotoAsync<T>(string url, byte[] content, string fileName, CancellationToken ct)
+    {
+        var (small, name) = PhotoShrinker.Shrink(content, fileName);
+        return UploadImageAsync<T>(url, small, name, ct);
     }
 
     private Task<ImageUploadResponse> UploadImageAsync(

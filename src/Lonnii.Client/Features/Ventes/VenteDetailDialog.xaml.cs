@@ -65,7 +65,9 @@ public partial class VenteDetailDialog : Window
         AddRows(grid, rowCount);
         AddRow(grid, 0, "Date", vente.DateVente.ToLocalTime().ToString("dd/MM/yyyy à HH:mm", French));
         AddRow(grid, 1, "Vendeur", vente.VendeurNom ?? "Non spécifié");
-        AddRow(grid, 2, "Mode de paiement", PaymentLabel(vente.ModePaiement));
+        AddRow(grid, 2, "Mode de paiement", vente.ModePaiement == "mixte"
+            ? ReceiptData.FromVente(vente) is var d ? ReceiptDocument.PaymentModeLine(d.ModePaiement, d.Paiements) : ""
+            : PaymentLabel(vente.ModePaiement));
         AddRow(grid, 3, "Statut", StatutLabel(vente.StatutPaiement),
             valueBrushKey: StatutColorKey(vente.StatutPaiement));
 
@@ -132,7 +134,7 @@ public partial class VenteDetailDialog : Window
         {
             (i + 1).ToString(),
             Money.Format(p.Montant),
-            PaymentLabel(p.ModePaiement),
+            PaymentLabel(p.ModePaiement) + (string.IsNullOrWhiteSpace(p.Reference) ? "" : $" (réf. {p.Reference})"),
             p.DatePaiement.ToLocalTime().ToString("dd/MM/yy HH:mm"),
             p.CreatedByName ?? "-",
         });
@@ -257,9 +259,10 @@ public partial class VenteDetailDialog : Window
         "cash"         => "Espèces",
         "mobile_money" => "Mobile Money",
         "orange_money" => "Orange Money",
-        "carte"        => "Carte",
+        "carte"        => "Banque/Carte",
         "virement"     => "Virement",
         "cheque"       => "Chèque",
+        "mixte"        => "Mixte",
         _ => modePaiement ?? "Non spécifié",
     };
 

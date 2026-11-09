@@ -601,7 +601,14 @@ public sealed record CartItemRequest(
 /// computed total (partial payment) or zero (unpaid). <paramref name="RemiseGlobale"/> is a
 /// flat amount taken off the sum of the lines, e.g. a negotiated rebate on the whole sale.
 /// With <paramref name="MonnaieEnAvoir"/>, a <paramref name="MontantPaye"/> above the total is
-/// kept in full and the excess becomes an avoir on the sale; otherwise it is capped at the total.</summary>
+/// kept in full and the excess becomes an avoir on the sale; otherwise it is capped at the total.
+/// <para>
+/// <paramref name="Paiements"/> is the "Paiement mixte" form: one part per method (e.g. the
+/// cash the customer handed over, then mobile money for the rest). When it has any entries it
+/// replaces <paramref name="ModePaiement"/>/<paramref name="MontantPaye"/>, which are then
+/// ignored; each part is recorded as its own payment so the caisse counts each method exactly.
+/// A split cannot overpay (no change, no avoir) - older clients simply never send it.
+/// </para></summary>
 public sealed record CreateVenteRequest(
     IReadOnlyList<CartItemRequest> Items,
     string ModePaiement,
@@ -612,7 +619,12 @@ public sealed record CreateVenteRequest(
     string? ClientEmail = null,
     string? Notes = null,
     string? IdempotencyKey = null,
-    bool MonnaieEnAvoir = false);
+    bool MonnaieEnAvoir = false,
+    IReadOnlyList<PaiementPartRequest>? Paiements = null);
+
+/// <summary>One part of a split payment at checkout. <paramref name="Reference"/> is the
+/// operator's transaction id for a mobile money part, kept for reconciling statements.</summary>
+public sealed record PaiementPartRequest(string ModePaiement, decimal Montant, string? Reference = null);
 
 /// <summary>One line of a completed sale. <paramref name="Unite"/> is the unit sold in - only
 /// set for a Vente Mixte product (its bulk unit, e.g. "Carton", or its base unit) - and null
@@ -636,7 +648,8 @@ public sealed record PaiementDto(
     decimal Montant,
     string ModePaiement,
     DateTime DatePaiement,
-    string? CreatedByName);
+    string? CreatedByName,
+    string? Reference = null);
 
 /// <summary>A completed sale, as shown on a receipt or in the sales detail view.</summary>
 public sealed record VenteDto(
@@ -772,6 +785,9 @@ public sealed record GroupePaiementsResponse(IReadOnlyList<GroupePaiementDto> Pa
 /// <summary>Cancels a sale; <paramref name="Motif"/> is mandatory, same as Lonnii Business.</summary>
 public sealed record CancelVenteRequest(string Motif);
 
+/// <summary>Which till pool pays an avoir back: cash, mobile_money or carte (null = cash).</summary>
+public sealed record SolderAvoirRequest(string? ModePaiement);
+
 /// <summary>Edits a sale's client details - name, date, phone and email are all sometimes
 /// forgotten or wrong at creation time, which otherwise skews analytics and stale contact
 /// info. At least one field must be supplied; each null one is simply left untouched.</summary>
@@ -860,8 +876,13 @@ public sealed record CaisseDto(
     decimal? MontantFinalMobile = null,
     decimal MontantInitialCarte = 0,
     decimal? MontantFinalCarte = null,
-    CaisseOrigineDto? Origine = null)
+    CaisseOrigineDto? Origine = null,
+    decimal AvoirsSoldes = 0,
+    decimal ResteAPayer = 0)
 {
+    // ResteAPayer: what customers still owe, today, on the sales rung up in this session
+    // (paiements partiels and factures not settled yet) - it shrinks as they come back and pay.
+
     public decimal TotalRetraits => Retraits?.Sum(r => r.Montant) ?? 0;
 
     /// <summary>The cash share of <see cref="TotalRetraits"/> - everything not explicitly
@@ -1110,12 +1131,16 @@ public static class ReceiptSections
     public const string Footer = "footer";
     public const string Qr = "qr";
     public const string Signature = "signature";
+
+    /// <summary>The customer's box inside the signature zone. Some customers refuse to sign, so a
+    /// shop can keep the cachet and drop this one.</summary>
+    public const string ClientSignature = "client_signature";
     public const string LegalFooter = "legal_footer";
 
     public static readonly IReadOnlyList<string> All =
     [
         Logo, Company, CompanyContact, CompanyLegal, Client, Seller, Cashier, UnitPrice, Discounts,
-        Tva, PaymentInfo, PaymentHistory, Notice, Footer, Qr, Signature, LegalFooter,
+        Tva, PaymentInfo, PaymentHistory, Notice, Footer, Qr, Signature, ClientSignature, LegalFooter,
     ];
 
     /// <summary>The sections that can appear on a facture. An unpaid sale has no payment,
@@ -1143,6 +1168,7 @@ public static class ReceiptSections
         Footer => "Message de fin",
         Qr => "QR code de paiement",
         Signature => "Signature / cachet",
+        ClientSignature => "Signature du client",
         LegalFooter => "Texte de bas de page",
         _ => section,
     };
@@ -1200,7 +1226,12 @@ public sealed record ReceiptSettingsDto(
     decimal? TvaRate = null,
     string TvaMode = TvaModes.Incluse,
     bool ReceiptPrintAfterSale = true,
-    bool FacturePrintAfterSale = true)
+    bool FacturePrintAfterSale = true,
+    bool RemiseEnabled = false,
+    bool TileShowQuantity = true,
+    bool TileShowPrice = true,
+    bool ReceiptAmountInWords = false,
+    bool FactureAmountInWords = false)
 {
     public IReadOnlyList<string> HiddenSections(bool facture) =>
         (facture ? FactureHiddenSections : ReceiptHiddenSections) ?? ReceiptSettingsDefaults.DefaultHiddenSections;
@@ -1209,6 +1240,9 @@ public sealed record ReceiptSettingsDto(
 
     /// <summary>Whether the till opens the document for printing as soon as a sale is made.</summary>
     public bool PrintAfterSale(bool facture) => facture ? FacturePrintAfterSale : ReceiptPrintAfterSale;
+
+    /// <summary>Whether an A4 document writes its total in words too ("Montant en lettres").</summary>
+    public bool AmountInWords(bool facture) => facture ? FactureAmountInWords : ReceiptAmountInWords;
 
     /// <summary>The rate the till adds on top of prices, or null when prices already include it.</summary>
     public decimal? AddedTvaRate => TvaMode == TvaModes.Ajoutee && TvaRate is > 0 ? TvaRate : null;
@@ -1247,7 +1281,15 @@ public sealed record UpdateReceiptSettingsRequest(
     decimal? TvaRate = null,
     string? TvaMode = null,
     bool? ReceiptPrintAfterSale = null,
-    bool? FacturePrintAfterSale = null);
+    bool? FacturePrintAfterSale = null,
+    bool? ReceiptAmountInWords = null,
+    bool? FactureAmountInWords = null);
+
+/// <summary>"Activer remise" in Configuration - saved on its own, without the receipt wording.</summary>
+public sealed record SaveRemiseSettingRequest(bool Enabled);
+
+/// <summary>Configuration: what the Nouvelle Vente product tiles show, desktop and phone.</summary>
+public sealed record SaveTileDisplayRequest(bool ShowQuantity, bool ShowPrice);
 
 // --- Images ---
 

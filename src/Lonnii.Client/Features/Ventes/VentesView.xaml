@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF"
              xmlns:controls="clr-namespace:Lonnii.Client.Common.Controls"
+             xmlns:services="clr-namespace:Lonnii.Client.Services"
              Background="{DynamicResource Surface}">
 
     <DockPanel>
@@ -33,7 +34,7 @@
                          where they stand. Collapsed while nothing is open. -->
                     <StackPanel x:Name="CaisseAmountPanel" Visibility="Collapsed"
                                 VerticalAlignment="Center" Margin="0,0,14,0">
-                        <TextBlock Text="Caisse (Encaissé)" Style="{StaticResource PageSubtitle}"
+                        <TextBlock Text="En caisse" Style="{StaticResource PageSubtitle}"
                                    HorizontalAlignment="Right" />
                         <TextBlock x:Name="CaisseAmountText" FontWeight="Bold" FontSize="15"
                                    Foreground="{DynamicResource Success}" HorizontalAlignment="Right" />
@@ -558,7 +559,8 @@
                                         <StackPanel Margin="2,8,2,0">
                                             <TextBlock Text="{Binding Product.Name}" FontWeight="SemiBold"
                                                        TextTrimming="CharacterEllipsis" ToolTip="{Binding Product.Name}" />
-                                            <TextBlock Margin="0,2,0,0" Text="{Binding PriceDisplay}">
+                                            <TextBlock Margin="0,2,0,0" Text="{Binding PriceDisplay}"
+                                                       Visibility="{Binding ShowPrice, Converter={StaticResource BoolToVis}}">
                                                 <TextBlock.Style>
                                                     <Style TargetType="TextBlock">
                                                         <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
@@ -577,6 +579,7 @@
                                                  with the full text kept in the tooltip. -->
                                             <TextBlock FontSize="11" Foreground="{DynamicResource TextMuted}"
                                                        Margin="0,2,0,0" TextTrimming="CharacterEllipsis"
+                                                       Visibility="{Binding ShowQuantity, Converter={StaticResource BoolToVis}}"
                                                        ToolTip="{Binding Product.QuantityDisplay, Mode=OneWay}">
                                                 <Run Text="Qté : " />
                                                 <Run Text="{Binding Product.QuantityDisplay, Mode=OneWay}" />
@@ -655,7 +658,7 @@
                                     <TextBlock x:Name="RemiseCurrencyText" FontWeight="SemiBold"
                                                Style="{StaticResource ButtonContentText}" />
                                 </Button>
-                                <TextBox x:Name="RemiseGlobaleBox" Text="0" />
+                                <TextBox x:Name="RemiseGlobaleBox" services:TouchKeypad.Layout="Numeric" Text="0" />
                             </DockPanel>
                         </Border>
 
@@ -752,7 +755,7 @@
                                                VerticalAlignment="Center" IsHitTestVisible="False" />
                                 </Grid>
                                 <Grid Grid.Column="2">
-                                    <TextBox x:Name="ClientTelephoneBox" ToolTip="Téléphone du client (optionnel)" />
+                                    <TextBox x:Name="ClientTelephoneBox" services:TouchKeypad.Layout="Numeric" ToolTip="Téléphone du client (optionnel)" />
                                     <TextBlock x:Name="ClientTelephonePlaceholder" Text="Téléphone"
                                                Foreground="{DynamicResource TextMuted}" Margin="9,0,0,0"
                                                VerticalAlignment="Center" IsHitTestVisible="False" />
@@ -829,12 +832,49 @@
                                            Foreground="#FF6200" Style="{StaticResource ButtonContentText}" />
                             </Button>
                             <Button x:Name="PaymentCarteButton"
-                                    Width="44" Height="30" Padding="0"
-                                    Style="{StaticResource SecondaryButton}" ToolTip="Carte"
+                                    Width="44" Height="30" Padding="0" Margin="0,0,8,0"
+                                    Style="{StaticResource SecondaryButton}" ToolTip="Banque/Carte"
                                     Click="PaymentMode_Click" Tag="carte">
                                 <TextBlock Text="&#xE8C7;" FontFamily="Segoe MDL2 Assets" FontSize="16" Style="{StaticResource ButtonContentText}" />
                             </Button>
+                            <Button x:Name="PaymentMixteButton"
+                                    Height="30" Padding="8,0"
+                                    Style="{StaticResource SecondaryButton}"
+                                    ToolTip="Paiement mixte : une partie en espèces, le reste en Mobile Money"
+                                    Click="PaymentMode_Click" Tag="mixte">
+                                <TextBlock Text="Mixte" Style="{StaticResource ButtonContentText}" />
+                            </Button>
                         </StackPanel>
+
+                        <!-- Paiement mixte: the cashier types the cash the customer handed over and
+                             Mobile Money covers exactly what is left - never change, never avoir. -->
+                        <Border x:Name="MixtePanel" Visibility="Collapsed" Margin="0,0,0,6" Padding="10,6"
+                                Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Border}"
+                                BorderThickness="1" CornerRadius="6">
+                            <StackPanel>
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Text="Espèces" Width="90"
+                                               VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBox x:Name="MixteCashBox" services:TouchKeypad.Layout="Numeric"
+                                             TextChanged="MixteCash_TextChanged" LostFocus="MixteCash_LostFocus" />
+                                </DockPanel>
+                                <DockPanel Margin="0,6,0,0">
+                                    <TextBlock DockPanel.Dock="Left" Text="Mobile Money" Width="90"
+                                               VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <!-- Filled with the rest automatically; typing in it means the
+                                         customer pays less by mobile - what is left becomes "reste à payer". -->
+                                    <TextBox x:Name="MixteMobileBox" services:TouchKeypad.Layout="Numeric"
+                                             TextChanged="MixteMobile_TextChanged" LostFocus="MixteMobile_LostFocus" />
+                                </DockPanel>
+                                <DockPanel x:Name="MixteReferenceRow" Margin="0,6,0,0">
+                                    <TextBlock DockPanel.Dock="Left" Text="Réf. mobile" Width="90"
+                                               VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBox x:Name="MixteReferenceBox" ToolTip="Numéro de transaction (facultatif)" />
+                                </DockPanel>
+                                <TextBlock x:Name="MixteHintText" Margin="0,6,0,0" FontSize="12" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource TextSecondary}" Visibility="Collapsed" />
+                            </StackPanel>
+                        </Border>
 
                         <!-- Cash only - a card or mobile payment is charged the exact total, so
                              there is no change to hand back. Lets the cashier type what the
@@ -847,7 +887,7 @@
                                 <DockPanel>
                                     <TextBlock DockPanel.Dock="Left" Text="Montant reçu"
                                                VerticalAlignment="Center" Margin="0,0,8,0" />
-                                    <TextBox x:Name="MontantRecuBox"
+                                    <TextBox x:Name="MontantRecuBox" services:TouchKeypad.Layout="Numeric"
                                              TextChanged="MontantRecu_TextChanged" LostFocus="MontantRecu_LostFocus" />
                                 </DockPanel>
                                 <!-- The checkbox only appears once there is change to turn into an

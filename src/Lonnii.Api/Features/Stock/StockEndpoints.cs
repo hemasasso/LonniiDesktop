@@ -59,6 +59,8 @@ public static class StockEndpoints
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageCategories);
         stock.MapPut("/categories/{id}", UpdateCategoryAsync)
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageCategories);
+        stock.MapDelete("/categories/{id}", DeleteCategoryAsync)
+            .RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageCategories);
         stock.MapPost("/categories/{id}/image", UploadCategoryImageAsync)
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageCategories).DisableAntiforgery();
         stock.MapDelete("/categories/{id}/image", DeleteCategoryImageAsync)
@@ -567,6 +569,34 @@ public static class StockEndpoints
 
         var productCount = await db.Products.CountAsync(p => p.CategoryId == id && p.DeletedAt == null, ct);
         return Results.Ok(ToDto(category, productCount));
+    }
+
+    /// <summary>
+    /// Removes a category a shop does not want (e.g. "Électronique" in a pharmacy). Refused
+    /// while any product still in stock (not soft-deleted) uses it; soft-deleted products
+    /// that pointed at it simply lose their category.
+    /// </summary>
+    private static async Task<IResult> DeleteCategoryAsync(
+        string id, GroupScope scope, LonniiDbContext db, ImageStorageService images, CancellationToken ct)
+    {
+        var category = await db.Categories
+            .FirstOrDefaultAsync(c => c.Id == id && c.GroupId == scope.GroupId, ct);
+        if (category is null) return Results.NotFound(new ApiError("Catégorie introuvable"));
+
+        var inUse = await db.Products.CountAsync(
+            p => p.CategoryId == id && p.GroupId == scope.GroupId && p.DeletedAt == null, ct);
+        if (inUse > 0)
+            return Results.Conflict(new ApiError(
+                $"Impossible de supprimer : {inUse} produit(s) utilisent encore cette catégorie. Changez-les de catégorie ou désactivez-la."));
+
+        await db.Products.Where(p => p.CategoryId == id && p.GroupId == scope.GroupId)
+            .ExecuteUpdateAsync(s => s.SetProperty(p => p.CategoryId, (string?)null), ct);
+
+        images.DeleteIfOwned(category.ImageUrl);
+        db.Categories.Remove(category);
+        await db.SaveChangesAsync(ct);
+
+        return Results.NoContent();
     }
 
     /// <summary>

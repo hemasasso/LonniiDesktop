@@ -102,14 +102,11 @@ public partial class GroupeHistoryDialog : Window
     {
         if (((FrameworkElement)sender).DataContext is not Row row) return;
 
-        var confirm = MessageBox.Show(this,
-            $"Voulez-vous vraiment solder l'avoir de {Money.Format(row.Payment.AvoirAmount)} pour ce paiement groupé ?",
-            "Solder l'avoir", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (confirm != MessageBoxResult.Yes) return;
+        if (RefundModeDialog.Ask(this, row.Payment.AvoirAmount, "(paiement groupé)") is not { } mode) return;
 
         try
         {
-            await _session.Api.SolderGroupeAvoirAsync(row.Payment.Id);
+            await _session.Api.SolderGroupeAvoirAsync(row.Payment.Id, mode);
             HasChanges = true;
             await LoadAsync(Pager.CurrentPage);
         }

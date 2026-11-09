@@ -49,7 +49,10 @@ public partial class CaisseReportDialog : Window
         Section("VENTES");
         Row("Nombre de ventes", c.TotalVentes.ToString());
         Row("Chiffre d'affaires", Money.Format(c.TotalChiffreAffaires), bold: true);
-        if (c.TotalAvoir > 0) Row("Avoirs clients non soldés", Money.Format(c.TotalAvoir));
+        Row("Reste à payer (clients)", Money.Format(c.ResteAPayer), color: c.ResteAPayer > 0 ? Loss : null);
+        // Always shown, even at 0: a report that says "0" proves no avoir moved this session.
+        Row("Avoirs créés", Money.Format(c.TotalAvoir));
+        Row("Avoirs remboursés", Money.Format(c.AvoirsSoldes));
         Divider();
 
         Section("ENCAISSEMENTS");
@@ -58,20 +61,24 @@ public partial class CaisseReportDialog : Window
         // CaisseEndpoints.ComputeLiveStatsAsync.
         Row("Espèces (net des mouvements)", Money.Format(c.PaiementCash));
         Row("Mobile Money", Money.Format(c.PaiementMobile));
-        Row("Carte", Money.Format(c.PaiementCarte));
+        Row("Banque/Carte", Money.Format(c.PaiementCarte));
         if (c.PaiementAutres != 0) Row("Autres", Money.Format(c.PaiementAutres));
         Row("Total encaissé", Money.Format(c.TotalEncaisse), bold: true);
         if (c.Origine is { } origine)
         {
             Row("  dont ventes de la session", Money.Format(origine.VentesSession));
             Row($"  dont factures antérieures ({origine.FacturesAnterieuresCount})", Money.Format(origine.FacturesAnterieures));
+            // The origin lines are money received; Total encaissé is net of avoirs paid back out
+            // of the till. Without this line the "dont" rows add up to more than the total.
+            var sorties = origine.VentesSession + origine.FacturesAnterieures - c.TotalEncaisse;
+            if (sorties > 0) Row("  moins avoirs remboursés", $"-{Money.Format(sorties)}", color: Loss);
         }
         Divider();
 
         Section("FONDS INITIAL");
         Row("Espèces", Money.Format(c.MontantInitialCash));
         if (c.MontantInitialMobile > 0) Row("Mobile Money", Money.Format(c.MontantInitialMobile));
-        if (c.MontantInitialCarte > 0) Row("Carte", Money.Format(c.MontantInitialCarte));
+        if (c.MontantInitialCarte > 0) Row("Banque/Carte", Money.Format(c.MontantInitialCarte));
 
         var retraits = c.Retraits ?? [];
         if (retraits.Count > 0)
@@ -94,7 +101,7 @@ public partial class CaisseReportDialog : Window
         if (isOpen || c.MobileCounted)
             Row("Mobile money attendu", Money.Format(c.ExpectedMobile));
         if (isOpen || c.CarteCounted)
-            Row("Carte attendue", Money.Format(c.ExpectedCarte));
+            Row("Banque/Carte attendue", Money.Format(c.ExpectedCarte));
 
         if (!isOpen && c.MontantFinal is { } counted)
         {
@@ -102,12 +109,12 @@ public partial class CaisseReportDialog : Window
             if (c.MontantFinalMobile is { } countedMobile)
                 Row("Mobile money constaté", Money.Format(countedMobile));
             if (c.MontantFinalCarte is { } countedCarte)
-                Row("Carte constatée", Money.Format(countedCarte));
+                Row("Banque/Carte constatée", Money.Format(countedCarte));
             if (c.MontantFinalMobile is not null || c.MontantFinalCarte is not null)
             {
                 if (c.EcartCash != 0) Row("  dont écart espèces", Signed(c.EcartCash), color: Loss);
                 if (c.EcartMobile != 0) Row("  dont écart mobile", Signed(c.EcartMobile), color: Loss);
-                if (c.EcartCarte != 0) Row("  dont écart carte", Signed(c.EcartCarte), color: Loss);
+                if (c.EcartCarte != 0) Row("  dont écart banque/carte", Signed(c.EcartCarte), color: Loss);
             }
             var ecartText = c.Ecart switch
             {

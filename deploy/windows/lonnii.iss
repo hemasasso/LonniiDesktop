@@ -61,6 +61,12 @@ Type: filesandordirs; Name: "{autoprograms}\Lonnii"
 ; The verified copy of an update the API last launched (see UpdateInstallEndpoints).
 Type: filesandordirs; Name: "{app}\Api\update-run"
 
+[Registry]
+; Classic computer or touch POS (see DeviceModePage in [Code]). Machine-wide, read by the client
+; at start (DeviceProfile). Kept on uninstall-free upgrades: the page defaults to the stored value,
+; and silent updates never show it.
+Root: HKLM64; Subkey: "Software\Lonnii\Business"; ValueType: string; ValueName: "DeviceMode"; ValueData: "{code:GetDeviceMode}"; Flags: uninsdeletekey
+
 [Icons]
 Name: "{group}\Lonnii Business"; Filename: "{app}\Client\Lonnii.Client.exe"
 Name: "{autodesktop}\Lonnii Business"; Filename: "{app}\Client\Lonnii.Client.exe"
@@ -138,6 +144,44 @@ begin
   except
     // Unreadable shortcut: leave it alone.
   end;
+end;
+
+// Classic computer (mouse + keyboard) or touch POS terminal with no keyboard. Asked once; an
+// upgrade shows the previous answer preselected, and /VERYSILENT updates keep it unchanged.
+// Command line for mass installs: /DEVICEMODE=pos or /DEVICEMODE=desktop.
+var
+  DeviceModePage: TInputOptionWizardPage;
+
+function StoredDeviceMode(): String;
+begin
+  Result := ExpandConstant('{param:DEVICEMODE|}');
+  if Result = '' then
+    if not RegQueryStringValue(HKLM64, 'Software\Lonnii\Business', 'DeviceMode', Result) then
+      Result := 'desktop';
+  Result := Lowercase(Result);
+end;
+
+procedure InitializeWizard();
+begin
+  DeviceModePage := CreateInputOptionPage(wpSelectComponents,
+    'Type d''appareil', 'Sur quel genre d''appareil installez-vous Lonnii Business ?',
+    'Choisissez « Caisse tactile » pour un terminal de caisse à écran tactile sans clavier : ' +
+    'Lonnii affichera alors un clavier à l''écran et des boutons adaptés aux doigts.',
+    True, False);
+  DeviceModePage.Add('Ordinateur classique (souris et clavier)');
+  DeviceModePage.Add('Caisse tactile / terminal POS (écran tactile, sans clavier)');
+  if StoredDeviceMode() = 'pos' then
+    DeviceModePage.SelectedValueIndex := 1
+  else
+    DeviceModePage.SelectedValueIndex := 0;
+end;
+
+function GetDeviceMode(Param: String): String;
+begin
+  if DeviceModePage.SelectedValueIndex = 1 then
+    Result := 'pos'
+  else
+    Result := 'desktop';
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

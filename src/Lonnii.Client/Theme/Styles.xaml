@@ -956,4 +956,51 @@
         <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
 
+    <!-- Scroll bar handle with three grip lines in its middle, so it reads as something to grab
+         (touch POS especially). Only scroll bar thumbs get it, so sliders, splitters and other
+         Thumbs keep their own look. Lines run across
+         the bar: horizontal on a vertical bar, vertical on a horizontal one. -->
+    <!-- Applied in code (App.ApplyScrollGrip) to each ScrollBar's Track thumb: the Windows theme
+         sets its own style on that thumb directly, which an implicit style can never override. -->
+    <Style x:Key="ScrollBarGripThumb" TargetType="Thumb">
+                <Setter Property="OverridesDefaultStyle" Value="True" />
+                <Setter Property="IsTabStop" Value="False" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Thumb">
+                            <Border x:Name="Bd" Margin="2" CornerRadius="4" ClipToBounds="True"
+                                    Background="{DynamicResource BorderStrong}">
+                                <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <!-- Vertical bar: three short horizontal lines. -->
+                                    <StackPanel x:Name="RowsGrip">
+                                        <Rectangle Width="8" Height="1.5" Margin="0,1.5" Fill="{DynamicResource TextMuted}" />
+                                        <Rectangle Width="8" Height="1.5" Margin="0,1.5" Fill="{DynamicResource TextMuted}" />
+                                        <Rectangle Width="8" Height="1.5" Margin="0,1.5" Fill="{DynamicResource TextMuted}" />
+                                    </StackPanel>
+                                    <!-- Horizontal bar: three short vertical lines. -->
+                                    <StackPanel x:Name="ColumnsGrip" Orientation="Horizontal" Visibility="Collapsed">
+                                        <Rectangle Width="1.5" Height="8" Margin="1.5,0" Fill="{DynamicResource TextMuted}" />
+                                        <Rectangle Width="1.5" Height="8" Margin="1.5,0" Fill="{DynamicResource TextMuted}" />
+                                        <Rectangle Width="1.5" Height="8" Margin="1.5,0" Fill="{DynamicResource TextMuted}" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <DataTrigger Binding="{Binding Orientation, RelativeSource={RelativeSource AncestorType=ScrollBar}}"
+                                             Value="Horizontal">
+                                    <Setter TargetName="RowsGrip" Property="Visibility" Value="Collapsed" />
+                                    <Setter TargetName="ColumnsGrip" Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentLight}" />
+                                </Trigger>
+                                <Trigger Property="IsDragging" Value="True">
+                                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Accent}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+    </Style>
+
 </ResourceDictionary>

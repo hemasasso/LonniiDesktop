@@ -41,6 +41,14 @@ public static class ParametresEndpoints
         // change quietly.
         parametres.MapPut("/recu", UpdateAsync).RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageRecuFacture);
 
+        // "Activer remise" (Configuration): shows or hides the till's remise fields, desktop and phone.
+        parametres.MapPut("/recu/remise", SaveRemiseAsync)
+            .RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageRecuFacture);
+
+        // Configuration: show or hide Qté and Prix on the Nouvelle Vente tiles, desktop and phone.
+        parametres.MapPut("/recu/tuiles", SaveTileDisplayAsync)
+            .RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageRecuFacture);
+
         parametres.MapPost("/recu/logo", UploadLogoAsync)
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageRecuFacture).DisableAntiforgery();
         parametres.MapDelete("/recu/logo", DeleteLogoAsync)
@@ -117,6 +125,8 @@ public static class ParametresEndpoints
         row.TvaMode = TvaModes.Normalise(request.TvaMode);
         row.ReceiptPrintAfterSale = request.ReceiptPrintAfterSale ?? row.ReceiptPrintAfterSale;
         row.FacturePrintAfterSale = request.FacturePrintAfterSale ?? row.FacturePrintAfterSale;
+        row.ReceiptAmountInWords = request.ReceiptAmountInWords ?? row.ReceiptAmountInWords;
+        row.FactureAmountInWords = request.FactureAmountInWords ?? row.FactureAmountInWords;
 
         row.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
@@ -206,6 +216,27 @@ public static class ParametresEndpoints
     /// created lazily: a workspace only gets a row the first time someone saves something,
     /// which is why <see cref="GetAsync"/> has to cope with there being none.
     /// </summary>
+    private static async Task<IResult> SaveRemiseAsync(
+        SaveRemiseSettingRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
+    {
+        var row = await LoadOrCreateAsync(scope.GroupId, db, ct);
+        row.RemiseEnabled = request.Enabled;
+        row.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(ToDto(row));
+    }
+
+    private static async Task<IResult> SaveTileDisplayAsync(
+        SaveTileDisplayRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
+    {
+        var row = await LoadOrCreateAsync(scope.GroupId, db, ct);
+        row.TileShowQuantity = request.ShowQuantity;
+        row.TileShowPrice = request.ShowPrice;
+        row.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(ToDto(row));
+    }
+
     private static async Task<VentesParametres> LoadOrCreateAsync(
         string groupId, LonniiDbContext db, CancellationToken ct)
     {
@@ -311,7 +342,12 @@ public static class ParametresEndpoints
         TvaRate: p?.TvaRate is > 0 ? p.TvaRate : null,
         TvaMode: TvaModes.Normalise(p?.TvaMode),
         ReceiptPrintAfterSale: p?.ReceiptPrintAfterSale ?? true,
-        FacturePrintAfterSale: p?.FacturePrintAfterSale ?? true);
+        FacturePrintAfterSale: p?.FacturePrintAfterSale ?? true,
+        RemiseEnabled: p?.RemiseEnabled ?? false,
+        TileShowQuantity: p?.TileShowQuantity ?? true,
+        TileShowPrice: p?.TileShowPrice ?? true,
+        ReceiptAmountInWords: p?.ReceiptAmountInWords ?? false,
+        FactureAmountInWords: p?.FactureAmountInWords ?? false);
 
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 

@@ -80,20 +80,30 @@ public partial class CaisseStatusDialog : Window
             ? $"{Money.Format(_caisse.MontantInitialCash)} + {Money.Format(_caisse.MontantInitialMobile)} mobile"
             : Money.Format(_caisse.MontantInitialCash);
         PaiementCashText.Text = Money.Format(_caisse.PaiementCash);
-        AutresModesText.Text =
-            $"{Money.Format(_caisse.PaiementMobile)} / {Money.Format(_caisse.PaiementCarte)} / {Money.Format(_caisse.PaiementAutres)}";
+        EnCaisseText.Text = $"En caisse : {Money.Format(_caisse.ExpectedCash + _caisse.ExpectedMobile + _caisse.ExpectedCarte)}";
+        ResteText.Text = Money.Format(_caisse.ResteAPayer);
+        ResteText.SetResourceReference(TextBlock.ForegroundProperty, _caisse.ResteAPayer > 0 ? "Warning" : "TextPrimary");
+        PaiementMobileText.Text = Money.Format(_caisse.PaiementMobile);
+        PaiementCarteText.Text = Money.Format(_caisse.PaiementCarte);
+        // "Autres" only when something landed there (old "mixte" rows, virement, chèque).
+        AutresPanel.Visibility = _caisse.PaiementAutres != 0 ? Visibility.Visible : Visibility.Collapsed;
+        PaiementAutresText.Text = Money.Format(_caisse.PaiementAutres);
 
         OrigineText.Visibility = _caisse.Origine is null ? Visibility.Collapsed : Visibility.Visible;
         if (_caisse.Origine is { } origine)
             OrigineText.Text = OrigineLine(origine);
 
+        AvoirsPanel.Visibility = _caisse.TotalAvoir > 0 || _caisse.AvoirsSoldes > 0 ? Visibility.Visible : Visibility.Collapsed;
+        AvoirsText.Text = Money.Format(_caisse.TotalAvoir);
+        AvoirsSoldesText.Text = Money.Format(_caisse.AvoirsSoldes);
+
         var retraits = _caisse.Retraits ?? [];
         RetraitsPanel.Visibility = retraits.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         RetraitsText.Text = $"-{Money.Format(_caisse.TotalRetraits)}";
-        RetraitsPanel.ToolTip = retraits.Count == 0 ? null
-            : string.Join(Environment.NewLine, retraits.Select(r =>
-                $"{r.Date.ToLocalTime():HH:mm}  {Money.Format(r.Montant)} " +
-                $"({(r.ModePaiement == "mobile_money" ? "mobile" : "espèces")})  —  {r.Motif}"));
+        // Listed in the window (not only on hover), so whoever checks the till sees what each was for.
+        RetraitsDetailText.Text = string.Join(Environment.NewLine, retraits.Select(r =>
+            $"{r.Date.ToLocalTime():HH:mm}  {Money.Format(r.Montant)} " +
+            $"({(r.ModePaiement == "mobile_money" ? "mobile" : "espèces")})  —  {r.Motif}"));
     }
 
     /// <summary>"Dont ventes de la session : X · Factures antérieures réglées : Y (n)".</summary>

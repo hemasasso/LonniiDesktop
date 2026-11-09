@@ -250,13 +250,16 @@ public static class PrintEndpoints
             {
                 if (string.IsNullOrWhiteSpace(request.DeviceId) || !int.TryParse(request.VenteId, out var caisseId))
                     return Results.BadRequest(new ApiError("Poste et caisse obligatoires."));
-                var owner = await db.Caisses.Where(c => c.GroupId == scope.GroupId && c.Id == caisseId)
-                    .Select(c => c.UserId).FirstOrDefaultAsync(ct);
-                if (owner is null) return Results.NotFound(new ApiError("Caisse introuvable."));
-                if (owner != scope.UserId && !scope.IsAdmin && !scope.IsAdminGeneral) return Results.Forbid();
+                var target = await db.Caisses.Where(c => c.GroupId == scope.GroupId && c.Id == caisseId)
+                    .Select(c => new { c.UserId, c.SyncId }).FirstOrDefaultAsync(ct);
+                if (target is null) return Results.NotFound(new ApiError("Caisse introuvable."));
+                if (target.UserId != scope.UserId && !scope.IsAdmin && !scope.IsAdminGeneral)
+                    return Results.Json(new ApiError("Vous ne pouvez imprimer que vos propres caisses."), statusCode: StatusCodes.Status403Forbidden);
                 if (!queue.IsOpen(scope.GroupId, request.DeviceId))
                     return Results.Conflict(new ApiError("Ce poste n'est plus ouvert. Choisissez-en un autre."));
-                return Results.Ok(queue.Add(scope.GroupId, request.DeviceId, caisseId.ToString(), CaisseReport, scope.UserId));
+                // The job names the caisse by its SyncId, not its number: a job left on our server for a
+                // phone online is printed by the shop (PrintRelay), whose copy numbers caisses differently.
+                return Results.Ok(queue.Add(scope.GroupId, request.DeviceId, target.SyncId, CaisseReport, scope.UserId));
             }
 
             var saleKey = string.IsNullOrWhiteSpace(request.SaleKey) ? null : request.SaleKey.Trim();
@@ -290,9 +293,16 @@ public static class PrintEndpoints
             Lonnii.Data.LonniiDbContext db, CancellationToken ct) =>
         {
             var job = queue.ForDevice(scope.GroupId, http.Request.Headers["x-device-id"].ToString(), id);
-            if (job is not { Format: CaisseReport } || !int.TryParse(job.Value.VenteId, out var caisseId)) return Results.NotFound();
-            return await Caisse.CaisseEndpoints.LoadReportAsync(db, scope.GroupId, caisseId, ct) is { } dto
-                ? Results.Ok(dto) : Results.NotFound();
+            if (job is not { Format: CaisseReport }) return Results.NotFound();
+            // A SyncId (every job made by this version); a plain number only from an older server.
+            var key = job.Value.VenteId;
+            int? caisseId = int.TryParse(key, out var number) ? number
+                : await db.Caisses.Where(c => c.GroupId == scope.GroupId && c.SyncId == key)
+                    .Select(c => (int?)c.Id).FirstOrDefaultAsync(ct);
+            if (caisseId is null)
+                return Results.NotFound(new ApiError("Caisse introuvable à la boutique : la sauvegarde n'est peut-être pas encore passée."));
+            return await Caisse.CaisseEndpoints.LoadReportAsync(db, scope.GroupId, caisseId.Value, ct) is { } dto
+                ? Results.Ok(dto) : Results.NotFound(new ApiError("Caisse introuvable à la boutique."));
         }).RequireGroupScope();
         group.MapGet("/jobs/{id}/groupe", async (string id, HttpContext http, GroupScope scope, PrintQueue queue,
             Lonnii.Data.LonniiDbContext db, CancellationToken ct) =>

@@ -98,6 +98,22 @@ public sealed class ReceiptDocument
     public static void Print(Func<Border> buildForPrint, bool singlePage, string jobName)
     {
         var dialog = new PrintDialog();
+
+        // Straight to Windows' default printer: asking every time annoyed shops with one printer.
+        // The choice still opens with Shift held, or when there is no default printer.
+        if ((System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) == 0 && HasDefaultPrinter(dialog))
+        {
+            try
+            {
+                PrintOn(dialog, buildForPrint, singlePage, jobName);
+                return;
+            }
+            catch (Exception)
+            {
+                dialog = new PrintDialog(); // the default printer failed: let the user pick another
+            }
+        }
+
         if (dialog.ShowDialog() != true) return;
         PrintOn(dialog, buildForPrint, singlePage, jobName);
     }
@@ -120,18 +136,54 @@ public sealed class ReceiptDocument
         paper.Measure(unbounded);
         var desired = paper.DesiredSize;
 
+        var (originX, originY) = ImageableOrigin(dialog);
         var scale = 1.0;
-        if (dialog.PrintableAreaWidth > 0) scale = Math.Min(scale, dialog.PrintableAreaWidth / desired.Width);
+        if (dialog.PrintableAreaWidth > 0)
+            scale = Math.Min(scale, Math.Max(1, dialog.PrintableAreaWidth - 2 * originX) / desired.Width);
         if (singlePage && dialog.PrintableAreaHeight > 0)
-            scale = Math.Min(scale, dialog.PrintableAreaHeight / desired.Height);
+            scale = Math.Min(scale, Math.Max(1, dialog.PrintableAreaHeight - 2 * originY) / desired.Height);
 
         if (scale < 1) paper.LayoutTransform = new ScaleTransform(scale, scale);
 
-        paper.Measure(unbounded);
-        paper.Arrange(new Rect(paper.DesiredSize));
-        paper.UpdateLayout();
+        // Centred in the printable area, past the printer's own unprintable margin: arranged at
+        // (0,0) the ticket/facture came out pushed to the left on wider paper.
+        var page = new Grid();
+        paper.HorizontalAlignment = HorizontalAlignment.Center;
+        paper.VerticalAlignment = VerticalAlignment.Top;
+        page.Children.Add(paper);
 
-        dialog.PrintVisual(paper, jobName);
+        paper.Measure(unbounded);
+        var width = dialog.PrintableAreaWidth > 0
+            ? Math.Max(dialog.PrintableAreaWidth - 2 * originX, paper.DesiredSize.Width)
+            : paper.DesiredSize.Width;
+        page.Width = width;
+        page.Margin = new Thickness(originX, originY, 0, 0);
+        page.Measure(unbounded);
+        page.Arrange(new Rect(page.DesiredSize));
+        page.UpdateLayout();
+
+        dialog.PrintVisual(page, jobName);
+    }
+
+    private static bool HasDefaultPrinter(PrintDialog dialog)
+    {
+        try { return dialog.PrintQueue is not null; }
+        catch (Exception) { return false; }
+    }
+
+    /// <summary>Where the printer can start printing on the page (its unprintable margin), or 0.</summary>
+    private static (double X, double Y) ImageableOrigin(PrintDialog dialog)
+    {
+        try
+        {
+            var area = dialog.PrintQueue?.GetPrintCapabilities(dialog.PrintTicket)?.PageImageableArea;
+            return area is null ? (0, 0) : (area.OriginWidth, area.OriginHeight);
+        }
+        catch (Exception)
+        {
+            // A driver that cannot report its capabilities prints from the corner, as before.
+            return (0, 0);
+        }
     }
 
     // =====================================================================================
@@ -273,18 +325,24 @@ public sealed class ReceiptDocument
 
     private void AddTicketSignature(StackPanel s, bool twoParties)
     {
-        if (!Show(ReceiptSections.Signature)) return;
+        if (!ShowsSignature) return;
+
+        // The compact ticket has room for one line: the client's, or the cachet when the shop
+        // turned the client's signature off.
+        var client = ShowsClientSignature;
+        var cachet = twoParties || !client;
+        var both = client && cachet;
 
         var grid = new Grid { Margin = new Thickness(0, 18, 0, 0) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        if (twoParties)
+        if (both)
         {
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         }
 
-        Place(grid, 0, SignatureLine("Signature client"));
-        if (twoParties) Place(grid, 2, SignatureLine("Cachet / signature"));
+        if (client) Place(grid, 0, SignatureLine("Signature client"));
+        if (cachet) Place(grid, both ? 2 : 0, SignatureLine("Cachet / signature"));
         s.Children.Add(grid);
 
         FrameworkElement SignatureLine(string label)
@@ -418,6 +476,7 @@ public sealed class ReceiptDocument
 
         body.Children.Add(A4ItemTable());
         body.Children.Add(A4TotalsZone());
+        if (_settings.AmountInWords(_facture)) body.Children.Add(A4AmountInWords());
 
         if (ShowsPaymentHistory) body.Children.Add(A4PaymentHistory());
 
@@ -555,7 +614,7 @@ public sealed class ReceiptDocument
         var left = new StackPanel();
         if (ShowsPaymentInfo)
         {
-            left.Children.Add(Text($"Mode de paiement : {PaymentLabel(_data.ModePaiement)}", ReceiptTypography.Meta(_size)));
+            left.Children.Add(Text($"Mode de paiement : {PaymentModeLine(_data.ModePaiement, _data.Paiements)}", ReceiptTypography.Meta(_size)));
             left.Children.Add(Text($"Statut : {StatutLabel(_data.StatutPaiement)}", ReceiptTypography.Meta(_size), FontWeights.SemiBold,
                 margin: new Thickness(0, 2, 0, 0)));
         }
@@ -610,6 +669,21 @@ public sealed class ReceiptDocument
         Place(zone, 2, totals);
 
         return zone;
+    }
+
+    /// <summary>"Montant en lettres" (receipt settings): the total written out under the figures,
+    /// as French invoices state it.</summary>
+    private TextBlock A4AmountInWords()
+    {
+        var sentence = Lonnii.Shared.Text.FrenchNumberWords.Sentence(
+            _data.MontantTotal, Money.Label, Money.DecimalDigits, _facture,
+            paid: _data.MontantPaye, reste: _data.MontantRestant,
+            avoir: _data.IsAvoirSolded ? 0 : _data.AvoirAmount);
+        var block = Text(sentence, ReceiptTypography.Meta(_size), FontWeights.SemiBold,
+            margin: new Thickness(0, 10, 0, 0));
+        block.TextWrapping = TextWrapping.Wrap;
+        block.FontStyle = FontStyles.Italic;
+        return block;
     }
 
     private StackPanel A4PaymentHistory()
@@ -674,10 +748,11 @@ public sealed class ReceiptDocument
         }
         Place(bottom, 0, left);
 
-        if (Show(ReceiptSections.Signature))
+        if (ShowsSignature)
         {
             var signatures = new StackPanel { Orientation = Orientation.Horizontal };
-            signatures.Children.Add(SignatureBox("Signature du client", new Thickness(0, 0, 14, 0)));
+            if (ShowsClientSignature)
+                signatures.Children.Add(SignatureBox("Signature du client", new Thickness(0, 0, 14, 0)));
             signatures.Children.Add(SignatureBox("Cachet et signature", new Thickness(0)));
             Place(bottom, 2, signatures);
         }
@@ -799,7 +874,7 @@ public sealed class ReceiptDocument
 
         var size = ReceiptTypography.Body(_size);
         s.Children.Add(Row("Total Payé:", Money.Format(_data.MontantPaye), size));
-        s.Children.Add(Row("Mode de paiement:", PaymentLabel(_data.ModePaiement), size));
+        s.Children.Add(Row("Mode de paiement:", PaymentModeLine(_data.ModePaiement, _data.Paiements), size));
         s.Children.Add(Row("Statut:", StatutLabel(_data.StatutPaiement), size, valueWeight: FontWeights.SemiBold));
         if (_data.MontantRestant > 0)
             s.Children.Add(Row("Reste à payer:", Money.Format(_data.MontantRestant), size, Warning, FontWeights.SemiBold));
@@ -879,7 +954,15 @@ public sealed class ReceiptDocument
 
     /// <summary>Only for a sale settled in more than one instalment: with a single payment
     /// the table would just repeat the "Total Payé" line.</summary>
-    private bool ShowsPaymentHistory => !_facture && Show(ReceiptSections.PaymentHistory) && _data.Paiements.Count > 1;
+    /// <summary>The shop's Signature switch - forced on whenever the sale created an avoir: a
+    /// credit owed to the customer is a commitment both sides sign and stamp.</summary>
+    private bool ShowsSignature => Show(ReceiptSections.Signature) || _data.AvoirAmount > 0;
+
+    /// <summary>The customer's box within the zone - its own switch, honoured even on an avoir:
+    /// some customers refuse to sign, and the shop's cachet still prints.</summary>
+    private bool ShowsClientSignature => Show(ReceiptSections.ClientSignature);
+
+    private bool ShowsPaymentHistory =>!_facture && Show(ReceiptSections.PaymentHistory) && _data.Paiements.Count > 1;
 
     private bool ShowsQr => Show(ReceiptSections.Qr) && (_qr is not null || _settings.NoteUnderQr is not null);
 
@@ -937,14 +1020,25 @@ public sealed class ReceiptDocument
         "cash"         => "Espèces",
         "mobile_money" => "Mobile Money",
         "orange_money" => "Orange Money",
-        "carte"        => "Carte",
+        "carte"        => "Banque/Carte",
         "virement"     => "Virement",
         "cheque"       => "Chèque",
         "google_pay"   => "Google Pay",
         "apple_pay"    => "Apple Pay",
         "paypal"       => "PayPal",
+        "mixte"        => "Mixte",
         _ => modePaiement ?? "—",
     };
+
+    /// <summary>The "Mode de paiement" value: the method's name, or for a Paiement mixte each
+    /// part with its amount (and mobile reference) - "Espèces 5 000 + Mobile Money 3 000 (réf. X)".</summary>
+    public static string PaymentModeLine(string? modePaiement, IReadOnlyList<ReceiptPayment> paiements)
+    {
+        if (modePaiement != "mixte" || paiements.Count == 0) return PaymentLabel(modePaiement);
+        return string.Join(" + ", paiements.Select(p =>
+            $"{PaymentLabel(p.Mode)} {Money.FormatPlain(p.Amount)}"
+            + (string.IsNullOrWhiteSpace(p.Reference) ? "" : $" (réf. {p.Reference})")));
+    }
 
     public static string StatutLabel(string statutPaiement) => statutPaiement switch
     {

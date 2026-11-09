@@ -3142,6 +3142,10 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("company_phone");
 
+                    b.Property<bool?>("FactureAmountInWords")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("facture_amount_in_words");
+
                     b.Property<string>("FactureFooterText")
                         .HasColumnType("TEXT")
                         .HasColumnName("facture_footer_text");
@@ -3190,6 +3194,10 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("qr_code_path");
 
+                    b.Property<bool?>("ReceiptAmountInWords")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("receipt_amount_in_words");
+
                     b.Property<string>("ReceiptFontFamily")
                         .HasColumnType("TEXT")
                         .HasColumnName("receipt_font_family");
@@ -3222,9 +3230,21 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("receipt_title_font_size");
 
+                    b.Property<bool?>("RemiseEnabled")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("remise_enabled");
+
                     b.Property<string>("SellerLabel")
                         .HasColumnType("TEXT")
                         .HasColumnName("seller_label");
+
+                    b.Property<bool?>("TileShowPrice")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("tile_show_price");
+
+                    b.Property<bool?>("TileShowQuantity")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("tile_show_quantity");
 
                     b.Property<string>("TvaMode")
                         .HasColumnType("TEXT")

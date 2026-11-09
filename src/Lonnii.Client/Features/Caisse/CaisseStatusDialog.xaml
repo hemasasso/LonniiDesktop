@@ -75,25 +75,55 @@
                         <TextBlock Text="Encaissé" Style="{StaticResource PageSubtitle}" />
                         <TextBlock x:Name="EncaisseText" FontWeight="SemiBold" FontSize="16"
                                    Foreground="{DynamicResource Success}" />
+                        <!-- Encaissé is what sales brought in; this is what the till holds after retraits. -->
+                        <TextBlock x:Name="EnCaisseText" Style="{StaticResource PageSubtitle}" Margin="0,2,0,0"
+                                   ToolTip="Fonds initial + encaissé − retraits − avoirs remboursés" />
                     </StackPanel>
                     <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,0,0,10">
                         <TextBlock Text="Fonds initial" Style="{StaticResource PageSubtitle}" />
                         <TextBlock x:Name="MontantInitialText" FontWeight="SemiBold" FontSize="16" />
                     </StackPanel>
 
+                    <!-- One payment method per line, in a column, so each amount reads on its own. -->
                     <StackPanel Grid.Row="2" Grid.Column="0">
                         <TextBlock Text="Espèces" Style="{StaticResource PageSubtitle}" />
                         <TextBlock x:Name="PaiementCashText" FontWeight="SemiBold" />
+                        <TextBlock Text="Mobile Money" Style="{StaticResource PageSubtitle}" Margin="0,8,0,0" />
+                        <TextBlock x:Name="PaiementMobileText" FontWeight="SemiBold" />
+                        <TextBlock Text="Banque/Carte" Style="{StaticResource PageSubtitle}" Margin="0,8,0,0" />
+                        <TextBlock x:Name="PaiementCarteText" FontWeight="SemiBold" />
+                        <StackPanel x:Name="AutresPanel" Visibility="Collapsed">
+                            <TextBlock Text="Autres" Style="{StaticResource PageSubtitle}" Margin="0,8,0,0" />
+                            <TextBlock x:Name="PaiementAutresText" FontWeight="SemiBold" />
+                        </StackPanel>
                     </StackPanel>
-                    <StackPanel Grid.Row="2" Grid.Column="1">
-                        <TextBlock Text="Mobile / Carte / Autres" Style="{StaticResource PageSubtitle}" />
-                        <TextBlock x:Name="AutresModesText" FontWeight="SemiBold" />
+
+                    <!-- Still owed by customers on this session's sales (paiements partiels, factures). -->
+                    <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,10,0,0"
+                                ToolTip="Ce que les clients doivent encore sur les ventes de cette session (paiements partiels, factures non réglées)">
+                        <TextBlock Text="Reste à payer (clients)" Style="{StaticResource PageSubtitle}" />
+                        <TextBlock x:Name="ResteText" FontWeight="SemiBold" />
                     </StackPanel>
 
                     <StackPanel x:Name="RetraitsPanel" Grid.Row="3" Grid.Column="0" Margin="0,10,0,0"
                                 Visibility="Collapsed">
                         <TextBlock Text="Retraits" Style="{StaticResource PageSubtitle}" />
                         <TextBlock x:Name="RetraitsText" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource Danger}" />
+                        <!-- One line per withdrawal, as on the phone: time, amount, pool and motif. -->
+                        <TextBlock x:Name="RetraitsDetailText" Style="{StaticResource PageSubtitle}"
+                                   FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel x:Name="AvoirsPanel" Grid.Row="2" Grid.Column="1"
+                                Visibility="Collapsed"
+                                ToolTip="Tous les avoirs clients créés pendant la session, remboursés ou non">
+                        <TextBlock Text="Avoirs créés" Style="{StaticResource PageSubtitle}" />
+                        <TextBlock x:Name="AvoirsText" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource Warning}" />
+                        <!-- Same weight as the created figure, as on the phone: money that left the till. -->
+                        <TextBlock Text="Avoirs remboursés" Style="{StaticResource PageSubtitle}" Margin="0,8,0,0"
+                                   ToolTip="Avoirs remboursés depuis cette caisse pendant la session (y compris ceux créés avant)" />
+                        <TextBlock x:Name="AvoirsSoldesText" FontWeight="SemiBold"
                                    Foreground="{DynamicResource Danger}" />
                     </StackPanel>
                 </Grid>
@@ -126,7 +156,7 @@
                                    TextWrapping="Wrap" />
                     </StackPanel>
                     <StackPanel Grid.Column="4">
-                        <TextBlock Text="Carte constatée (optionnel, 0 si vide)" Style="{StaticResource FieldLabel}" />
+                        <TextBlock Text="Banque/Carte constatée (optionnel, 0 si vide)" Style="{StaticResource FieldLabel}" />
                         <TextBox x:Name="MontantFinalCarteBox" TextChanged="MontantFinal_Changed"
                                  ToolTip="Solde du compte carte de la caisse au moment de la fermeture" />
                         <TextBlock x:Name="ExpectedCarteText" Style="{StaticResource PageSubtitle}" Margin="0,6,0,0"

@@ -88,6 +88,27 @@
                             </StackPanel>
                         </DockPanel>
                     </Border>
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12" Margin="0,8,0,0">
+                        <StackPanel>
+                            <CheckBox x:Name="RemiseEnabledCheck" Content="Activer remise"
+                                      Checked="RemiseEnabled_Changed" Unchecked="RemiseEnabled_Changed" />
+                            <TextBlock Style="{StaticResource PageSubtitle}" Margin="20,4,0,0" TextWrapping="Wrap"
+                                       Text="Coché : les champs Remise (par article et remise globale) apparaissent à la caisse, sur l'ordinateur et le téléphone." />
+                        </StackPanel>
+                    </Border>
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12" Margin="0,8,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Produits dans Nouvelle Vente" FontWeight="SemiBold" Margin="0,0,0,6" />
+                            <CheckBox x:Name="TileShowQuantityCheck" Content="Afficher la quantité (Qté)" IsChecked="True"
+                                      Checked="TileDisplay_Changed" Unchecked="TileDisplay_Changed" />
+                            <CheckBox x:Name="TileShowPriceCheck" Content="Afficher le prix" IsChecked="True" Margin="0,6,0,0"
+                                      Checked="TileDisplay_Changed" Unchecked="TileDisplay_Changed" />
+                            <TextBlock Style="{StaticResource PageSubtitle}" Margin="20,4,0,0" TextWrapping="Wrap"
+                                       Text="Ce que montre chaque produit à la caisse, sur l'ordinateur et le téléphone. Coché par défaut." />
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
 
                 <!-- This computer's name, as the shop's phones see it when printing on a poste. -->
@@ -102,6 +123,29 @@
                                 <TextBox x:Name="PosteNameBox" Padding="8,6" MaxLength="40" VerticalContentAlignment="Center" />
                             </DockPanel>
                             <TextBlock x:Name="PosteNameHint" Style="{StaticResource PageSubtitle}" Margin="0,6,0,0" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Classic computer or touch POS terminal: chosen at install, switchable here. -->
+                <StackPanel x:Name="DeviceModePanel">
+                    <TextBlock Text="TYPE DE POSTE" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="DesktopModeRadio" GroupName="DeviceMode" Margin="0,0,24,0"
+                                             Content="Ordinateur classique (souris et clavier)" Checked="DeviceMode_Checked" />
+                                <RadioButton x:Name="PosModeRadio" GroupName="DeviceMode"
+                                             Content="Caisse tactile (clavier à l'écran)" Checked="DeviceMode_Checked" />
+                            </StackPanel>
+                            <DockPanel Margin="0,8,0,0">
+                                <Button x:Name="RestartButton" DockPanel.Dock="Right" Content="Redémarrer maintenant"
+                                        Visibility="Collapsed" Margin="8,0,0,0" VerticalAlignment="Center"
+                                        Style="{StaticResource PrimaryButton}" Click="Restart_Click" />
+                                <TextBlock x:Name="DeviceModeHint" Style="{StaticResource PageSubtitle}"
+                                           TextWrapping="Wrap" VerticalAlignment="Center" />
+                            </DockPanel>
                         </StackPanel>
                     </Border>
                 </StackPanel>

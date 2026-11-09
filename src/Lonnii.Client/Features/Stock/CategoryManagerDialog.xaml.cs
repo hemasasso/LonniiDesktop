@@ -11,10 +11,8 @@ namespace Lonnii.Client.Features.Stock;
 /// Lists every category (active and inactive alike) and opens <see cref="CategoryDialog"/>
 /// to create or edit one.
 ///
-/// There is no hard delete: a category with products against it cannot simply vanish
-/// without either orphaning them or silently losing history, so deactivating is the only
-/// path offered here - the same choice already made for products
-/// (<see cref="StockView"/> soft-deletes rather than removing rows outright).
+/// A category can be deleted only while no product in stock uses it (shops remove the
+/// seeded defaults they do not sell); one still in use can only be deactivated.
 /// </summary>
 public partial class CategoryManagerDialog : Window
 {
@@ -85,7 +83,7 @@ public partial class CategoryManagerDialog : Window
             {
                 try
                 {
-                    var bytes = await _session.Api.GetImageBytesAsync(url);
+                    var bytes = await _session.Api.GetThumbnailBytesAsync(url);
                     thumbnail = ImageHelper.FromBytes(bytes);
                 }
                 catch (ApiException)
@@ -108,6 +106,26 @@ public partial class CategoryManagerDialog : Window
         EditButton.IsEnabled = hasSelection;
         ToggleActiveButton.IsEnabled = hasSelection;
         ToggleActiveButton.Content = Selected?.Category.IsActive == false ? "Activer" : "Désactiver";
+        DeleteButton.IsEnabled = Selected?.Category.ProductCount == 0;
+    }
+
+    /// <summary>Deletes a category no product in stock uses; the server re-checks.</summary>
+    private async void Delete_Click(object sender, RoutedEventArgs e)
+    {
+        if (Selected is not { } row) return;
+
+        if (MessageBox.Show(this, $"Supprimer la catégorie « {row.Category.Name} » ?", "Supprimer",
+                MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+
+        try
+        {
+            await _session.Api.DeleteCategoryAsync(row.Category.Id);
+            await LoadAsync();
+        }
+        catch (ApiException ex)
+        {
+            ShowError(ex.Message);
+        }
     }
 
     private void Grid_DoubleClick(object sender, MouseButtonEventArgs e)
@@ -170,21 +188,43 @@ public partial class CategoryManagerDialog : Window
     private async void ToggleActive_Click(object sender, RoutedEventArgs e)
     {
         if (Selected is not { } row) return;
+        await SetActiveAsync([row.Category], !row.Category.IsActive);
+    }
 
-        var category = row.Category;
-        var request = new SaveCategoryRequest(
-            category.Name, category.Description, category.Color, category.Icon,
-            IsActive: !category.IsActive);
+    /// <summary>The row's Active box: ticking activates, unticking deactivates.</summary>
+    private async void Active_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox { DataContext: Row row } box) return;
+        await SetActiveAsync([row.Category], box.IsChecked == true);
+    }
 
+    private async void ActivateAll_Click(object sender, RoutedEventArgs e) =>
+        await SetActiveAsync(_rows.Select(r => r.Category).ToList(), true);
+
+    private async void DeactivateAll_Click(object sender, RoutedEventArgs e)
+    {
+        if (MessageBox.Show(this, "Désactiver toutes les catégories ?", "Tout désactiver",
+                MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        await SetActiveAsync(_rows.Select(r => r.Category).ToList(), false);
+    }
+
+    /// <summary>Saves the active flag on each category that differs, keeping every other field,
+    /// then reloads. Stops at the first refusal and shows it.</summary>
+    private async Task SetActiveAsync(List<CategoryDto> categories, bool active)
+    {
         try
         {
-            await _session.Api.UpdateCategoryAsync(category.Id, request);
-            await LoadAsync();
+            foreach (var category in categories.Where(c => c.IsActive != active))
+            {
+                await _session.Api.UpdateCategoryAsync(category.Id, new SaveCategoryRequest(
+                    category.Name, category.Description, category.Color, category.Icon, IsActive: active));
+            }
         }
         catch (ApiException ex)
         {
             ShowError(ex.Message);
         }
+        await LoadAsync();
     }
 
     private void ShowError(string message) => ErrorText.Text = message;

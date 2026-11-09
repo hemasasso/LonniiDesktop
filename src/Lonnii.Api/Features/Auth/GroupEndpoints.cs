@@ -341,7 +341,9 @@ public static class GroupEndpoints
         // On our server a block is final here. On a shop's host it goes through the licence check
         // below instead, as a lock (423) with "Réessayer" - so lifting the block on the dashboard
         // lets the shop back in without anyone reinstalling.
-        if (groupe.IsBlocked && string.IsNullOrWhiteSpace(groupe.LicenceServerUrl))
+        // On our server (PostgreSQL) every blocked shop is refused here, a shop's own row included:
+        // the host-licence lock below does not run there.
+        if (groupe.IsBlocked && (string.IsNullOrWhiteSpace(groupe.LicenceServerUrl) || db.Database.IsNpgsql()))
             return Results.Json(new ApiError(groupe.BlockReason ?? "Ce groupe est bloqué."),
                 statusCode: StatusCodes.Status403Forbidden);
 

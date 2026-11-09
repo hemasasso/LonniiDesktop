@@ -175,6 +175,9 @@
                             <StackPanel>
                                 <CheckBox x:Name="ReceiptPrintAfterSaleCheck" Margin="0,0,0,12"
                                           Content="Ouvrir le reçu pour impression juste après la vente" />
+                                <CheckBox x:Name="ReceiptAmountInWordsCheck" Margin="0,0,0,12"
+                                          Content="Montant en lettres (modèle A4)"
+                                          ToolTip="Sous les totaux : « Arrêté le présent reçu à la somme de : … »" />
 
                                 <TextBlock Text="Modèle" Style="{StaticResource FieldLabel}" />
                                 <ComboBox x:Name="ReceiptTemplateBox" Width="240" HorizontalAlignment="Left"
@@ -228,6 +231,9 @@
 
                                 <CheckBox x:Name="FacturePrintAfterSaleCheck" Margin="0,0,0,12"
                                           Content="Ouvrir la facture pour impression juste après la vente" />
+                                <CheckBox x:Name="FactureAmountInWordsCheck" Margin="0,0,0,12"
+                                          Content="Montant en lettres (modèle A4)"
+                                          ToolTip="Sous les totaux : « Arrêtée la présente facture à la somme de : … »" />
 
                                 <TextBlock Text="Modèle" Style="{StaticResource FieldLabel}" />
                                 <ComboBox x:Name="FactureTemplateBox" Width="240" HorizontalAlignment="Left"

@@ -61,6 +61,9 @@ public static class DesktopAdminEndpoints
         // Moves where the shop's data lives (its computer or our server): owner and super admins.
         group.MapPut("/shops/{id}/phone-only", SetPhoneOnlyAsync).RequireDashboardSuperAdmin();
 
+        // Gestion is what turns Programme-only into the full product: owner and super admins.
+        group.MapPut("/shops/{id}/gestion", SetGestionAccessAsync).RequireDashboardSuperAdmin();
+
         // The whole shop - sales, customers, account password hashes: owner and super admins only.
         group.MapGet("/shops/{id}/database", DownloadDatabaseAsync).RequireDashboardSuperAdmin();
     }
@@ -152,7 +155,8 @@ public static class DesktopAdminEndpoints
             Groupe.CreatedAt,
             Attention().Select(a => SeverityRank(a.Severity)).DefaultIfEmpty(0).Max(),
             Groupe.IsDeleted,
-            Groupe.PhoneOnly);
+            Groupe.PhoneOnly,
+            Groupe.GestionAccess);
     }
 
     private static int SeverityRank(string severity) => severity switch
@@ -438,6 +442,32 @@ public static class DesktopAdminEndpoints
     }
 
     /// <summary>
+    /// Grants or withdraws Gestion (Opérations, Finance, Administration). Without it the shop only
+    /// has Programme. Phones and remote access read this row directly; a shop's own computer gets it
+    /// inside its signed licence at its next check (within the hour while it is online).
+    /// </summary>
+    private static async Task<IResult> SetGestionAccessAsync(
+        string id,
+        SetGestionAccessRequest request,
+        ClaimsPrincipal admin,
+        LonniiDbContext db,
+        ILoggerFactory logs,
+        CancellationToken ct)
+    {
+        var groupe = await db.Groupes.FirstOrDefaultAsync(g => g.Id == id && !g.IsDeleted, ct);
+        if (groupe is null) return Results.NotFound(new ApiError("Boutique introuvable"));
+
+        groupe.GestionAccess = request.Enabled;
+        await db.SaveChangesAsync(ct);
+
+        logs.CreateLogger("Lonnii.Admin").LogInformation(
+            "Dashboard admin {Admin} set gestion access of shop {Shop} to {Enabled}",
+            DashboardAdminAuth.AdminId(admin), id, request.Enabled);
+
+        return Results.Ok(new { gestionAccess = groupe.GestionAccess });
+    }
+
+    /// <summary>
     /// Makes a shop phone-only (our server is its host) or gives it back to computers. Turning it on
     /// puts the shop online and retires its bound machines: a computer kept working would hold its own
     /// copy of the data, apart from what the phones now change here. Its data on our server is what
@@ -516,7 +546,8 @@ public sealed record ShopSummaryDto(
     DateTime CreatedAt,
     int AttentionLevel,
     bool IsDeleted,
-    bool PhoneOnly);
+    bool PhoneOnly,
+    bool GestionAccess);
 
 public sealed record ShopOwnerDto(string Email, string Name, string? Phone);
 
@@ -549,3 +580,5 @@ public sealed record SetMaxDevicesRequest(int MaxDevices);
 public sealed record SetBlockedRequest(bool Blocked, string? Reason);
 
 public sealed record SetPhoneOnlyRequest(bool PhoneOnly);
+
+public sealed record SetGestionAccessRequest(bool Enabled);

@@ -203,6 +203,7 @@ public static class CaisseEndpoints
             .ToListAsync(ct);
 
         var retraits = await LoadRetraitsAsync(db, caisses.Select(c => c.Id).ToList(), ct);
+        var soldes = await LoadAvoirsSoldesAsync(db, caisses.Select(c => c.Id).ToList(), ct);
 
         var dtos = new List<CaisseDto>(caisses.Count);
         foreach (var caisse in caisses)
@@ -212,8 +213,9 @@ public static class CaisseEndpoints
             // live recompute as GetStatusAsync; a closed one already has its final figures.
             var dto = caisse.Status == CaisseStatus.Open
                 ? await ToDtoAsync(db, caisse, ct, own)
-                : ToDto(caisse, own);
-            dtos.Add(dto.Origine is null ? dto with { Origine = await ComputeOrigineAsync(db, caisse, ct) } : dto);
+                : ToDto(caisse, own) with { AvoirsSoldes = soldes.GetValueOrDefault(caisse.Id) };
+            if (dto.Origine is null) dto = dto with { Origine = await ComputeOrigineAsync(db, caisse, ct) };
+            dtos.Add(dto with { ResteAPayer = await ComputeResteAsync(db, caisse, ct) });
         }
 
         return Results.Ok(new CaisseHistoryResponse(dtos, total));
@@ -392,7 +394,20 @@ public static class CaisseEndpoints
 
         var totalVentes = ventes.Count;
         var chiffreAffaires = ventes.Sum(v => v.MontantTotal);
-        var totalAvoir = ventes.Where(v => v.AvoirAmount > 0 && !v.IsAvoirSolded).Sum(v => v.AvoirAmount);
+        // Every avoir created during the session, refunded since or not: those on the session's
+        // own sales, plus those born from overpaying an older sale during the session (capped at
+        // what this cashier paid on it in the session).
+        var totalAvoir = ventes.Where(v => v.AvoirAmount > 0).Sum(v => v.AvoirAmount);
+        var olderAvoirs = await db.PaiementsVentes.AsNoTracking()
+            .Where(p => p.Vente!.GroupId == caisse.GroupId && p.Vente.AvoirAmount > 0
+                && p.Vente.DateVente < caisse.DateOuverture
+                && p.Vente.StatutPaiement != StatutPaiement.Annule
+                && p.DatePaiement >= caisse.DateOuverture && p.DatePaiement <= asOf
+                && (p.CreatedBy ?? p.Vente.CreatedBy) == caisse.UserId)
+            .Select(p => new { p.VenteId, p.Montant, p.Vente!.AvoirAmount })
+            .ToListAsync(ct);
+        totalAvoir += olderAvoirs.GroupBy(p => p.VenteId)
+            .Sum(g => Math.Min(g.First().AvoirAmount, g.Sum(p => p.Montant)));
 
         // The money this till took: payments made by its cashier during the session, whatever the
         // sale's date - a facture settled now lands in this drawer even if it was sold yesterday.
@@ -439,17 +454,76 @@ public static class CaisseEndpoints
                 default: autres += t.Montant; break;
             }
         }
-        var transactionsOut = transactions.Where(t => t.Type == "sortie" && t.Category != RetraitCategory).Sum(t => t.Montant);
+        // Avoir refunds and other non-retrait outflows leave the pool they were paid from
+        // (older rows carry no mode: cash).
+        foreach (var t in transactions.Where(t => t.Type == "sortie" && t.Category != RetraitCategory))
+        {
+            switch (t.ModePaiement)
+            {
+                case ModePaiement.MobileMoney: mobile -= t.Montant; break;
+                case ModePaiement.Carte: carte -= t.Montant; break;
+                default: cash -= t.Montant; break;
+            }
+        }
         var retraits = transactions.Where(t => t.Type == "sortie" && t.Category == RetraitCategory).ToList();
         var totalRetraitsMobile = retraits.Where(t => t.ModePaiement == ModePaiement.MobileMoney).Sum(t => t.Montant);
         var totalRetraitsCash = retraits.Sum(t => t.Montant) - totalRetraitsMobile;
-
-        cash -= transactionsOut;
 
         var totalEncaisse = cash + mobile + carte + autres;
 
         return new LiveStats(totalVentes, chiffreAffaires, totalAvoir, cash, mobile, carte, autres,
             totalEncaisse, totalRetraitsCash, totalRetraitsMobile);
+    }
+
+    /// <summary>
+    /// Pays an avoir back out of the caller's own open till, in the pool chosen (espèces, mobile
+    /// money or carte). Refused - with the reason, nothing recorded - when no till is open or that
+    /// pool holds less than the refund: a till cannot hand out money it does not have.
+    /// </summary>
+    internal static async Task<string?> AddAvoirRefundAsync(
+        LonniiDbContext db, string groupId, string userId, decimal montant, string? mode,
+        string description, CancellationToken ct)
+    {
+        mode = string.IsNullOrWhiteSpace(mode) ? ModePaiement.Cash : mode;
+        var label = mode switch
+        {
+            ModePaiement.Cash => "espèces",
+            ModePaiement.MobileMoney => "mobile money",
+            ModePaiement.Carte => "banque/carte",
+            _ => null,
+        };
+        if (label is null) return "Mode de remboursement invalide : espèces, mobile money ou carte.";
+
+        var caisse = await db.Caisses.FirstOrDefaultAsync(
+            c => c.GroupId == groupId && c.UserId == userId && c.Status == CaisseStatus.Open, ct);
+        if (caisse is null) return "Ouvrez votre caisse pour rembourser cet avoir.";
+
+        var stats = await ComputeLiveStatsAsync(db, caisse, DateTime.UtcNow, ct);
+        var available = mode switch
+        {
+            ModePaiement.MobileMoney => stats.ExpectedMobile(caisse),
+            ModePaiement.Carte => stats.ExpectedCarte(caisse),
+            _ => stats.ExpectedCash(caisse),
+        };
+        if (montant > available)
+        {
+            var fr = System.Globalization.CultureInfo.GetCultureInfo("fr-FR");
+            return $"Fonds insuffisants en {label} : {Math.Max(0, available).ToString("N0", fr)} disponible(s) dans la caisse, "
+                + $"{montant.ToString("N0", fr)} à rembourser.";
+        }
+
+        db.CaisseTransactions.Add(new CaisseTransaction
+        {
+            CaisseId = caisse.Id,
+            GroupId = groupId,
+            Type = "sortie",
+            Montant = montant,
+            Description = description,
+            Category = "avoir_solde",
+            ModePaiement = mode,
+            CreatedBy = userId,
+        });
+        return null;
     }
 
     /// <param name="retraits">Already-loaded withdrawals for this session, when the caller
@@ -460,7 +534,10 @@ public static class CaisseEndpoints
     {
         retraits ??= (await LoadRetraitsAsync(db, [caisse.Id], ct)).GetValueOrDefault(caisse.Id);
 
-        if (caisse.Status == CaisseStatus.Closed) return ToDto(caisse, retraits);
+        var avoirsSoldes = (await LoadAvoirsSoldesAsync(db, [caisse.Id], ct)).GetValueOrDefault(caisse.Id);
+        var reste = await ComputeResteAsync(db, caisse, ct);
+        if (caisse.Status == CaisseStatus.Closed)
+            return ToDto(caisse, retraits) with { AvoirsSoldes = avoirsSoldes, ResteAPayer = reste };
 
         var stats = await ComputeLiveStatsAsync(db, caisse, DateTime.UtcNow, ct);
         return new CaisseDto(
@@ -472,7 +549,7 @@ public static class CaisseEndpoints
             Ecart: 0, EcartResolved: false, EcartResolutionNote: null,
             caisse.Status, caisse.Notes, retraits ?? [], caisse.MontantFinalMobile,
             MontantInitialCarte: caisse.MontantInitialCarte, MontantFinalCarte: caisse.MontantFinalCarte,
-            Origine: await ComputeOrigineAsync(db, caisse, ct));
+            Origine: await ComputeOrigineAsync(db, caisse, ct), AvoirsSoldes: avoirsSoldes, ResteAPayer: reste);
     }
 
     /// <summary>
@@ -511,7 +588,12 @@ public static class CaisseEndpoints
         var caisse = await db.Caisses.AsNoTracking().FirstOrDefaultAsync(c => c.GroupId == groupId && c.Id == id, ct);
         if (caisse is null) return null;
         var own = (await LoadRetraitsAsync(db, [caisse.Id], ct)).GetValueOrDefault(caisse.Id);
-        var dto = caisse.Status == CaisseStatus.Open ? await ToDtoAsync(db, caisse, ct, own) : ToDto(caisse, own);
+        var dto = caisse.Status == CaisseStatus.Open ? await ToDtoAsync(db, caisse, ct, own)
+            : ToDto(caisse, own) with
+            {
+                AvoirsSoldes = (await LoadAvoirsSoldesAsync(db, [caisse.Id], ct)).GetValueOrDefault(caisse.Id),
+                ResteAPayer = await ComputeResteAsync(db, caisse, ct),
+            };
         return dto.Origine is null ? dto with { Origine = await ComputeOrigineAsync(db, caisse, ct) } : dto;
     }
 
@@ -545,6 +627,46 @@ public static class CaisseEndpoints
                     .Select(r => new CaisseRetraitDto(
                         r.Montant, r.Description ?? string.Empty, r.CreatedAt, r.ModePaiement ?? ModePaiement.Cash))
                     .ToList());
+    }
+
+    /// <summary>Avoirs paid back out of each till (every non-retrait sortie: "avoir_solde" rows and
+    /// older ones recorded before the category existed).</summary>
+    private static async Task<Dictionary<int, decimal>> LoadAvoirsSoldesAsync(
+        LonniiDbContext db, List<int> caisseIds, CancellationToken ct)
+    {
+        if (caisseIds.Count == 0) return [];
+        var rows = await db.CaisseTransactions.AsNoTracking()
+            .Where(t => caisseIds.Contains(t.CaisseId) && t.Type == "sortie"
+                && (t.Category == null || t.Category != RetraitCategory))
+            .Select(t => new { t.CaisseId, t.Montant })
+            .ToListAsync(ct);
+        return rows.GroupBy(r => r.CaisseId).ToDictionary(g => g.Key, g => g.Sum(r => r.Montant));
+    }
+
+    /// <summary>
+    /// What customers still owe, now, on the sales rung up in this session - same sales as the
+    /// session's chiffre d'affaires (this cashier's, during the session, not cancelled). Each sale
+    /// counts its total minus every payment made on it so far, whenever and by whomever, so a
+    /// facture settled the next day stops counting here. Overpaid sales (avoir) count nothing.
+    /// </summary>
+    private static async Task<decimal> ComputeResteAsync(
+        LonniiDbContext db, Lonnii.Data.Entities.Caisse caisse, CancellationToken ct)
+    {
+        var asOf = caisse.DateFermeture ?? DateTime.UtcNow;
+        var ventes = await db.Ventes.AsNoTracking()
+            .Where(v => v.GroupId == caisse.GroupId && v.CreatedBy == caisse.UserId
+                && v.DateVente >= caisse.DateOuverture && v.DateVente <= asOf
+                && v.StatutPaiement != StatutPaiement.Annule)
+            .Select(v => new { v.Id, v.MontantTotal })
+            .ToListAsync(ct);
+        if (ventes.Count == 0) return 0;
+
+        // Summed here, not in SQL: SQLite cannot aggregate decimals.
+        var ids = ventes.Select(v => v.Id).ToList();
+        var paye = (await db.PaiementsVentes.AsNoTracking()
+                .Where(p => ids.Contains(p.VenteId)).Select(p => new { p.VenteId, p.Montant }).ToListAsync(ct))
+            .GroupBy(p => p.VenteId).ToDictionary(g => g.Key, g => g.Sum(p => p.Montant));
+        return ventes.Sum(v => Math.Max(0, v.MontantTotal - paye.GetValueOrDefault(v.Id)));
     }
 
     private const string RetraitCategory = "retrait_manuel";

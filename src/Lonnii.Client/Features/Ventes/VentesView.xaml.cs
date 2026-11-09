@@ -166,6 +166,10 @@ public partial class VentesView : UserControl
     /// renders for someone holding can_apply_discount.</summary>
     private readonly bool _canApplyDiscount;
 
+    /// <summary>Remise fields shown: the shop turned on "Activer remise" in Configuration and
+    /// this user holds can_apply_discount.</summary>
+    private bool ShowRemise => _canApplyDiscount && _receiptSettings?.RemiseEnabled == true;
+
     private sealed record CartLine(
         ProductDto Product, int Quantity, decimal UnitPrice,
         decimal Discount = 0, string DiscountType = DiscountTypes.Amount, bool VenteEnGros = false)
@@ -187,13 +191,17 @@ public partial class VentesView : UserControl
                 var discounted = DiscountType == DiscountTypes.Amount
                     ? raw - Discount
                     : raw * (1 - Discount / 100m);
-                return Math.Max(0, discounted);
+                // Rounded exactly as the server rounds the line (VentesEndpoints.CreateVenteAsync),
+                // so the total paid here is the total recorded there - no stray half-franc "reste".
+                return Math.Max(0, Math.Round(discounted, 0, MidpointRounding.AwayFromZero));
             }
         }
     }
 
     /// <summary>A product paired with its downloaded thumbnail, for the catalogue's cards.</summary>
-    private sealed record CatalogRow(ProductDto Product, BitmapImage? Thumbnail)
+    /// <param name="ShowPrice">Configuration: the tile shows the price line.</param>
+    /// <param name="ShowQuantity">Configuration: the tile shows the "Qté" line.</param>
+    private sealed record CatalogRow(ProductDto Product, BitmapImage? Thumbnail, bool ShowPrice = true, bool ShowQuantity = true)
     {
         public bool HasNoThumbnail => Thumbnail is null;
 
@@ -263,7 +271,7 @@ public partial class VentesView : UserControl
         GroupePaymentButton.Visibility = _canGroupePayment ? Visibility.Visible : Visibility.Collapsed;
         GroupeHistoryButton.Visibility = _canViewGroupeHistory ? Visibility.Visible : Visibility.Collapsed;
         ClientsButton.Visibility = _canManageClients ? Visibility.Visible : Visibility.Collapsed;
-        RemiseGlobalePanel.Visibility = _canApplyDiscount ? Visibility.Visible : Visibility.Collapsed;
+        RemiseGlobalePanel.Visibility = Visibility.Collapsed; // until the settings say "Activer remise"
 
         // One "Mobile Money" choice only (user's decision, 2026-11-05): the separate Orange Money
         // button stays hidden even with an Orange account configured. Its code path is kept.
@@ -357,6 +365,8 @@ public partial class VentesView : UserControl
 
         // "20 000" as it is typed, so the cashier reads the amount right while entering it.
         MoneyInput.GroupAsYouType(MontantRecuBox);
+        MoneyInput.GroupAsYouType(MixteCashBox);
+        MoneyInput.GroupAsYouType(MixteMobileBox);
         MoneyInput.GroupAsYouType(RemiseGlobaleBox);
 
         // Wired programmatically for the same reason as RemiseGlobaleBox above, in case
@@ -456,7 +466,13 @@ public partial class VentesView : UserControl
         if (_caisseStatus is { } open)
         {
             var venteLabel = open.TotalVentes > 1 ? "ventes" : "vente";
-            CaisseAmountText.Text = $"{Money.Format(open.TotalEncaisse)} · {open.TotalVentes} {venteLabel}";
+            // What the till holds now (fonds + encaissé − retraits), not just what sales brought in:
+            // after a retrait the header must drop, or the cashier counts money that has left.
+            var enCaisse = open.ExpectedCash + open.ExpectedMobile + open.ExpectedCarte;
+            CaisseAmountText.Text = $"{Money.Format(enCaisse)} · {open.TotalVentes} {venteLabel}";
+            CaisseAmountPanel.ToolTip = $"Encaissé (ventes) : {Money.Format(open.TotalEncaisse)}"
+                + (open.TotalRetraits > 0 ? $"\nRetraits : -{Money.Format(open.TotalRetraits)}" : "")
+                + $"\nFonds initial : {Money.Format(open.MontantInitialCash + open.MontantInitialMobile + open.MontantInitialCarte)}";
         }
     }
 
@@ -618,7 +634,7 @@ public partial class VentesView : UserControl
                 {
                     try
                     {
-                        var bytes = await _session.Api.GetImageBytesAsync(url);
+                        var bytes = await _session.Api.GetThumbnailBytesAsync(url);
                         thumbnail = ImageHelper.FromBytes(bytes);
                         _thumbnailCache[url] = thumbnail;
                     }
@@ -629,7 +645,7 @@ public partial class VentesView : UserControl
                 }
             }
 
-            rows.Add(new CatalogRow(product, thumbnail));
+            rows.Add(new CatalogRow(product, thumbnail, TileShowPrice, TileShowQuantity));
         }
 
         ProductGrid.ItemsSource = rows;
@@ -1011,6 +1027,7 @@ public partial class VentesView : UserControl
     /// The server only ever receives this amount.</summary>
     private decimal GlobalDiscountAmount(decimal afterItemDiscounts)
     {
+        if (!ShowRemise) return 0;
         Money.TryParse(RemiseGlobaleBox.Text, out decimal typed);
         var amount = _remiseIsPercent
             ? Math.Round(afterItemDiscounts * Math.Clamp(typed, 0, 100) / 100m, Money.DecimalDigits, MidpointRounding.AwayFromZero)
@@ -1048,6 +1065,7 @@ public partial class VentesView : UserControl
         TotalText.Text = Money.Format(total);
         _currentTotal = total;
         UpdateMonnaieARendre();
+        UpdateMixte();
 
         // Neither box checked means neither a payment nor a facture would be recorded -
         // nothing Validate_Click could actually do, so it must not be clickable.
@@ -1110,6 +1128,7 @@ public partial class VentesView : UserControl
         UpdateMonnaieARendre();
         UpdateValidateEnabled();
         PushCustomerDisplay();
+        SchedulePreview(); // a short amount turns the preview into a partial receipt
     }
 
     /// <summary>Grouped ("1 000") only once typing is done, same reasoning as every other
@@ -1143,9 +1162,9 @@ public partial class VentesView : UserControl
         if (!canAvoir) MonnaieAvoirCheck.IsChecked = false;
 
         var asAvoir = hasChange && MonnaieAvoirCheck.IsChecked == true;
-        MonnaieARendreText.Foreground = (Brush)FindResource(difference < 0 ? "Danger" : asAvoir ? "Warning" : "Success");
+        MonnaieARendreText.Foreground = (Brush)FindResource(difference < 0 ? "Warning" : asAvoir ? "Warning" : "Success");
         MonnaieARendreText.Text = difference < 0
-            ? $"Il manque {Money.Format(-difference)}"
+            ? $"Paiement partiel - reste à payer : {Money.Format(-difference)}"
             : asAvoir ? $"Avoir : {Money.Format(difference)}"
             : $"Monnaie à rendre : {Money.Format(difference)}";
     }
@@ -1347,6 +1366,10 @@ public partial class VentesView : UserControl
     /// first load, or if it failed - the till then shows prices as they are.</summary>
     private ReceiptSettingsDto? _receiptSettings;
 
+    /// <summary>Configuration "Afficher la quantité / le prix sur les produits" (on by default).</summary>
+    private bool TileShowPrice => _receiptSettings?.TileShowPrice ?? true;
+    private bool TileShowQuantity => _receiptSettings?.TileShowQuantity ?? true;
+
     private async Task RefreshReceiptSettingsAsync()
     {
         try
@@ -1356,6 +1379,21 @@ public partial class VentesView : UserControl
         catch (ApiException)
         {
             // Keeps whatever was read before; the server applies the real rule regardless.
+        }
+
+        // Tiles already on screen follow a change made in Configuration.
+        if (ProductGrid.ItemsSource is List<CatalogRow> shown
+            && shown.Any(r => r.ShowPrice != TileShowPrice || r.ShowQuantity != TileShowQuantity))
+            ProductGrid.ItemsSource = shown
+                .Select(r => r with { ShowPrice = TileShowPrice, ShowQuantity = TileShowQuantity }).ToList();
+
+        var showRemise = ShowRemise;
+        if (!showRemise) RemiseGlobaleBox.Text = string.Empty;
+        var visibility = showRemise ? Visibility.Visible : Visibility.Collapsed;
+        if (RemiseGlobalePanel.Visibility != visibility)
+        {
+            RemiseGlobalePanel.Visibility = visibility;
+            RenderCart();
         }
     }
 
@@ -1407,12 +1445,12 @@ public partial class VentesView : UserControl
             // saved cart could predate the product gaining a minimum, or predate it being
             // raised, and a restored line should never reopen below what is now the floor.
             var price = product.PrixFixe ? defaultPrice : Math.Max(saved.UnitPrice, product.Price);
-            _cart.Add(new CartLine(product, quantity, price, saved.Discount, saved.DiscountType, enGros));
+            _cart.Add(new CartLine(product, quantity, price, ShowRemise ? saved.Discount : 0, saved.DiscountType, enGros));
         }
 
         // Not restored without the privilege: the box would stay hidden while still quietly
         // discounting the total, which is worse than the discount simply being forgotten.
-        if (_canApplyDiscount && state.RemiseGlobale is { Length: > 0 } remise)
+        if (ShowRemise && state.RemiseGlobale is { Length: > 0 } remise)
         {
             _remiseIsPercent = state.RemiseGlobalePercent;
             UpdateRemiseModeLabel();
@@ -1476,10 +1514,11 @@ public partial class VentesView : UserControl
             var priceBox = new TextBox
             {
                 Text = line.UnitPrice > 0 ? Money.FormatPlain(line.UnitPrice) : string.Empty,
-                Width = 46, FontSize = 11, Padding = new Thickness(4, 2, 4, 2),
+                Width = 90, FontSize = 11, Padding = new Thickness(4, 2, 4, 2),
                 HorizontalAlignment = HorizontalAlignment.Left,
                 ToolTip = minimum > 0 ? $"Prix pour cette vente - minimum {Money.Format(minimum)}" : "Prix pour cette vente",
             };
+            Services.TouchKeypad.SetLayout(priceBox, Services.KeypadLayout.Numeric);
             MoneyInput.GroupAsYouType(priceBox);
             priceBox.TextChanged += (_, _) =>
             {
@@ -1560,6 +1599,7 @@ public partial class VentesView : UserControl
             Text = line.Quantity.ToString(), Width = 34, TextAlignment = TextAlignment.Center,
             FontSize = 12, Padding = new Thickness(2, 1, 2, 1), VerticalContentAlignment = VerticalAlignment.Center,
         };
+        Services.TouchKeypad.SetLayout(qtyBox, Services.KeypadLayout.Numeric);
         qtyBox.TextChanged += (_, _) =>
         {
             var index = _cart.FindIndex(c => c.LineId == line.LineId);
@@ -1610,15 +1650,16 @@ public partial class VentesView : UserControl
         Grid.SetColumn(qty, 2);
         row.Children.Add(qty);
 
-        if (_canApplyDiscount)
+        if (ShowRemise)
         {
             var discountBox = new TextBox
             {
                 Text = line.Discount > 0 ? Money.FormatPlain(line.Discount) : string.Empty,
-                Width = 46, Height = 22, FontSize = 11, Padding = new Thickness(4, 1, 4, 1),
+                Width = 80, Height = 22, FontSize = 11, Padding = new Thickness(4, 1, 4, 1),
                 Margin = new Thickness(8, 0, 2, 0), VerticalContentAlignment = VerticalAlignment.Center,
                 ToolTip = "Remise sur cette ligne",
             };
+            Services.TouchKeypad.SetLayout(discountBox, Services.KeypadLayout.Numeric);
             MoneyInput.GroupAsYouType(discountBox);
             var discountOptions = new[]
             {
@@ -1793,8 +1834,33 @@ public partial class VentesView : UserControl
             ? new ReceiptData("Aperçu", now, Blank(ClientNomBox.Text), Blank(ClientTelephoneBox.Text), Blank(ClientEmailBox.Text),
                 me, null, lines, _currentTotal, 0m, _currentTotal, "en_attente", null, 0m, false, [], tvaRate, tva)
             : new ReceiptData("Aperçu", now, Blank(ClientNomBox.Text), Blank(ClientTelephoneBox.Text), Blank(ClientEmailBox.Text),
-                me, me, lines, _currentTotal, _currentTotal, 0m, "paye", _modePaiement, 0m, false,
-                [new ReceiptPayment(_currentTotal, _modePaiement, now, me)], tvaRate, tva);
+                me, me, lines, _currentTotal, _currentTotal - PreviewReste(), PreviewReste(),
+                PreviewReste() > 0 ? "partiel" : "paye", _modePaiement, 0m, false,
+                PreviewPayments(now, me), tvaRate, tva);
+    }
+
+    /// <summary>What a short cash payment leaves owed (0 when paid in full or not cash).</summary>
+    private decimal PreviewReste()
+    {
+        if (_modePaiement == "mixte")
+        {
+            var (cash, mobile) = MixteSplit(_currentTotal);
+            return Math.Max(0, _currentTotal - cash - mobile);
+        }
+        return _modePaiement == "cash" && MontantRecuPanel.Visibility == Visibility.Visible
+            && Money.TryParse(MontantRecuBox.Text, out decimal recu) && recu > 0 && recu < _currentTotal
+                ? _currentTotal - recu : 0m;
+    }
+
+    /// <summary>One payment for a single method; for Paiement mixte, each non-zero part.</summary>
+    private List<ReceiptPayment> PreviewPayments(DateTime now, string? me)
+    {
+        if (_modePaiement != "mixte") return [new ReceiptPayment(_currentTotal - PreviewReste(), _modePaiement, now, me)];
+        var (cash, mobile) = MixteSplit(_currentTotal);
+        var parts = new List<ReceiptPayment>();
+        if (cash > 0) parts.Add(new ReceiptPayment(cash, "cash", now, me));
+        if (mobile > 0) parts.Add(new ReceiptPayment(mobile, "mobile_money", now, me));
+        return parts;
     }
 
     private void VenteRapide_Unchecked(object sender, RoutedEventArgs e) => UpdateCheckoutMode();
@@ -1843,6 +1909,10 @@ public partial class VentesView : UserControl
         var relevant = VenteRapideCheck.IsChecked == true && _modePaiement == "cash";
         MontantRecuPanel.Visibility = relevant ? Visibility.Visible : Visibility.Collapsed;
 
+        MixtePanel.Visibility = VenteRapideCheck.IsChecked == true && _modePaiement == "mixte"
+            ? Visibility.Visible : Visibility.Collapsed;
+        UpdateMixte();
+
         // The typed amount is kept while the panel is hidden, so a cashier who glances at
         // Mobile Money and comes back to Espèces does not have to type it again. What must not
         // survive is the avoir choice, and nothing reads the amount while the panel is hidden.
@@ -1870,6 +1940,85 @@ public partial class VentesView : UserControl
         PaymentMobileButton.Style = _modePaiement == "mobile_money" ? primary : secondary;
         PaymentOrangeButton.Style = _modePaiement == "orange_money" ? primary : secondary;
         PaymentCarteButton.Style  = _modePaiement == "carte"        ? primary : secondary;
+        PaymentMixteButton.Style  = _modePaiement == "mixte"        ? primary : secondary;
+    }
+
+    // --- Paiement mixte ---
+
+    /// <summary>True once the cashier typed the mobile amount themselves: from then on it is no
+    /// longer refilled with the rest, so a split can leave something owed (paiement partiel).</summary>
+    private bool _mixteMobileEdited;
+    private bool _settingMixteMobile;
+
+    /// <summary>The split as it stands: the cash typed (capped at the total) and the Mobile
+    /// Money - the rest, unless the cashier typed less. Whatever neither covers is still owed.</summary>
+    private (decimal Cash, decimal Mobile) MixteSplit(decimal total)
+    {
+        var cash = Money.TryParse(MixteCashBox.Text, out decimal typed) && typed > 0 ? Math.Min(typed, total) : 0m;
+        if (!_mixteMobileEdited) return (cash, total - cash);
+        var mobile = Money.TryParse(MixteMobileBox.Text, out decimal m) && m > 0 ? m : 0m;
+        return (cash, Math.Min(mobile, total - cash));
+    }
+
+    private void MixteCash_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        UpdateMixte();
+        SchedulePreview();
+    }
+
+    private void MixteMobile_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_settingMixteMobile) return;
+        // Cleared by hand: back to "mobile covers the rest".
+        _mixteMobileEdited = !string.IsNullOrWhiteSpace(MixteMobileBox.Text);
+        UpdateMixte();
+        SchedulePreview();
+    }
+
+    private void MixteMobile_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (Money.TryParse(MixteMobileBox.Text, out decimal mobile) && mobile > 0)
+            SetMixteMobileText(Money.FormatPlain(mobile));
+    }
+
+    private void SetMixteMobileText(string text)
+    {
+        _settingMixteMobile = true;
+        try { MixteMobileBox.Text = text; }
+        finally { _settingMixteMobile = false; }
+    }
+
+    private void MixteCash_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (Money.TryParse(MixteCashBox.Text, out decimal cash) && cash > 0)
+            MixteCashBox.Text = Money.FormatPlain(cash);
+    }
+
+    /// <summary>Recomputes the Mobile Money share live, and says plainly when the split has
+    /// collapsed into a single method - so the cashier is never surprised by the receipt.</summary>
+    private void UpdateMixte()
+    {
+        if (MixtePanel.Visibility != Visibility.Visible) return;
+
+        var typed = Money.TryParse(MixteCashBox.Text, out decimal t) && t > 0 ? t : 0m;
+        var (cash, mobile) = MixteSplit(_currentTotal);
+        if (!_mixteMobileEdited) SetMixteMobileText(Money.FormatPlain(mobile));
+        MixteReferenceRow.Visibility = mobile > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        var reste = _currentTotal - cash - mobile;
+        string? hint = null;
+        if (reste > 0 && _mixteMobileEdited)
+            hint = $"Paiement partiel - reste à payer : {Money.Format(reste)}";
+        else if (_currentTotal > 0 && typed >= _currentTotal)
+            hint = typed > _currentTotal
+                ? $"Tout en espèces - monnaie à rendre : {Money.Format(typed - _currentTotal)}"
+                : "Tout en espèces";
+        else if (_currentTotal > 0 && typed == 0)
+            hint = "Tout en Mobile Money";
+        MixteHintText.SetResourceReference(TextBlock.ForegroundProperty,
+            reste > 0 && _mixteMobileEdited ? "Warning" : "TextSecondary");
+        MixteHintText.Text = hint ?? string.Empty;
+        MixteHintText.Visibility = hint is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
     // --- Checkout ---
@@ -1928,6 +2077,19 @@ public partial class VentesView : UserControl
             monnaieEnAvoir = true;
         }
 
+        // Cash short of the total: record what was handed over - the sale becomes "partiel"
+        // with the rest still owed (the receipt prints Acompte versé / Reste à payer).
+        if (!isFacture && MontantRecuPanel.Visibility == Visibility.Visible
+            && Money.TryParse(MontantRecuBox.Text, out decimal partiel) && partiel > 0 && partiel < total)
+        {
+            var reste = total - partiel;
+            if (MessageBox.Show(Window.GetWindow(this),
+                    $"Le client paie {Money.Format(partiel)} sur {Money.Format(total)}.\n\nEnregistrer un paiement partiel ? Reste à payer : {Money.Format(reste)}.",
+                    "Paiement partiel", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                return;
+            montantPaye = partiel;
+        }
+
         var clientTelephone = string.IsNullOrWhiteSpace(ClientTelephoneBox.Text) ? null : ClientTelephoneBox.Text.Trim();
         var clientEmail = string.IsNullOrWhiteSpace(ClientEmailBox.Text) ? null : ClientEmailBox.Text.Trim();
 
@@ -1935,7 +2097,27 @@ public partial class VentesView : UserControl
         // phone (Moov) before recording the sale. The provider answers immediately; the sale is
         // created only after the charge is confirmed, so no money leaves the customer for a sale
         // that the server would later reject.
-        if (!isFacture && _modePaiement == "mobile_money")
+        // Paiement mixte: typed cash first, Mobile Money for exactly the rest. Sent as parts so
+        // the caisse counts each method on its own; a part of zero is dropped by the server.
+        List<PaiementPartRequest>? parts = null;
+        decimal mobileDue = total;
+        if (!isFacture && _modePaiement == "mixte")
+        {
+            var (cash, mobile) = MixteSplit(total);
+            mobileDue = mobile;
+            var reference = string.IsNullOrWhiteSpace(MixteReferenceBox.Text) ? null : MixteReferenceBox.Text.Trim();
+            parts = [new("cash", cash), new("mobile_money", mobile, reference)];
+
+            // Cash + mobile short of the total: a paiement partiel, the rest still owed.
+            var resteMixte = total - cash - mobile;
+            if (resteMixte > 0 && MessageBox.Show(Window.GetWindow(this),
+                    $"Espèces {Money.Format(cash)} + Mobile Money {Money.Format(mobile)} sur {Money.Format(total)}.\n\n"
+                    + $"Enregistrer un paiement partiel ? Reste à payer : {Money.Format(resteMixte)}.",
+                    "Paiement partiel", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                return;
+        }
+
+        if (!isFacture && (_modePaiement == "mobile_money" || (_modePaiement == "mixte" && mobileDue > 0)))
         {
             var accounts = PaymentProviderRegistry.EnabledAccounts(PaymentProviderIds.MobileMoney);
             var provider = PaymentProviderRegistry.Get(PaymentProviderIds.MobileMoney);
@@ -1943,7 +2125,7 @@ public partial class VentesView : UserControl
             {
                 var reference = $"V-{DateTime.Now:yyyyMMddHHmmss}";
                 var dialog = new MobileMoneyPaymentDialog(
-                    total, accounts, provider, reference, Window.GetWindow(this));
+                    mobileDue, accounts, provider, reference, Window.GetWindow(this));
                 if (dialog.ShowDialog() != true) return;
             }
         }
@@ -1963,7 +2145,7 @@ public partial class VentesView : UserControl
 
         var request = new CreateVenteRequest(
             items, _modePaiement, montantPaye, remise, clientNom, clientTelephone, clientEmail,
-            MonnaieEnAvoir: monnaieEnAvoir);
+            MonnaieEnAvoir: monnaieEnAvoir, Paiements: parts);
 
         SetBusy(true);
         try
@@ -1974,7 +2156,11 @@ public partial class VentesView : UserControl
             // handed over decides the change the display shows them.
             var changeGiven = !isFacture && !monnaieEnAvoir && MontantRecuPanel.Visibility == Visibility.Visible
                 && Money.TryParse(MontantRecuBox.Text, out decimal handed) && handed > vente.MontantTotal
-                ? handed - vente.MontantTotal : (decimal?)null;
+                ? handed - vente.MontantTotal
+                // Paiement mixte with more cash than the total collapsed into a cash sale with change.
+                : !isFacture && _modePaiement == "mixte"
+                  && Money.TryParse(MixteCashBox.Text, out decimal mixteCash) && mixteCash > vente.MontantTotal
+                ? mixteCash - vente.MontantTotal : (decimal?)null;
 
             ResetSaleForm();
 
@@ -2010,6 +2196,10 @@ public partial class VentesView : UserControl
     {
         // The next customer must not inherit this one's "montant reçu" on the display.
         MontantRecuBox.Clear();
+        MixteCashBox.Clear();
+        MixteReferenceBox.Clear();
+        _mixteMobileEdited = false;
+        SetMixteMobileText(string.Empty);
         _cart.Clear();
         RenderCart();
         RemiseGlobaleBox.Text = "0";
@@ -2709,16 +2899,16 @@ public partial class VentesView : UserControl
 
     private async Task SolderAvoirAsync(VenteListItemDto vente)
     {
-        var confirm = MessageBox.Show(Window.GetWindow(this),
-            $"Voulez-vous vraiment solder l'avoir de {Money.Format(vente.AvoirAmount)} pour cette vente ?",
-            "Solder l'avoir", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (confirm != MessageBoxResult.Yes) return;
+        if (RefundModeDialog.Ask(Window.GetWindow(this), vente.AvoirAmount, $"(vente {vente.NumeroVente})") is not { } mode)
+            return;
 
         SetBusy(true);
         try
         {
-            await _session.Api.SolderAvoirAsync(vente.Id);
+            await _session.Api.SolderAvoirAsync(vente.Id, mode);
             await LoadVentesAsync();
+            // Money left the till: the caisse header and status must show it straight away.
+            if (_caisseStatus is not null) await RefreshCaisseStatusAsync();
         }
         catch (ApiException ex)
         {
@@ -2933,7 +3123,7 @@ public partial class VentesView : UserControl
         {
             ("Espèces", stats.PaiementCash, CategoryPalette[0]),
             ("Mobile Money", stats.PaiementMobile, CategoryPalette[1]),
-            ("Carte Bancaire", stats.PaiementCarte, CategoryPalette[2]),
+            ("Banque/Carte", stats.PaiementCarte, CategoryPalette[2]),
             ("Autres", stats.PaiementAutres, CategoryPalette[4]),
         }.Where(p => p.Value > 0).ToList();
 

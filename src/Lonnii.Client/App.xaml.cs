@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text.Json;
 using System.Windows;
 using Lonnii.Client.Features.Auth;
@@ -46,6 +46,17 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         Services.DateTyping.Register();
+        DeviceProfile.Initialize(e.Args, Settings.DeviceMode);
+        // Every scroll bar handle gets the three grip lines (Theme/Styles.xaml ScrollBarGripThumb).
+        EventManager.RegisterClassHandler(typeof(System.Windows.Controls.Primitives.ScrollBar), FrameworkElement.LoadedEvent,
+            new RoutedEventHandler((s, _) =>
+            {
+                if (s is System.Windows.Controls.Primitives.ScrollBar { Track.Thumb: { } thumb }
+                    && TryFindResource("ScrollBarGripThumb") is Style grip && thumb.Style != grip)
+                    thumb.Style = grip;
+            }));
+        Log($"Appareil : {(DeviceProfile.IsPos ? "caisse tactile (POS)" : "ordinateur classique")} ({DeviceProfile.Source})");
+        TouchKeypad.Register();
         base.OnStartup(e);
 
         // Every window and dialog gets the themed icon unless it set its own, so none falls
@@ -202,6 +213,12 @@ public class ClientSettings
 
     /// <summary>The group last worked in, so the picker can preselect it.</summary>
     public string? LastGroupId { get; set; }
+
+    /// <summary>POS on-screen keypad side: Bottom, Left or Right (TouchKeypad.Dock).</summary>
+    public string? KeypadDock { get; set; }
+
+    /// <summary>"pos" or "desktop" chosen in Configuration after install; null = the installer's choice.</summary>
+    public string? DeviceMode { get; set; }
 
     public static ClientSettings Load()
     {

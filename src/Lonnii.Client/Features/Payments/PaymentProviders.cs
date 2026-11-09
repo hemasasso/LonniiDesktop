@@ -119,7 +119,7 @@ public static class PaymentProviderRegistry
                 new(CustomerInputKeys.Otp, "Code OTP", Secret: true,
                     Hint: "Le client compose *144*4*6# sur son téléphone"),
             ]),
-        new(PaymentProviderIds.Card, "Carte bancaire (débit et crédit)",
+        new(PaymentProviderIds.Card, "Banque/Carte (débit et crédit)",
             "Visa, Mastercard et autres réseaux, via un prestataire de paiement ou un terminal.",
             [
                 new("processor", "Prestataire", Hint: "ex. Stripe, CinetPay"),

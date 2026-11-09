@@ -27,6 +27,13 @@
                         Style="{StaticResource SecondaryButton}" Click="Edit_Click" />
                 <Button x:Name="ToggleActiveButton" Content="Désactiver" Margin="6,0,0,0"
                         Style="{StaticResource SecondaryButton}" Click="ToggleActive_Click" />
+                <Button x:Name="DeleteButton" Content="Supprimer" Margin="6,0,0,0"
+                        Style="{StaticResource SecondaryButton}" Click="Delete_Click"
+                        ToolTip="Seulement si aucun produit en stock n'utilise cette catégorie" />
+                <Rectangle Width="1" Margin="10,2" Fill="{DynamicResource Border}" />
+                <Button Content="Tout activer" Style="{StaticResource SecondaryButton}" Click="ActivateAll_Click" />
+                <Button Content="Tout désactiver" Margin="6,0,0,0"
+                        Style="{StaticResource SecondaryButton}" Click="DeactivateAll_Click" />
                 <Rectangle Width="1" Margin="10,2" Fill="{DynamicResource Border}" />
                 <Button Content="Actualiser" Style="{StaticResource SecondaryButton}" Click="Refresh_Click" />
             </StackPanel>
@@ -72,7 +79,15 @@
                             <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}" />
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
-                    <DataGridCheckBoxColumn Header="Active" Binding="{Binding Category.IsActive}" Width="60" IsReadOnly="True" />
+                    <DataGridTemplateColumn Header="Active" Width="60" IsReadOnly="True">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <CheckBox IsChecked="{Binding Category.IsActive, Mode=OneWay}" Click="Active_Click"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center"
+                                          ToolTip="Cocher pour activer, décocher pour désactiver" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                 </DataGrid.Columns>
             </DataGrid>
 

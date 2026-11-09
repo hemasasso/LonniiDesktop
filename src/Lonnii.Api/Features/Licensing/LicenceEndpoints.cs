@@ -224,7 +224,8 @@ public static class LicenceEndpoints
 
         // What the shop's host will enforce, signed so its own database cannot overrule it.
         var licenceToken = signer.Sign(new LicenceClaims(
-            groupe.Id, groupe.Mode, mustReconnectBy, now, bound, groupe.IsBlocked, groupe.BlockReason));
+            groupe.Id, groupe.Mode, mustReconnectBy, now, bound, groupe.IsBlocked, groupe.BlockReason,
+            groupe.GestionAccess));
 
         return Results.Ok(new LicenceRefreshResponse(
             GroupId: groupe.Id,

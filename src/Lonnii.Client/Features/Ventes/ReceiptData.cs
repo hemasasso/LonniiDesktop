@@ -7,7 +7,7 @@ public sealed record ReceiptLine(string Name, int Quantity, decimal UnitPrice, d
     public decimal Discount => Math.Max(0, UnitPrice * Quantity - Total);
 }
 
-public sealed record ReceiptPayment(decimal Amount, string? Mode, DateTime Date, string? By);
+public sealed record ReceiptPayment(decimal Amount, string? Mode, DateTime Date, string? By, string? Reference = null);
 
 /// <summary>
 /// What a printed reçu or facture shows about one sale, independent of where it came from -
@@ -83,7 +83,7 @@ public sealed record ReceiptData(
             vente.AvoirAmount,
             vente.IsAvoirSolded,
             (vente.Paiements ?? [])
-                .Select(p => new ReceiptPayment(p.Montant, p.ModePaiement, p.DatePaiement.ToLocalTime(), p.CreatedByName))
+                .Select(p => new ReceiptPayment(p.Montant, p.ModePaiement, p.DatePaiement.ToLocalTime(), p.CreatedByName, p.Reference))
                 .ToList(),
             vente.TvaRate,
             vente.TvaAmount,

@@ -1033,7 +1033,7 @@ public partial class StockView : UserControl
 
             try
             {
-                var bytes = await _session.Api.GetImageBytesAsync(url);
+                var bytes = await _session.Api.GetThumbnailBytesAsync(url);
                 _thumbnailCache[url] = ImageHelper.FromBytes(bytes);
             }
             catch (ApiException)

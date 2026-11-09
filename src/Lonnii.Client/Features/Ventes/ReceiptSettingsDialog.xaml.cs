@@ -165,6 +165,8 @@ public partial class ReceiptSettingsDialog : Window
         TvaIncluseRadio.IsChecked = s.TvaMode != TvaModes.Ajoutee;
         ReceiptPrintAfterSaleCheck.IsChecked = s.ReceiptPrintAfterSale;
         FacturePrintAfterSaleCheck.IsChecked = s.FacturePrintAfterSale;
+        ReceiptAmountInWordsCheck.IsChecked = s.ReceiptAmountInWords;
+        FactureAmountInWordsCheck.IsChecked = s.FactureAmountInWords;
 
         ReceiptTemplateBox.SelectedValue = s.ReceiptTemplate;
         FactureTemplateBox.SelectedValue = s.FactureTemplate;
@@ -410,7 +412,9 @@ public partial class ReceiptSettingsDialog : Window
         TvaRate: TryReadTvaRate(out var rate) ? rate : null,
         TvaMode: SelectedTvaMode,
         ReceiptPrintAfterSale: ReceiptPrintAfterSaleCheck.IsChecked == true,
-        FacturePrintAfterSale: FacturePrintAfterSaleCheck.IsChecked == true);
+        FacturePrintAfterSale: FacturePrintAfterSaleCheck.IsChecked == true,
+        ReceiptAmountInWords: ReceiptAmountInWordsCheck.IsChecked == true,
+        FactureAmountInWords: FactureAmountInWordsCheck.IsChecked == true);
 
     // --- Sections ----------------------------------------------------------------
 
@@ -440,6 +444,7 @@ public partial class ReceiptSettingsDialog : Window
         ReceiptSections.CompanyLegal => "Imprimé seulement si les mentions légales sont remplies.",
         ReceiptSections.Tva => "Imprimé seulement si un taux de TVA est renseigné. Toujours imprimé quand la TVA est ajoutée au prix, pour que le total s'explique.",
         ReceiptSections.LegalFooter => "Imprimé seulement si le texte de bas de page est rempli.",
+        ReceiptSections.ClientSignature => "La case du client dans la zone Signature / cachet. Décochée, seul le cachet s'imprime - même sur un reçu avec avoir.",
         ReceiptSections.Qr => "Imprimé seulement si un QR code ou une note est configuré.",
         ReceiptSections.Cashier => "Imprimé seulement sur un reçu (pas une facture), avec le nom de la personne qui a encaissé le dernier paiement.",
         ReceiptSections.PaymentHistory => "Imprimé seulement quand la vente a été réglée en plusieurs fois.",
@@ -507,6 +512,8 @@ public partial class ReceiptSettingsDialog : Window
         TvaMode = SelectedTvaMode,
         ReceiptPrintAfterSale = ReceiptPrintAfterSaleCheck.IsChecked == true,
         FacturePrintAfterSale = FacturePrintAfterSaleCheck.IsChecked == true,
+        ReceiptAmountInWords = ReceiptAmountInWordsCheck.IsChecked == true,
+        FactureAmountInWords = FactureAmountInWordsCheck.IsChecked == true,
     };
 
     private string SelectedTvaMode => TvaAjouteeRadio.IsChecked == true ? TvaModes.Ajoutee : TvaModes.Incluse;

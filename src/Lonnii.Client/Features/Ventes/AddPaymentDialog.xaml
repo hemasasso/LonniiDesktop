@@ -51,7 +51,7 @@
                 </Button>
                 <Button x:Name="PaymentCarteButton" Width="70" Height="34"
                         Style="{StaticResource SecondaryButton}" Click="PaymentMode_Click" Tag="carte">
-                    <TextBlock Text="Carte" Style="{StaticResource ButtonContentText}" />
+                    <TextBlock Text="Banque/Carte" Style="{StaticResource ButtonContentText}" />
                 </Button>
             </StackPanel>
         </StackPanel>

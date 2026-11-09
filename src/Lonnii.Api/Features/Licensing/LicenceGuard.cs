@@ -96,14 +96,18 @@ public class LicenceGuard(LonniiDbContext db, string? publicKey = null)
 
     public async Task<LicenceStatusDto> CheckAsync(Groupe groupe, CancellationToken ct)
     {
+        // Our server issues licences, it does not run under one: a block there is applied where
+        // sessions open (GroupEndpoints), never by a host deadline written into its copy of the shop.
+        if (IsOurServer) return NotEnforced();
+
         // Blocked from the dashboard, or this machine removed: stops the workspace on the next
         // request, in both modes. Only for a shop's own host - on our server a block is applied
         // where sessions open, and this guard never runs for it.
-        if (groupe.IsBlocked && !string.IsNullOrWhiteSpace(groupe.LicenceServerUrl))
+        if (IsShopHost(groupe) && groupe.IsBlocked)
             return Locked(groupe.BlockReason ?? "Cet espace est bloqué. Contactez le support.", groupe.LicenceDeadline);
 
         // A shop's host answers to its signed licence, whatever its database says.
-        if (!string.IsNullOrWhiteSpace(groupe.LicenceServerUrl))
+        if (IsShopHost(groupe))
             return await CheckSignedAsync(groupe, ct);
 
         if (!IsEnforced(groupe)) return NotEnforced();
@@ -206,10 +210,22 @@ public class LicenceGuard(LonniiDbContext db, string? publicKey = null)
     /// </summary>
     public async Task<bool?> SignedDeviceAllowedAsync(string groupId, string? deviceId, CancellationToken ct)
     {
+        if (IsOurServer) return null; // our server signs licences; it holds none of its own
         var claims = await SignedClaimsAsync(groupId, ct);
         if (claims is null) return null;
         return !string.IsNullOrWhiteSpace(deviceId) && claims.Devices.Contains(deviceId);
     }
+
+    /// <summary>
+    /// True on our server (the only installation on PostgreSQL). It issues the signed licences and
+    /// has no <c>host_licence</c> table: a shop's row there still carries its LicenceServerUrl (it
+    /// came from the shop), and reading that as "I am this shop's host" crashed session opening
+    /// with 'relation "host_licence" does not exist' - and would have started an unsigned countdown.
+    /// </summary>
+    private bool IsOurServer => db.Database.IsNpgsql();
+
+    /// <summary>A shop's own computer, answering to its signed licence - never our server.</summary>
+    private bool IsShopHost(Groupe groupe) => !IsOurServer && !string.IsNullOrWhiteSpace(groupe.LicenceServerUrl);
 
     /// <summary>The status that puts the lock screen up with <paramref name="message"/>.</summary>
     public static LicenceStatusDto Locked(string message, DateTime? deadline) =>
@@ -269,8 +285,10 @@ public class LicenceGuard(LonniiDbContext db, string? publicKey = null)
 
         // The signed licence is what this host enforces from now on; only one that verifies, for
         // this espace, replaces the stored one (an unsigned answer leaves it as it was).
-        if (Verified(response.LicenceToken, groupe.Id) is not null)
+        if (Verified(response.LicenceToken, groupe.Id) is { } signed)
         {
+            // Gestion granted or withdrawn from the dashboard.
+            groupe.GestionAccess = signed.GestionAccess;
             var state = await db.HostLicences.FirstOrDefaultAsync(h => h.GroupId == groupe.Id, ct);
             if (state is null) db.HostLicences.Add(state = new HostLicence { GroupId = groupe.Id });
             state.Token = response.LicenceToken;

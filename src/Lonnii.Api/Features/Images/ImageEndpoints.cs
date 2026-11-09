@@ -54,15 +54,27 @@ public static class ImageEndpoints
         // never existed at all should look identical to a caller probing for either.
         if (!ownedByThisGroup) return Results.NotFound(new ApiError("Image introuvable"));
 
-        var stream = images.OpenRead(folder, fileName);
+        // "<name>.t.jpg" is the grid thumbnail, made from the full photo the first time it is asked for.
+        var thumbnail = ImageStorageService.IsThumbnail(fileName);
+        var stream = thumbnail ? images.OpenThumbnail(folder, fileName) : images.OpenRead(folder, fileName);
 
         // A shop read from its online copy: its photos are not on this server's own disk, they
-        // are the ones its host uploaded with its backup.
+        // are the ones its host uploaded with its backup. A thumbnail not uploaded: the full photo.
         if (stream is null && http.Items.ContainsKey(RemoteKeys.ReplicaPath))
+        {
             stream = backups.OpenImage(scope.GroupId, folder, fileName);
+            if (stream is null && thumbnail)
+            {
+                var stem = fileName[..^ImageStorageService.ThumbnailSuffix.Length];
+                stream = backups.OpenImage(scope.GroupId, folder, stem + ".jpg")
+                    ?? backups.OpenImage(scope.GroupId, folder, stem + ".png");
+            }
+        }
 
         if (stream is null) return Results.NotFound(new ApiError("Image introuvable"));
 
-        return Results.File(stream, ImageStorageService.ContentTypeFor(fileName));
+        // A thumbnail is always JPEG; may also be its full photo served in its place (same type rule).
+        var contentType = thumbnail ? "image/jpeg" : ImageStorageService.ContentTypeFor(fileName);
+        return Results.File(stream, contentType);
     }
 }

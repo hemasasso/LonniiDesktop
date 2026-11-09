@@ -30,6 +30,13 @@ public partial class CaisseHistoryDialog : Window
         public string ChiffreAffairesDisplay => Money.Format(Caisse.TotalChiffreAffaires);
         public string EncaisseDisplay => Money.Format(Caisse.TotalEncaisse);
 
+        /// <summary>Still owed by customers on this session's sales, as of now.</summary>
+        public string ResteDisplay => Caisse.ResteAPayer == 0 ? "—" : Money.Format(Caisse.ResteAPayer);
+
+        /// <summary>Every customer credit (avoir) created during the session, refunded or not.</summary>
+        public string AvoirsDisplay => Caisse.TotalAvoir == 0 ? "—" : Money.Format(Caisse.TotalAvoir);
+        public string AvoirsSoldesDisplay => Caisse.AvoirsSoldes == 0 ? "—" : Money.Format(Caisse.AvoirsSoldes);
+
         public string RetraitsDisplay => Caisse.TotalRetraits == 0 ? "—" : $"-{Money.Format(Caisse.TotalRetraits)}";
 
         /// <summary>One line per withdrawal, shown on hover. Null rather than empty when there
@@ -66,8 +73,8 @@ public partial class CaisseHistoryDialog : Window
                         + $" = {Money.Format(Caisse.ExpectedMobile)}";
 
                 var carte = Caisse.Status == "closed" && !Caisse.CarteCounted
-                    ? "Carte non comptée à la fermeture"
-                    : $"Carte : fonds {Money.Format(Caisse.MontantInitialCarte)}"
+                    ? "Banque/Carte non comptée à la fermeture"
+                    : $"Banque/Carte : fonds {Money.Format(Caisse.MontantInitialCarte)}"
                         + $" + encaissements {Money.Format(Caisse.PaiementCarte)}"
                         + $" = {Money.Format(Caisse.ExpectedCarte)}";
 
@@ -82,8 +89,8 @@ public partial class CaisseHistoryDialog : Window
                     ? $"Mobile money constaté : {Money.Format(mobile)}"
                     : "Mobile money non compté",
                 Caisse.MontantFinalCarte is { } carte
-                    ? $"Carte constatée : {Money.Format(carte)}"
-                    : "Carte non comptée");
+                    ? $"Banque/Carte constatée : {Money.Format(carte)}"
+                    : "Banque/Carte non comptée");
 
         public string EcartDisplay => Caisse.Status != "closed" ? "—"
             : Caisse.Ecart == 0 ? "Aucun"
@@ -174,6 +181,11 @@ public partial class CaisseHistoryDialog : Window
         await LoadAsync();
     }
 
+    private const int PageSize = 25;
+    private int _page = 1;
+
+    private async void Pager_PageChanged(object? sender, EventArgs e) => await LoadAsync(Pager.CurrentPage);
+
     private async void Filter_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (!IsLoaded || _applyingPeriod) return;
@@ -184,21 +196,38 @@ public partial class CaisseHistoryDialog : Window
         await LoadAsync();
     }
 
-    private async Task LoadAsync()
+    /// <summary>The current filters, as the history endpoint takes them.</summary>
+    private (DateOnly? Debut, DateOnly? Fin, string? UserId) Filters()
+    {
+        var dateDebut = DateDebutPicker.SelectedDate is { } d ? DateOnly.FromDateTime(d) : (DateOnly?)null;
+        var dateFin = DateFinPicker.SelectedDate is { } f ? DateOnly.FromDateTime(f) : (DateOnly?)null;
+        var userId = (VendeurBox.SelectedItem as CaisseVendeurDto)?.UserId;
+        return (dateDebut, dateFin, string.IsNullOrEmpty(userId) ? null : userId);
+    }
+
+    /// <summary>Loads one page. A filter change starts back on page 1 (the default); paging and
+    /// a refresh after resolving an écart keep the page the user was on.</summary>
+    private async Task LoadAsync(int page = 1)
     {
         try
         {
-            var dateDebut = DateDebutPicker.SelectedDate is { } d ? DateOnly.FromDateTime(d) : (DateOnly?)null;
-            var dateFin = DateFinPicker.SelectedDate is { } f ? DateOnly.FromDateTime(f) : (DateOnly?)null;
-            var userId = (VendeurBox.SelectedItem as CaisseVendeurDto)?.UserId;
+            var (debut, fin, userId) = Filters();
+            var response = await _session.Api.GetCaisseHistoryAsync(debut, fin, userId, page, PageSize);
 
-            var response = await _session.Api.GetCaisseHistoryAsync(
-                dateDebut, dateFin, string.IsNullOrEmpty(userId) ? null : userId, pageSize: 200);
+            var totalPages = Math.Max(1, (int)Math.Ceiling(response.Total / (double)PageSize));
+            if (page > totalPages && response.Total > 0)
+            {
+                // The page emptied under us (e.g. sessions removed) - fall back to the last one.
+                await LoadAsync(totalPages);
+                return;
+            }
 
+            _page = page;
             _caisses = response.Caisses.ToList();
             HistoryGrid.ItemsSource = _caisses.Select(c => new HistoryRow(c)).ToList();
             EmptyPanel.Visibility = _caisses.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             SubtitleText.Text = $"{response.Total} session(s)";
+            Pager.Configure(_page, totalPages);
         }
         catch (ApiException ex)
         {
@@ -235,7 +264,7 @@ public partial class CaisseHistoryDialog : Window
         try
         {
             await _session.Api.ResolveCaisseEcartAsync(caisse.Id, request);
-            await LoadAsync();
+            await LoadAsync(_page);
         }
         catch (ApiException ex)
         {
@@ -243,9 +272,39 @@ public partial class CaisseHistoryDialog : Window
         }
     }
 
-    private void Export_Click(object sender, RoutedEventArgs e)
+    /// <summary>The CSV covers the whole filtered period, not just the page on screen, so it
+    /// fetches every page (200 at a time, the server's maximum).</summary>
+    private async Task<List<CaisseDto>> LoadAllAsync()
     {
-        if (_caisses.Count == 0)
+        var (debut, fin, userId) = Filters();
+        var all = new List<CaisseDto>();
+        for (var page = 1; ; page++)
+        {
+            var response = await _session.Api.GetCaisseHistoryAsync(debut, fin, userId, page, 200);
+            all.AddRange(response.Caisses);
+            if (response.Caisses.Count == 0 || all.Count >= response.Total) return all;
+        }
+    }
+
+    private async void Export_Click(object sender, RoutedEventArgs e)
+    {
+        List<CaisseDto> caisses;
+        try
+        {
+            ExportButton.IsEnabled = false;
+            caisses = await LoadAllAsync();
+        }
+        catch (ApiException ex)
+        {
+            MessageBox.Show(this, ex.Message, "Exporter", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        finally
+        {
+            ExportButton.IsEnabled = true;
+        }
+
+        if (caisses.Count == 0)
         {
             MessageBox.Show(this, "Aucune session à exporter.", "Exporter",
                 MessageBoxButton.OK, MessageBoxImage.Information);
@@ -263,7 +322,7 @@ public partial class CaisseHistoryDialog : Window
 
         try
         {
-            File.WriteAllText(dialog.FileName, BuildCsv(), new UTF8Encoding(true));
+            File.WriteAllText(dialog.FileName, BuildCsv(caisses), new UTF8Encoding(true));
         }
         catch (IOException ex)
         {
@@ -272,17 +331,17 @@ public partial class CaisseHistoryDialog : Window
         }
     }
 
-    private string BuildCsv()
+    private static string BuildCsv(IReadOnlyList<CaisseDto> caisses)
     {
         static string Csv(string value) => $"\"{value.Replace("\"", "\"\"")}\"";
 
         var sb = new StringBuilder();
         sb.AppendLine(string.Join(';', "Ouverture", "Fermeture", "Vendeur", "Ventes",
-            "Chiffre d'affaires", "Encaissé", "Retraits", "Motifs des retraits",
-            "Fonds initial (espèces)", "Fonds initial (mobile)", "Fonds initial (carte)",
-            "Montant attendu", "Espèces comptées", "Mobile money constaté", "Carte constatée", "Écart", "Statut"));
+            "Chiffre d'affaires", "Encaissé", "Reste à payer", "Avoirs créés", "Avoirs remboursés", "Retraits", "Motifs des retraits",
+            "Fonds initial (espèces)", "Fonds initial (mobile)", "Fonds initial (banque/carte)",
+            "Montant attendu", "Espèces comptées", "Mobile money constaté", "Banque/Carte constatée", "Écart", "Statut"));
 
-        foreach (var c in _caisses)
+        foreach (var c in caisses)
         {
             sb.AppendLine(string.Join(';',
                 c.DateOuverture.ToLocalTime().ToString("dd/MM/yyyy HH:mm"),
@@ -291,6 +350,9 @@ public partial class CaisseHistoryDialog : Window
                 c.TotalVentes,
                 Money.FormatPlain(c.TotalChiffreAffaires, 2),
                 Money.FormatPlain(c.TotalEncaisse, 2),
+                Money.FormatPlain(c.ResteAPayer, 2),
+                Money.FormatPlain(c.TotalAvoir, 2),
+                Money.FormatPlain(c.AvoirsSoldes, 2),
                 Money.FormatPlain(c.TotalRetraits, 2),
                 Csv(string.Join(" | ", (c.Retraits ?? []).Select(r =>
                     $"{Money.FormatPlain(r.Montant, 2)} ({(r.ModePaiement == "mobile_money" ? "mobile" : "espèces")}) : {r.Motif}"))),

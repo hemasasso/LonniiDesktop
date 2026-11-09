@@ -1,3 +1,4 @@
+using Lonnii.Api.Features.Licensing;
 using Lonnii.Api.Features.Live;
 using Lonnii.Data;
 using Lonnii.Data.Entities;
@@ -48,18 +49,22 @@ public static class PrivilegeEndpoints
     /// Returning it from the server keeps the desktop client from re-implementing the rules.
     /// </summary>
     private static async Task<IResult> MenuAsync(
-        GroupScope scope, LonniiDbContext db, CancellationToken ct)
+        GroupScope scope, LonniiDbContext db, LicenceGuard licence, CancellationToken ct)
     {
         var groupe = await db.Groupes.FirstAsync(g => g.Id == scope.GroupId, ct);
         var all = scope.Privileges.All();
 
+        // A shop's own host believes the signed licence, not its editable database; our server
+        // (no signed licence stored) reads the row the dashboard sets.
+        var gestionAccess = (await licence.SignedClaimsAsync(groupe.Id, ct))?.GestionAccess ?? groupe.GestionAccess;
+
         var espace = AppMenu.Visible(
-            AppMenu.Espace, all, groupe.GestionAccess, scope.IsAdmin);
+            AppMenu.Espace, all, gestionAccess, scope.IsAdmin);
         var gestion = AppMenu.Visible(
-            AppMenu.Gestion, all, groupe.GestionAccess, scope.IsAdmin);
+            AppMenu.Gestion, all, gestionAccess, scope.IsAdmin);
 
         // Gestion entries are only reachable at all when the group has gestion access.
-        if (!groupe.GestionAccess) gestion = [];
+        if (!gestionAccess) gestion = [];
 
         var sections = AppMenu.GestionSections
             .Select(s => new MenuSectionDto(

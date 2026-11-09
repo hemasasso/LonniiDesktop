@@ -191,6 +191,11 @@ public class AppSession(LonniiApiClient api)
         Raise();
     }
 
+    /// <summary>Keeps the cached images and swaps only the settings, after a change that touched
+    /// no image ("Activer remise").</summary>
+    public void ApplyReceiptSettingsChange(ReceiptSettingsDto settings) =>
+        ApplyReceiptSettingsChange(settings, _receiptLogo, _receiptQrCode);
+
     /// <summary>
     /// A configured image's bytes, or null if it cannot be fetched. A missing logo must not
     /// stop a receipt printing - the sale is already made, and the document is still valid

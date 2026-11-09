@@ -48,6 +48,20 @@ public class ImageStorageService
     /// <summary>Longest edge a stored photo is allowed to have, in pixels.</summary>
     private const int MaxDimension = 1024;
 
+    /// <summary>Longest side of the small copy the product/category grids load.</summary>
+    private const int ThumbnailDimension = 200;
+
+    /// <summary>Ends a thumbnail's file name. No extra "_": EntityIdFromFileName (everything
+    /// before the last "_") must still name the owner.</summary>
+    public const string ThumbnailSuffix = ".t.jpg";
+
+    /// <summary>"abc_123.jpg" -> "abc_123.t.jpg".</summary>
+    public static string ThumbnailName(string fileName) =>
+        Path.GetFileNameWithoutExtension(fileName) + ThumbnailSuffix;
+
+    public static bool IsThumbnail(string fileName) =>
+        fileName.EndsWith(ThumbnailSuffix, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Largest upload accepted, before decoding. Keeps a phone photo from filling the disk.</summary>
     public const long MaxUploadBytes = 8 * 1024 * 1024;
 
@@ -98,6 +112,7 @@ public class ImageStorageService
             image.SaveAsJpeg(path, new JpegEncoder { Quality = 82 });
         }
 
+        SaveThumbnail(image, Path.Combine(_root, folder, ThumbnailName(fileName)));
         DeleteIfOwned(previousUrl);
 
         return $"/api/images/{folder}/{fileName}";
@@ -117,6 +132,7 @@ public class ImageStorageService
         try
         {
             File.Delete(path);
+            File.Delete(Path.Combine(Path.GetDirectoryName(path)!, ThumbnailName(path)));
         }
         catch (IOException)
         {
@@ -152,6 +168,46 @@ public class ImageStorageService
         if (!File.Exists(fullPath)) return null;
 
         return new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+    }
+
+    /// <summary>
+    /// Opens a photo's thumbnail, making it from the full photo the first time it is asked for
+    /// (photos saved before thumbnails existed). Null when neither exists here.
+    /// </summary>
+    public FileStream? OpenThumbnail(string folder, string thumbnailName)
+    {
+        var existing = OpenRead(folder, thumbnailName);
+        if (existing is not null) return existing;
+
+        var stem = thumbnailName[..^ThumbnailSuffix.Length];
+        var original = ExistingPath(folder, stem + ".jpg") ?? ExistingPath(folder, stem + ".png");
+        if (original is null) return null;
+
+        try
+        {
+            using (var image = Image.Load(original))
+                SaveThumbnail(image, Path.Combine(Path.GetDirectoryName(original)!, Path.GetFileName(stem) + ThumbnailSuffix));
+        }
+        catch (Exception e) when (e is ImageFormatException or NotSupportedException or IOException)
+        {
+            return OpenRead(folder, Path.GetFileName(original)); // the full photo will do
+        }
+
+        return OpenRead(folder, thumbnailName);
+    }
+
+    /// <summary>A ~200 px JPEG copy for the grids; a failure only costs the grid the full photo.</summary>
+    private static void SaveThumbnail(Image image, string path)
+    {
+        try
+        {
+            using var thumb = image.Clone(x => x.BackgroundColor(Color.White));
+            ResizeToFit(thumb, ThumbnailDimension);
+            thumb.SaveAsJpeg(path, new JpegEncoder { Quality = 75 });
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+        }
     }
 
     /// <summary>Where a photo of this name would be stored, for putting back a file that

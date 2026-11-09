@@ -495,7 +495,10 @@ public static class VentesEndpoints
     /// register is open - refunding cash the till's own totals would not otherwise account
     /// for.</summary>
     private static async Task<IResult> SolderAvoirAsync(
-        string id, GroupScope scope, LonniiDbContext db, CancellationToken ct)
+        string id, GroupScope scope, LonniiDbContext db,
+        [Microsoft.AspNetCore.Mvc.FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)]
+        SolderAvoirRequest? request,
+        CancellationToken ct)
     {
         var vente = await db.Ventes.FirstOrDefaultAsync(v => v.Id == id && v.GroupId == scope.GroupId, ct);
         if (vente is null) return Results.NotFound(new ApiError("Vente introuvable"));
@@ -503,24 +506,15 @@ public static class VentesEndpoints
         if (vente.AvoirAmount <= 0 || vente.IsAvoirSolded)
             return Results.BadRequest(new ApiError("Cette vente n'a pas d'avoir à solder"));
 
+        // The money leaves the caller's own till, in the pool chosen - only if it is there.
+        var refused = await Lonnii.Api.Features.Caisse.CaisseEndpoints.AddAvoirRefundAsync(
+            db, scope.GroupId, scope.UserId, vente.AvoirAmount, request?.ModePaiement,
+            $"Remboursement avoir - Vente {vente.NumeroVente}", ct);
+        if (refused is not null) return Results.BadRequest(new ApiError(refused));
+
         vente.IsAvoirSolded = true;
         vente.AvoirSoldedAt = DateTime.UtcNow;
         vente.AvoirSoldedBy = scope.UserId;
-
-        var openCaisse = await FindOpenCaisseAsync(db, scope.GroupId, scope.UserId, ct);
-        if (openCaisse is not null)
-        {
-            db.CaisseTransactions.Add(new CaisseTransaction
-            {
-                CaisseId = openCaisse.Id,
-                GroupId = scope.GroupId,
-                Type = "sortie",
-                Montant = vente.AvoirAmount,
-                Description = $"Remboursement avoir - Vente {vente.NumeroVente}",
-                Category = "avoir_solde",
-                CreatedBy = scope.UserId,
-            });
-        }
 
         await db.SaveChangesAsync(ct);
 
@@ -556,6 +550,14 @@ public static class VentesEndpoints
     /// Rings up a sale: resolves each line's price and product, decrements tracked stock,
     /// records the payment, and returns the completed sale.
     /// </summary>
+    /// <summary>Methods a Paiement mixte part may use - real ways money arrives, never
+    /// <see cref="ModePaiement.Mixte"/> itself.</summary>
+    private static readonly HashSet<string> SplitModes =
+    [
+        ModePaiement.Cash, ModePaiement.MobileMoney, ModePaiement.Carte,
+        ModePaiement.Virement, ModePaiement.Cheque,
+    ];
+
     private static async Task<IResult> CreateVenteAsync(
         CreateVenteRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
@@ -573,6 +575,25 @@ public static class VentesEndpoints
 
         if (request.MontantPaye < 0)
             return Results.BadRequest(new ApiError("Le montant payé ne peut pas être négatif"));
+
+        // Paiement mixte: each part becomes its own payment row. Zero parts are dropped (a
+        // cashier leaving the mobile box at 0 is just a cash sale); a negative or unknown one
+        // is refused rather than silently fixed.
+        var parts = (request.Paiements ?? []).Where(p => p.Montant != 0).ToList();
+
+        // "mixte" names a split, never a way money arrives: without its parts it would be
+        // recorded as one payment the caisse can only count as "Autres".
+        if (request.ModePaiement == ModePaiement.Mixte && request.Paiements is null)
+            return Results.BadRequest(new ApiError("Paiement mixte : le détail espèces / mobile est manquant"));
+        if (parts.Count > 0)
+        {
+            if (parts.Any(p => p.Montant < 0))
+                return Results.BadRequest(new ApiError("Un montant du paiement mixte est négatif"));
+            if (parts.Any(p => !SplitModes.Contains(p.ModePaiement)))
+                return Results.BadRequest(new ApiError("Mode de paiement inconnu dans le paiement mixte"));
+            if (request.MonnaieEnAvoir || standaloneAvoir)
+                return Results.BadRequest(new ApiError("Un paiement mixte ne peut pas créer d'avoir"));
+        }
 
         var productIds = request.Items.Select(i => i.ProductId).Distinct().ToList();
         var products = await db.Products
@@ -595,7 +616,12 @@ public static class VentesEndpoints
             ClientNom = Blank(request.ClientNom),
             ClientTelephone = Blank(request.ClientTelephone),
             ClientEmail = Blank(request.ClientEmail),
-            ModePaiement = request.ModePaiement,
+            ModePaiement = parts.Select(p => p.ModePaiement).Distinct().Count() switch
+            {
+                0 => request.ModePaiement,
+                1 => parts[0].ModePaiement,
+                _ => ModePaiement.Mixte,
+            },
             Notes = Blank(request.Notes),
             IdempotencyKey = Blank(request.IdempotencyKey),
             CreatedBy = scope.UserId,
@@ -644,7 +670,9 @@ public static class VentesEndpoints
             var lineTotal = line.DiscountType == DiscountTypes.Amount
                 ? unitPrice * line.Quantity - line.Discount
                 : unitPrice * line.Quantity * (1 - line.Discount / 100m);
-            lineTotal = Math.Max(0, lineTotal);
+            // Whole currency units, like TVA (TvaModes.Added): a percentage discount gave lines such as
+            // 2 517.5, so totals carried half-francs the screen hid and a "paid" sale could owe 0.5.
+            lineTotal = Math.Max(0, Math.Round(lineTotal, 0, MidpointRounding.AwayFromZero));
             total += lineTotal;
 
             vente.Items.Add(new VenteItem
@@ -699,7 +727,8 @@ public static class VentesEndpoints
                 new ApiError("Privilège insuffisant pour appliquer une remise", Priv.Gestion.ApplyDiscount),
                 statusCode: StatusCodes.Status403Forbidden);
 
-        var remiseGlobale = Math.Clamp(request.RemiseGlobale, 0, total);
+        // Also whole units: the phone turns a percentage remise into an amount before sending it.
+        var remiseGlobale = Math.Clamp(Math.Round(request.RemiseGlobale, 0, MidpointRounding.AwayFromZero), 0, total);
         total -= remiseGlobale;
 
         // Computed here from the workspace's settings, not taken from the request: the
@@ -718,7 +747,14 @@ public static class VentesEndpoints
 
         // Overpaying is only kept (as an avoir) when the till asked for it; otherwise the
         // excess is change handed back and never recorded.
-        var montantPaye = request.MonnaieEnAvoir ? request.MontantPaye : Math.Min(request.MontantPaye, total);
+        // A split has no change to hand back: mobile/card are sent exact, and the till fills the
+        // last part with what is left - so a total above the sale is a mistake, not change.
+        if (parts.Count > 0 && parts.Sum(p => p.Montant) > total)
+            return Results.BadRequest(new ApiError(
+                $"Le paiement mixte ({parts.Sum(p => p.Montant):0.##}) dépasse le total de la vente ({total:0.##})"));
+
+        var montantPaye = parts.Count > 0 ? parts.Sum(p => p.Montant)
+            : request.MonnaieEnAvoir ? request.MontantPaye : Math.Min(request.MontantPaye, total);
         var avoir = Math.Max(0, montantPaye - total);
 
         // Hiding "Payer & Valider" behind can_add_payment on the client is not enforcement -
@@ -753,10 +789,22 @@ public static class VentesEndpoints
 
         db.Ventes.Add(vente);
 
-        if (montantPaye > 0)
+        // Added through the navigation, not db.PaiementsVentes, so vente.MontantPaye - which
+        // sums this collection - is already right when the response is built below.
+        foreach (var part in parts)
         {
-            // Added through the navigation, not db.PaiementsVentes, so vente.MontantPaye -
-            // which sums this collection - is already right when the response is built below.
+            vente.Paiements.Add(new PaiementVente
+            {
+                VenteId = vente.Id,
+                Montant = part.Montant,
+                ModePaiement = part.ModePaiement,
+                Reference = Blank(part.Reference),
+                CreatedBy = scope.UserId,
+            });
+        }
+
+        if (parts.Count == 0 && montantPaye > 0)
+        {
             vente.Paiements.Add(new PaiementVente
             {
                 VenteId = vente.Id,
@@ -858,7 +906,7 @@ public static class VentesEndpoints
         }
 
         var paiements = v.Paiements.OrderBy(p => p.DatePaiement)
-            .Select(p => new PaiementDto(p.Id, p.Montant, p.ModePaiement, p.DatePaiement, PayerName(p.CreatedBy)))
+            .Select(p => new PaiementDto(p.Id, p.Montant, p.ModePaiement, p.DatePaiement, PayerName(p.CreatedBy), p.Reference))
             .ToList();
 
         // No column records who created the avoir, so it is the recorder of the payment that

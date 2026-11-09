@@ -213,7 +213,10 @@ public static class GroupePaymentEndpoints
     /// <summary>Pays the customer back the avoir a group payment created. Mirrors
     /// <c>POST /solder-avoir</c> with <c>type: 'groupe'</c>, including the cash going out of the till.</summary>
     private static async Task<IResult> SolderAvoirAsync(
-        string id, GroupScope scope, LonniiDbContext db, CancellationToken ct)
+        string id, GroupScope scope, LonniiDbContext db,
+        [Microsoft.AspNetCore.Mvc.FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)]
+        SolderAvoirRequest? request,
+        CancellationToken ct)
     {
         var payment = await db.GroupePayments.FirstOrDefaultAsync(
             g => g.Id == id && g.GroupId == scope.GroupId, ct);
@@ -222,27 +225,15 @@ public static class GroupePaymentEndpoints
         if (payment.AvoirAmount <= 0 || payment.IsAvoirSolded)
             return Results.BadRequest(new ApiError("Ce paiement n'a pas d'avoir à solder"));
 
+        // Out of the caller's own till only, in the pool chosen - only if it is there.
+        var refused = await Lonnii.Api.Features.Caisse.CaisseEndpoints.AddAvoirRefundAsync(
+            db, scope.GroupId, scope.UserId, payment.AvoirAmount, request?.ModePaiement,
+            $"Remboursement avoir - Groupe - Client: {payment.ClientName ?? "N/A"}", ct);
+        if (refused is not null) return Results.BadRequest(new ApiError(refused));
+
         payment.IsAvoirSolded = true;
         payment.AvoirSoldedAt = DateTime.UtcNow;
         payment.AvoirSoldedBy = scope.UserId;
-
-        // The refund is only the caller's own drawer's business - unlike a payment, the web
-        // app does not fall back to another user's session here.
-        var caisse = await db.Caisses.FirstOrDefaultAsync(
-            c => c.GroupId == scope.GroupId && c.UserId == scope.UserId && c.Status == CaisseStatus.Open, ct);
-        if (caisse is not null)
-        {
-            db.CaisseTransactions.Add(new CaisseTransaction
-            {
-                CaisseId = caisse.Id,
-                GroupId = scope.GroupId,
-                Type = "sortie",
-                Montant = payment.AvoirAmount,
-                Description = $"Remboursement avoir - Groupe - Client: {payment.ClientName ?? "N/A"}",
-                Category = "avoir_solde",
-                CreatedBy = scope.UserId,
-            });
-        }
 
         await db.SaveChangesAsync(ct);
 

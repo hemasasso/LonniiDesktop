@@ -168,6 +168,41 @@ public class ImageEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_photo_has_a_small_thumbnail_made_again_when_missing()
+    {
+        var owner = await SignUpOwnerAsync();
+        var productId = await CreateProductAsync(owner);
+
+        byte[] big;
+        using (var bitmap = new Bitmap(900, 600))
+        using (var stream = new MemoryStream())
+        {
+            using (var g = Graphics.FromImage(bitmap)) g.Clear(Color.SeaGreen);
+            bitmap.Save(stream, ImageFormat.Png);
+            big = stream.ToArray();
+        }
+        var uploaded = (await (await UploadImageAsync($"/api/stock/products/{productId}/image", owner, big))
+            .Content.ReadFromJsonAsync<ImageUploadResponse>())!;
+        var thumbUrl = uploaded.ImageUrl[..uploaded.ImageUrl.LastIndexOf('.')] + ".t.jpg";
+
+        async Task<Size> FetchSizeAsync()
+        {
+            var fetch = await SendAsync(HttpMethod.Get, thumbUrl, owner);
+            fetch.EnsureSuccessStatusCode();
+            using var image = Image.FromStream(new MemoryStream(await fetch.Content.ReadAsByteArrayAsync()));
+            return image.Size;
+        }
+
+        Assert.Equal(new Size(200, 133), await FetchSizeAsync());
+
+        // A photo saved before thumbnails existed: made from the full photo on first request.
+        var thumbFile = Path.Combine(_dataDirectory, "images", "products", Path.GetFileName(thumbUrl));
+        File.Delete(thumbFile);
+        Assert.Equal(new Size(200, 133), await FetchSizeAsync());
+        Assert.True(File.Exists(thumbFile));
+    }
+
+    [Fact]
     public async Task UploadedPhoto_IsReflectedOnTheProduct()
     {
         var owner = await SignUpOwnerAsync();

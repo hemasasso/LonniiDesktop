@@ -173,10 +173,27 @@ public class GroupePaymentTests : IAsyncLifetime
         Assert.Equal(2_000m, payment.AvoirAmount);
         Assert.Equal(1_000m, payment.PartialChangeGiven);
 
-        var solder = await SendAsync(session, HttpMethod.Put, $"/api/ventes/groupe-payments/{payment.Id}/solder-avoir");
+        var url = $"/api/ventes/groupe-payments/{payment.Id}/solder-avoir";
+
+        // The refund leaves the caller's own open till: none open, nothing paid out.
+        var noTill = await SendAsync(session, HttpMethod.Put, url, new SolderAvoirRequest(ModePaiement.Cash));
+        Assert.Equal(HttpStatusCode.BadRequest, noTill.StatusCode);
+
+        // A till with 5 000 in cash and no mobile money: a mobile refund is short, a cash one fits.
+        await SendAsync(session, HttpMethod.Post, "/api/caisse/ouvrir", new OpenCaisseRequest(MontantInitialCash: 5_000m));
+        var shortMobile = await SendAsync(session, HttpMethod.Put, url, new SolderAvoirRequest(ModePaiement.MobileMoney));
+        Assert.Equal(HttpStatusCode.BadRequest, shortMobile.StatusCode);
+
+        var solder = await SendAsync(session, HttpMethod.Put, url, new SolderAvoirRequest(ModePaiement.Cash));
         Assert.Equal(HttpStatusCode.OK, solder.StatusCode);
-        var again = await SendAsync(session, HttpMethod.Put, $"/api/ventes/groupe-payments/{payment.Id}/solder-avoir");
+        var again = await SendAsync(session, HttpMethod.Put, url, new SolderAvoirRequest(ModePaiement.Cash));
         Assert.Equal(HttpStatusCode.BadRequest, again.StatusCode);
+
+        // The cash refund came out of the drawer's cash.
+        var till = (await (await SendAsync(session, HttpMethod.Get, "/api/caisse/status"))
+            .Content.ReadFromJsonAsync<CaisseStatusResponse>())!;
+        Assert.Equal(-2_000m, till.Caisse!.PaiementCash);
+        Assert.Equal(2_000m, till.Caisse.AvoirsSoldes);
 
         var history = (await (await SendAsync(session, HttpMethod.Get, "/api/ventes/groupe-payments?page=1&limit=10"))
             .Content.ReadFromJsonAsync<GroupePaiementsResponse>())!;

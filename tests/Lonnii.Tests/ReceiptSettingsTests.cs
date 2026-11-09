@@ -225,6 +225,62 @@ public class ReceiptSettingsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Remise_is_off_until_turned_on_and_saving_wording_keeps_it()
+    {
+        var owner = await SignUpOwnerAsync();
+        Assert.False((await GetAsync(owner)).RemiseEnabled);
+
+        (await SendAsync(HttpMethod.Put, "/api/parametres/recu/remise", owner, new SaveRemiseSettingRequest(true)))
+            .EnsureSuccessStatusCode();
+        var initial = await GetAsync(owner);
+        Assert.True(initial.RemiseEnabled);
+
+        // The receipt editor's full save does not carry the flag and must not reset it.
+        (await SendAsync(HttpMethod.Put, "/api/parametres/recu", owner, From(initial, companyName: "Boutique")))
+            .EnsureSuccessStatusCode();
+        Assert.True((await GetAsync(owner)).RemiseEnabled);
+    }
+
+    [Fact]
+    public async Task Tile_quantity_and_price_show_by_default_hide_separately_and_survive_a_wording_save()
+    {
+        var owner = await SignUpOwnerAsync();
+        var fresh = await GetAsync(owner);
+        Assert.True(fresh.TileShowQuantity);
+        Assert.True(fresh.TileShowPrice);
+
+        (await SendAsync(HttpMethod.Put, "/api/parametres/recu/tuiles", owner, new SaveTileDisplayRequest(ShowQuantity: false, ShowPrice: true)))
+            .EnsureSuccessStatusCode();
+        var saved = await GetAsync(owner);
+        Assert.False(saved.TileShowQuantity);
+        Assert.True(saved.TileShowPrice);
+
+        // The receipt editor's full save does not carry the flags and must not reset them.
+        (await SendAsync(HttpMethod.Put, "/api/parametres/recu", owner, From(saved, companyName: "Boutique")))
+            .EnsureSuccessStatusCode();
+        var after = await GetAsync(owner);
+        Assert.False(after.TileShowQuantity);
+        Assert.True(after.TileShowPrice);
+    }
+
+    [Fact]
+    public async Task Amount_in_words_is_off_by_default_and_saved_per_document()
+    {
+        var owner = await SignUpOwnerAsync();
+        var fresh = await GetAsync(owner);
+        Assert.False(fresh.ReceiptAmountInWords);
+        Assert.False(fresh.FactureAmountInWords);
+
+        (await SendAsync(HttpMethod.Put, "/api/parametres/recu", owner,
+                From(fresh, companyName: "Boutique") with { FactureAmountInWords = true }))
+            .EnsureSuccessStatusCode();
+        var saved = await GetAsync(owner);
+        Assert.False(saved.ReceiptAmountInWords);
+        Assert.True(saved.FactureAmountInWords);
+        Assert.True(saved.AmountInWords(facture: true));
+    }
+
+    [Fact]
     public async Task SavedWording_IsReadBack()
     {
         var owner = await SignUpOwnerAsync();

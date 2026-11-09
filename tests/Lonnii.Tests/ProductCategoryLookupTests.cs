@@ -164,6 +164,50 @@ public class ProductCategoryLookupTests : IAsyncLifetime
         Assert.Equal("Boissons", product!.CategoryName);
     }
 
+    // --- Deleting a category ---
+
+    [Fact]
+    public async Task An_unused_category_can_be_deleted()
+    {
+        var owner = await SignUpOwnerAsync();
+        var categoryId = await CreateCategoryAsync(owner, "Électronique");
+
+        var response = await SendAsync(HttpMethod.Delete, $"/api/stock/categories/{categoryId}", owner);
+
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, response.StatusCode);
+        var left = await (await SendAsync(HttpMethod.Get, "/api/stock/categories", owner))
+            .Content.ReadFromJsonAsync<List<CategoryDto>>();
+        Assert.DoesNotContain(left!, c => c.Id == categoryId);
+    }
+
+    [Fact]
+    public async Task A_category_used_by_a_product_in_stock_cannot_be_deleted()
+    {
+        var owner = await SignUpOwnerAsync();
+        var categoryId = await CreateCategoryAsync(owner, "Boissons");
+        await SendAsync(HttpMethod.Post, "/api/stock/products", owner,
+            new SaveProductRequest("Coca-Cola", 1000, CategoryId: categoryId));
+
+        var response = await SendAsync(HttpMethod.Delete, $"/api/stock/categories/{categoryId}", owner);
+
+        Assert.Equal(System.Net.HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_category_only_used_by_deleted_products_can_be_deleted()
+    {
+        var owner = await SignUpOwnerAsync();
+        var categoryId = await CreateCategoryAsync(owner, "Vêtements");
+        var created = await SendAsync(HttpMethod.Post, "/api/stock/products", owner,
+            new SaveProductRequest("T-shirt", 3000, CategoryId: categoryId));
+        var productId = (await created.Content.ReadFromJsonAsync<ProductDto>())!.Id;
+        (await SendAsync(HttpMethod.Delete, $"/api/stock/products/{productId}", owner)).EnsureSuccessStatusCode();
+
+        var response = await SendAsync(HttpMethod.Delete, $"/api/stock/categories/{categoryId}", owner);
+
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, response.StatusCode);
+    }
+
     // --- Product type (produit fini / matière première / autre) ---
 
     [Fact]

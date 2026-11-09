@@ -8,6 +8,8 @@ namespace Lonnii.Shared.Security;
 /// <param name="Mode">local or online, as <see cref="DeploymentModes"/>.</param>
 /// <param name="MustReconnectBy">The offline deadline; null for a local shop, which has none.</param>
 /// <param name="Devices">The machines bound to the espace (device fingerprints), unrevoked.</param>
+/// <param name="GestionAccess">Gestion granted from the dashboard; false = Programme only.
+/// Tokens signed before this field existed read as true.</param>
 public sealed record LicenceClaims(
     string GroupId,
     string Mode,
@@ -15,7 +17,8 @@ public sealed record LicenceClaims(
     DateTime IssuedAt,
     IReadOnlyList<string> Devices,
     bool IsBlocked,
-    string? BlockReason);
+    string? BlockReason,
+    bool GestionAccess = true);
 
 /// <summary>
 /// The licence as the licence server signs it, so a shop's own host can enforce it without

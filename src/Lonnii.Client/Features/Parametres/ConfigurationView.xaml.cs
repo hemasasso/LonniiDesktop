@@ -45,6 +45,7 @@ public partial class ConfigurationView : UserControl
 
         Populate();
         FillPosteName();
+        FillDeviceMode();
         if (_session.Can(Priv.Gestion.ViewConsommation)) PopulateConsumptionYears();
         if (_session.Can(Priv.Gestion.ViewConnexion)) _ = LoadConnexionAsync();
     }
@@ -66,6 +67,37 @@ public partial class ConfigurationView : UserControl
         PosteNameHint.Text = "Enregistré : les téléphones verront ce nom dans quelques secondes.";
     }
 
+    private bool _deviceModeReady;
+
+    /// <summary>Shows the mode this run started in. Kept on this computer only.</summary>
+    private void FillDeviceMode()
+    {
+        (DeviceProfile.IsPos ? PosModeRadio : DesktopModeRadio).IsChecked = true;
+        DeviceModeHint.Text = "Mode actuel : " + (DeviceProfile.IsPos ? "caisse tactile" : "ordinateur classique")
+            + ". Le changement s'applique après redémarrage de Lonnii.";
+        _deviceModeReady = true;
+    }
+
+    private void DeviceMode_Checked(object sender, RoutedEventArgs e)
+    {
+        if (!_deviceModeReady) return;
+        var pos = PosModeRadio.IsChecked == true;
+        App.Settings.DeviceMode = pos ? "pos" : "desktop";
+        App.Settings.Save();
+        var changed = pos != DeviceProfile.IsPos;
+        RestartButton.Visibility = changed ? Visibility.Visible : Visibility.Collapsed;
+        DeviceModeHint.Text = changed
+            ? $"Enregistré : Lonnii passera en {(pos ? "caisse tactile" : "ordinateur classique")} au prochain démarrage."
+            : "Mode actuel : " + (pos ? "caisse tactile" : "ordinateur classique") + ".";
+    }
+
+    private void Restart_Click(object sender, RoutedEventArgs e)
+    {
+        if (Environment.ProcessPath is not { } exe) return;
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe) { UseShellExecute = true });
+        Application.Current.Shutdown();
+    }
+
     private void Show(UIElement panel, string privilege) =>
         panel.Visibility = _session.Can(privilege) ? Visibility.Visible : Visibility.Collapsed;
 
@@ -76,6 +108,7 @@ public partial class ConfigurationView : UserControl
         (groupe?.CurrencyBefore == true ? CurrencyBeforeRadio : CurrencyAfterRadio).IsChecked = true;
         UpdateCurrencyPreview();
         if (_session.Can(Priv.Gestion.ManageBilanAutomatique)) _ = LoadCalculAutomatiqueAsync();
+        if (_session.Can(Priv.Gestion.ManageRecuFacture)) _ = LoadRemiseEnabledAsync();
     }
 
     // --- Connexion ---
@@ -293,6 +326,64 @@ public partial class ConfigurationView : UserControl
         catch (ApiException ex)
         {
             MessageBox.Show(Window.GetWindow(this), ex.Message, "Bilan", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    // --- Remise ---
+
+    private bool _loadingRemiseEnabled;
+
+    private async Task LoadRemiseEnabledAsync()
+    {
+        try
+        {
+            _loadingRemiseEnabled = true;
+            var settings = await _session.GetReceiptSettingsAsync();
+            RemiseEnabledCheck.IsChecked = settings.RemiseEnabled;
+            TileShowQuantityCheck.IsChecked = settings.TileShowQuantity;
+            TileShowPriceCheck.IsChecked = settings.TileShowPrice;
+        }
+        catch (ApiException)
+        {
+            // Left unchecked, the default.
+        }
+        finally
+        {
+            _loadingRemiseEnabled = false;
+        }
+    }
+
+    private async void RemiseEnabled_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loadingRemiseEnabled) return;
+
+        try
+        {
+            var settings = await _session.Api.SaveRemiseSettingAsync(RemiseEnabledCheck.IsChecked == true);
+            _session.ApplyReceiptSettingsChange(settings);
+        }
+        catch (ApiException ex)
+        {
+            MessageBox.Show(Window.GetWindow(this), ex.Message, "Remise", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    // --- Produits dans Nouvelle Vente (Qté / Prix on the tiles) ---
+
+    private async void TileDisplay_Changed(object sender, RoutedEventArgs e)
+    {
+        // Loaded together with Remise (LoadRemiseEnabledAsync); not saved while filling in.
+        if (_loadingRemiseEnabled || !IsLoaded) return;
+
+        try
+        {
+            var settings = await _session.Api.SaveTileDisplayAsync(
+                TileShowQuantityCheck.IsChecked == true, TileShowPriceCheck.IsChecked == true);
+            _session.ApplyReceiptSettingsChange(settings);
+        }
+        catch (ApiException ex)
+        {
+            MessageBox.Show(Window.GetWindow(this), ex.Message, "Produits", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 

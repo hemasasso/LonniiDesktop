@@ -101,9 +101,7 @@
                     <ComboBox x:Name="ModeCombo" Margin="0,4,0,0" SelectionChanged="Mode_Changed">
                         <ComboBoxItem Content="Espèces" Tag="cash" IsSelected="True" />
                         <ComboBoxItem Content="Mobile Money" Tag="mobile_money" />
-                        <ComboBoxItem Content="Carte bancaire" Tag="carte" />
-                        <ComboBoxItem Content="Virement" Tag="virement" />
-                        <ComboBoxItem Content="Chèque" Tag="cheque" />
+                        <ComboBoxItem Content="Banque/Carte" Tag="carte" />
                     </ComboBox>
 
                     <!-- Cash only: any other mode is charged exactly what is owed, so there is

@@ -1,9 +1,10 @@
 <Window x:Class="Lonnii.Client.Features.Stock.ProductDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Height="600" Width="780" MinWidth="780"
+        Height="760" Width="920" MinWidth="780" MinHeight="560"
+        MaxHeight="{x:Static SystemParameters.MaximizedPrimaryScreenHeight}"
         WindowStartupLocation="CenterOwner"
-        ResizeMode="NoResize"
+        ResizeMode="CanResize"
         ShowInTaskbar="False"
         Background="{DynamicResource Surface}">
 

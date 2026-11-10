@@ -25,7 +25,7 @@
         </StackPanel>
 
         <StackPanel Grid.Row="1" Margin="0,0,0,12">
-            <TextBlock Text="Montant" Style="{StaticResource FieldLabel}" />
+            <TextBlock Text="Montant reçu" Style="{StaticResource FieldLabel}" />
             <TextBox x:Name="MontantBox" Margin="0,4,0,0" Padding="8,6" />
             <TextBlock x:Name="InsuffisantText" Visibility="Collapsed" Margin="0,4,0,0" FontSize="12"
                        FontWeight="SemiBold" TextWrapping="Wrap" Foreground="{DynamicResource Danger}" />
@@ -34,11 +34,11 @@
         <StackPanel Grid.Row="2">
             <TextBlock Text="Mode de paiement" Style="{StaticResource FieldLabel}" />
             <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                <Button x:Name="PaymentCashButton" Width="70" Height="34" Margin="0,0,8,0"
+                <Button x:Name="PaymentCashButton" Width="80" Height="34" Margin="0,0,8,0"
                         Style="{StaticResource PrimaryButton}" Click="PaymentMode_Click" Tag="cash">
                     <TextBlock Text="Espèces" Style="{StaticResource ButtonContentText}" />
                 </Button>
-                <Button x:Name="PaymentMobileButton" Width="90" Height="34" Margin="0,0,8,0"
+                <Button x:Name="PaymentMobileButton" Width="115" Height="34" Margin="0,0,8,0"
                         Style="{StaticResource SecondaryButton}" Click="PaymentMode_Click" Tag="mobile_money"
                         ToolTip="Mobile Money">
                     <TextBlock Text="Mobile Money" Style="{StaticResource ButtonContentText}" />
@@ -49,31 +49,21 @@
                         ToolTip="Orange Money direct (sans LigdiCash)">
                     <TextBlock Text="Orange Money" Style="{StaticResource ButtonContentText}" />
                 </Button>
-                <Button x:Name="PaymentCarteButton" Width="70" Height="34"
+                <Button x:Name="PaymentCarteButton" Width="115" Height="34"
                         Style="{StaticResource SecondaryButton}" Click="PaymentMode_Click" Tag="carte">
                     <TextBlock Text="Banque/Carte" Style="{StaticResource ButtonContentText}" />
                 </Button>
             </StackPanel>
         </StackPanel>
 
-        <!-- Cash only - a card or mobile payment is charged exactly what is typed above, so
-             there is no change to hand back. Change is measured against Montant itself (what
-             the cashier is actually applying to the sale), not the amount still owed - typing
-             more than Montant here means the customer handed over more than is being recorded
-             as paid right now. -->
+        <!-- Only when cash handed over exceeds what is owed: the change, or keep it as an avoir. -->
         <Border x:Name="MontantRecuPanel" Grid.Row="3" Visibility="Collapsed" Margin="0,12,0,0" Padding="10,6"
                 Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
                 BorderThickness="1" CornerRadius="6">
             <StackPanel>
-                <DockPanel>
-                    <TextBlock DockPanel.Dock="Left" Text="Montant reçu"
-                               VerticalAlignment="Center" Margin="0,0,8,0" />
-                    <TextBox x:Name="MontantRecuBox" Padding="8,6"
-                             TextChanged="MontantRecu_TextChanged" LostFocus="MontantRecu_LostFocus" />
-                </DockPanel>
                 <!-- Appears only when the amount handed over exceeds what is still owed: checked,
                      the whole amount is recorded and the excess becomes an avoir on the sale. -->
-                <DockPanel Margin="0,6,0,0">
+                <DockPanel>
                     <CheckBox x:Name="MonnaieAvoirCheck" DockPanel.Dock="Left" Visibility="Collapsed"
                               VerticalAlignment="Center" Content="Monnaie en avoir"
                               Checked="MonnaieAvoir_Changed" Unchecked="MonnaieAvoir_Changed" />

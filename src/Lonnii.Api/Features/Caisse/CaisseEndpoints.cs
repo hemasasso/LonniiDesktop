@@ -179,7 +179,7 @@ public static class CaisseEndpoints
     /// since <c>can_view_caisse_history</c> is what a manager who reconciles several cashiers'
     /// tills holds instead.</summary>
     private static async Task<IResult> HistoriqueAsync(
-        DateOnly? dateDebut, DateOnly? dateFin, string? userId, int page, int pageSize,
+        DateOnly? dateDebut, DateOnly? dateFin, string? userId, int page, int pageSize, int? tzOffsetMinutes,
         GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
         page = page <= 0 ? 1 : page;
@@ -192,10 +192,10 @@ public static class CaisseEndpoints
         else if (!string.IsNullOrWhiteSpace(userId))
             query = query.Where(c => c.UserId == userId);
 
-        if (dateDebut is { } start)
-            query = query.Where(c => c.DateOuverture >= start.ToDateTime(TimeOnly.MinValue));
-        if (dateFin is { } end)
-            query = query.Where(c => c.DateOuverture < end.ToDateTime(TimeOnly.MinValue).AddDays(1));
+        // The days are the client's own; sessions are stamped in UTC.
+        var (start, end) = Lonnii.Api.Features.Ventes.VentesEndpoints.LocalRangeToUtc(dateDebut, dateFin, tzOffsetMinutes);
+        if (start is { } s) query = query.Where(c => c.DateOuverture >= s);
+        if (end is { } e) query = query.Where(c => c.DateOuverture < e);
 
         var total = await query.CountAsync(ct);
         var caisses = await query.OrderByDescending(c => c.DateOuverture)
@@ -566,19 +566,38 @@ public static class CaisseEndpoints
             .Where(p => p.Vente!.GroupId == caisse.GroupId
                 && p.DatePaiement >= caisse.DateOuverture && p.DatePaiement <= asOf
                 && (p.CreatedBy ?? p.Vente.CreatedBy) == caisse.UserId)
-            .Select(p => new { p.Montant, p.VenteId, p.Vente!.DateVente })
+            .Select(p => new { p.Montant, p.VenteId, p.Vente!.DateVente, p.Vente.NumeroVente, p.Vente.ClientNom, p.ModePaiement, p.DatePaiement })
             .ToListAsync(ct);
 
         var anterieures = paiements.Where(p => p.DateVente < caisse.DateOuverture).ToList();
         var parAutres = await db.CaisseTransactions.AsNoTracking()
             .Where(t => t.CaisseId == caisse.Id && t.Type == "entree" && t.CreatedBy != caisse.UserId)
-            .Select(t => t.Montant)
+            .Select(t => new { t.Montant, t.Description, t.ModePaiement, t.CreatedAt })
             .ToListAsync(ct);
+
+        // What each of those factures still owes today: a payment short of the balance is a partial one.
+        var venteIds = anterieures.Select(p => p.VenteId).Distinct().ToList();
+        var totals = await db.Ventes.AsNoTracking().Where(v => venteIds.Contains(v.Id))
+            .Select(v => new { v.Id, v.MontantTotal }).ToListAsync(ct);
+        var paid = (await db.PaiementsVentes.AsNoTracking().Where(p => venteIds.Contains(p.VenteId))
+            .Select(p => new { p.VenteId, p.Montant }).ToListAsync(ct))
+            .GroupBy(p => p.VenteId).ToDictionary(g => g.Key, g => g.Sum(p => p.Montant));
+        var resteOf = totals.ToDictionary(v => v.Id, v => Math.Max(0, v.MontantTotal - paid.GetValueOrDefault(v.Id)));
+
+        var details = anterieures
+            .Select(p => new FactureAnterieureLineDto(p.NumeroVente, p.ClientNom, p.Montant, p.ModePaiement, p.DatePaiement,
+                resteOf.GetValueOrDefault(p.VenteId)))
+            .Concat(parAutres.Select(t => new FactureAnterieureLineDto(
+                (t.Description ?? "Facture antérieure").Replace("Paiement facture antérieure ", ""), null,
+                t.Montant, t.ModePaiement ?? "cash", t.CreatedAt)))
+            .OrderBy(d => d.Date)
+            .ToList();
 
         return new CaisseOrigineDto(
             VentesSession: paiements.Where(p => p.DateVente >= caisse.DateOuverture).Sum(p => p.Montant),
-            FacturesAnterieures: anterieures.Sum(p => p.Montant) + parAutres.Sum(),
-            FacturesAnterieuresCount: anterieures.Select(p => p.VenteId).Distinct().Count() + parAutres.Count);
+            FacturesAnterieures: anterieures.Sum(p => p.Montant) + parAutres.Sum(t => t.Montant),
+            FacturesAnterieuresCount: anterieures.Select(p => p.VenteId).Distinct().Count() + parAutres.Count,
+            Details: details);
     }
 
     /// <summary>One session as the report shows it (live figures while open), or null if not in

@@ -935,7 +935,13 @@ public sealed record CaisseDto(
 /// during the session, and payments settling factures sold before it opened (an earlier shift's or
 /// an older credit), with how many such factures.
 /// </summary>
-public sealed record CaisseOrigineDto(decimal VentesSession, decimal FacturesAnterieures, int FacturesAnterieuresCount);
+public sealed record CaisseOrigineDto(decimal VentesSession, decimal FacturesAnterieures, int FacturesAnterieuresCount,
+    IReadOnlyList<FactureAnterieureLineDto>? Details = null);
+
+/// <summary>One earlier facture paid during the session, as React's current_factures_ant_details: its
+/// number (or the movement's description when someone else took it), client, amount, method and when.</summary>
+public sealed record FactureAnterieureLineDto(string Numero, string? Client, decimal Montant, string ModePaiement, DateTime Date,
+    decimal Reste = 0);
 
 public sealed record CaisseRetraitDto(decimal Montant, string Motif, DateTime Date, string ModePaiement = "cash");
 

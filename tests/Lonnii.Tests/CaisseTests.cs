@@ -168,7 +168,13 @@ public class CaisseTests : IAsyncLifetime
         Assert.Equal(5_000m, caisse.TotalEncaisse);
 
         // And the boss sees where it came from: an earlier facture, not a sale of this session.
-        Assert.Equal(new CaisseOrigineDto(0m, 5_000m, 1), caisse.Origine);
+        Assert.Equal(new CaisseOrigineDto(0m, 5_000m, 1), caisse.Origine! with { Details = null });
+
+        // ...and which one, as React lists it.
+        var line = Assert.Single(caisse.Origine.Details!);
+        Assert.Equal(5_000m, line.Montant);
+        Assert.Equal("mobile_money", line.ModePaiement);
+        Assert.False(string.IsNullOrEmpty(line.Numero));
     }
 
     [Fact]

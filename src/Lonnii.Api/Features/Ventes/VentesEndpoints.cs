@@ -80,8 +80,9 @@ public static class VentesEndpoints
         string? statut, string? search, string? searchType, DateOnly? dateDebut, DateOnly? dateFin,
         int? tzOffsetMinutes, GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
-        var canViewAll = scope.IsAdminGeneral || scope.IsAdmin
-            || scope.Privileges.HasGestion(Priv.Gestion.ViewAllVentes);
+        // The privilege alone: an Admin whose "Voir toutes les ventes" the Admin Général removed sees
+        // only their own sales (the Admin Général's set has every privilege on).
+        var canViewAll = scope.Privileges.HasGestion(Priv.Gestion.ViewAllVentes);
 
         var query = db.Ventes.AsNoTracking()
             // Required: MontantPaye/MontantRestant are summed from this collection, and the

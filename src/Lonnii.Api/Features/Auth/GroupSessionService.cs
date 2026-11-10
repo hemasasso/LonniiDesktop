@@ -79,8 +79,14 @@ public class GroupSessionService(LonniiDbContext db, Lonnii.Api.Features.Remote.
         if (session.UserId != userId) return null;
         if (session.ExpiresAt <= DateTime.UtcNow) return null;
 
-        session.LastAccessedAt = DateTime.UtcNow;
-        await db.SaveChangesAsync(ct);
+        // Sliding: a session in use does not end mid-shift. Saved at most every few minutes, not on every request.
+        var now = DateTime.UtcNow;
+        if (now - session.LastAccessedAt > TimeSpan.FromMinutes(5) || session.ExpiresAt - now < Lifetime / 2)
+        {
+            session.LastAccessedAt = now;
+            session.ExpiresAt = now.Add(Lifetime);
+            await db.SaveChangesAsync(ct);
+        }
         return session;
     }
 

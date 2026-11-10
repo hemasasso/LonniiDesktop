@@ -64,6 +64,42 @@ public class TokenService(JwtOptions options)
         ClockSkew = TimeSpan.FromSeconds(30),
     };
 
+    /// <summary>How long after its expiry a token can still be traded for a new one (see <see cref="ReadForRefresh"/>).</summary>
+    public static readonly TimeSpan RefreshWindow = TimeSpan.FromDays(30);
+
+    /// <summary>
+    /// Reads a token this server signed, even past its expiry, for a renewal: the user id and when it was
+    /// issued. Null when the signature, issuer or audience is wrong, or it expired more than
+    /// <see cref="RefreshWindow"/> ago. A phone left in a pocket overnight is not signed out by the clock;
+    /// a blocked account or a changed password still ends it (checked by the caller).
+    /// </summary>
+    public (string UserId, DateTime IssuedAt)? ReadForRefresh(string token, DateTime now)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return null;
+
+        var parameters = ValidationParameters;
+        parameters.ValidateLifetime = false;
+
+        try
+        {
+            var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
+            var principal = handler.ValidateToken(token, parameters, out var validated);
+            if (validated.ValidTo == DateTime.MinValue || validated.ValidTo.Add(RefreshWindow) < now) return null;
+
+            var userId = principal.FindFirst(UserIdClaim)?.Value;
+            if (string.IsNullOrEmpty(userId)) return null;
+
+            var issuedAt = long.TryParse(principal.FindFirst(IssuedAtClaim)?.Value, out var seconds)
+                ? DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime
+                : DateTime.MinValue;
+            return (userId, issuedAt);
+        }
+        catch (Exception e) when (e is SecurityTokenException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Issues an access token for a signed-in user.</summary>
     public (string Token, DateTime ExpiresAt) Issue(User user)
     {

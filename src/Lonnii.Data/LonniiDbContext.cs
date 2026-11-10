@@ -174,6 +174,15 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
             // The live column is jsonb; Npgsql would otherwise send the string as text and be refused.
             b.Entity<GroupePayment>().Property(x => x.FacturesData).HasColumnType("jsonb");
 
+            // Live products.tags is text[] (Lonnii Business); the model keeps one comma-separated
+            // string. Without this every product insert/update on PostgreSQL failed (42804), which
+            // broke product saving for phone-only shops.
+            b.Entity<Product>().Property(x => x.Tags)
+                .HasColumnType("text[]")
+                .HasConversion(new ValueConverter<string?, string[]?>(
+                    v => v == null ? null : v.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                    v => v == null ? null : string.Join(",", v)));
+
             // Lonnii Business's live data leaves text empty that the desktop requires (a sale line
             // with no product name, for one), and reading a NULL into a required string throws.
             // On PostgreSQL text is read as optional; whoever copies it to a desktop fills the gap.

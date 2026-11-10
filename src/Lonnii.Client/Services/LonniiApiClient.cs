@@ -452,6 +452,7 @@ public class LonniiApiClient
         if (dateFin is { } fin) query.Add($"dateFin={fin:yyyy-MM-dd}");
         if (!string.IsNullOrWhiteSpace(categoryId)) query.Add($"categoryId={Uri.EscapeDataString(categoryId)}");
         if (!string.IsNullOrWhiteSpace(supplierId)) query.Add($"supplierId={Uri.EscapeDataString(supplierId)}");
+        if (dateDebut is not null || dateFin is not null) query.Add($"tzOffsetMinutes={LocalTzOffsetMinutes()}");
 
         var url = "api/stock/movements/stats" + (query.Count > 0 ? "?" + string.Join("&", query) : string.Empty);
         return GetAsync<StockMovementStatsResponse>(url, ct);
@@ -468,6 +469,7 @@ public class LonniiApiClient
         if (dateFin is { } fin) query.Add($"dateFin={fin:yyyy-MM-dd}");
         if (!string.IsNullOrWhiteSpace(categoryId)) query.Add($"categoryId={Uri.EscapeDataString(categoryId)}");
         if (!string.IsNullOrWhiteSpace(supplierId)) query.Add($"supplierId={Uri.EscapeDataString(supplierId)}");
+        if (dateDebut is not null || dateFin is not null) query.Add($"tzOffsetMinutes={LocalTzOffsetMinutes()}");
 
         var url = "api/stock/movements/detail" + (query.Count > 0 ? "?" + string.Join("&", query) : string.Empty);
         return GetAsync<StockMovementDetailsResponse>(url, ct);
@@ -628,6 +630,7 @@ public class LonniiApiClient
         if (dateDebut is { } debut) query.Add($"dateDebut={debut:yyyy-MM-dd}");
         if (dateFin is { } fin) query.Add($"dateFin={fin:yyyy-MM-dd}");
         if (!string.IsNullOrWhiteSpace(userId)) query.Add($"userId={Uri.EscapeDataString(userId)}");
+        if (dateDebut is not null || dateFin is not null) query.Add($"tzOffsetMinutes={LocalTzOffsetMinutes()}");
 
         return GetAsync<CaisseHistoryResponse>("api/caisse/historique?" + string.Join("&", query), ct);
     }

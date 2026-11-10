@@ -16,6 +16,7 @@ public static class AuthEndpoints
         group.MapGet("/setup-state", SetupStateAsync);
         group.MapPost("/register", RegisterAsync);
         group.MapPost("/login", LoginAsync);
+        group.MapPost("/refresh", RefreshAsync);
         group.MapGet("/me", MeAsync).RequireAuthorization();
         group.MapPut("/profile", UpdateProfileAsync).RequireAuthorization();
         group.MapPost("/password", ChangeOwnPasswordAsync).RequireAuthorization();
@@ -313,6 +314,30 @@ public static class AuthEndpoints
         await db.SaveChangesAsync(ct);
 
         return Results.Ok(ToDto(user));
+    }
+
+    /// <summary>
+    /// Trades the caller's token, expired or not (within <see cref="TokenService.RefreshWindow"/>), for a new
+    /// one, so a phone stays signed in across days and server restarts. Refused - and the client signs out -
+    /// when the account is gone or blocked, or its password changed after the token was issued.
+    /// </summary>
+    private static async Task<IResult> RefreshAsync(HttpContext http, LonniiDbContext db, TokenService tokens, CancellationToken ct)
+    {
+        var header = http.Request.Headers.Authorization.ToString();
+        var raw = header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? header[7..].Trim() : string.Empty;
+
+        if (tokens.ReadForRefresh(raw, DateTime.UtcNow) is not { } read)
+            return Results.Json(new ApiError("Session expirée. Reconnectez-vous."), statusCode: StatusCodes.Status401Unauthorized);
+
+        var user = await db.Users.FirstOrDefaultAsync(u => u.IdUser == read.UserId, ct);
+        if (user is null || user.IsBlocked)
+            return Results.Json(new ApiError("Compte introuvable ou bloqué"), statusCode: StatusCodes.Status401Unauthorized);
+
+        if (user.PasswordChangedAt is { } changedAt && read.IssuedAt < changedAt)
+            return Results.Json(new ApiError("Votre mot de passe a été modifié. Reconnectez-vous."), statusCode: StatusCodes.Status401Unauthorized);
+
+        var (token, expiresAt) = tokens.Issue(user);
+        return Results.Ok(new LoginResponse(token, expiresAt, ToDto(user)));
     }
 
     private static async Task<IResult> MeAsync(ClaimsPrincipal principal, LonniiDbContext db, CancellationToken ct)

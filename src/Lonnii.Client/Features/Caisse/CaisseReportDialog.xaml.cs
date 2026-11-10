@@ -67,7 +67,7 @@ public partial class CaisseReportDialog : Window
         if (c.Origine is { } origine)
         {
             Row("  dont ventes de la session", Money.Format(origine.VentesSession));
-            Row($"  dont factures antérieures ({origine.FacturesAnterieuresCount})", Money.Format(origine.FacturesAnterieures));
+            Row($"  dont factures antérieures ({CaisseStatusDialog.AnterieuresIds(origine)})", Money.Format(origine.FacturesAnterieures), wrapLabel: true);
             // The origin lines are money received; Total encaissé is net of avoirs paid back out
             // of the till. Without this line the "dont" rows add up to more than the total.
             var sorties = origine.VentesSession + origine.FacturesAnterieures - c.TotalEncaisse;

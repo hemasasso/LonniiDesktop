@@ -76,9 +76,12 @@ public partial class CaisseStatusDialog : Window
         VentesCountText.Text = _caisse.TotalVentes.ToString();
         ChiffreAffairesText.Text = Money.Format(_caisse.TotalChiffreAffaires);
         EncaisseText.Text = Money.Format(_caisse.TotalEncaisse);
-        MontantInitialText.Text = _caisse.MontantInitialMobile > 0
-            ? $"{Money.Format(_caisse.MontantInitialCash)} + {Money.Format(_caisse.MontantInitialMobile)} mobile"
-            : Money.Format(_caisse.MontantInitialCash);
+        // Every pool the caisse was opened with, as on the rapport (the bank one was left out here).
+        var fonds = Money.Format(_caisse.MontantInitialCash);
+        if (_caisse.MontantInitialMobile > 0) fonds += $" + {Money.Format(_caisse.MontantInitialMobile)} mobile";
+        if (_caisse.MontantInitialCarte > 0) fonds += $" + {Money.Format(_caisse.MontantInitialCarte)} banque";
+        MontantInitialText.Text = fonds;
+        MontantInitialText.TextWrapping = TextWrapping.Wrap;
         PaiementCashText.Text = Money.Format(_caisse.PaiementCash);
         EnCaisseText.Text = $"En caisse : {Money.Format(_caisse.ExpectedCash + _caisse.ExpectedMobile + _caisse.ExpectedCarte)}";
         ResteText.Text = Money.Format(_caisse.ResteAPayer);
@@ -110,8 +113,33 @@ public partial class CaisseStatusDialog : Window
     internal static string OrigineLine(CaisseOrigineDto origine) =>
         $"Dont ventes de la session : {Money.Format(origine.VentesSession)}"
         + (origine.FacturesAnterieuresCount > 0
-            ? $"  ·  Factures antérieures réglées : {Money.Format(origine.FacturesAnterieures)} ({origine.FacturesAnterieuresCount})"
+            ? $"  ·  Factures antérieures réglées : {Money.Format(origine.FacturesAnterieures)} ({AnterieuresIds(origine)})"
             : "  ·  Aucune facture antérieure réglée");
+
+    /// <summary>"2 : VNT-…061, VNT-…064" - how many earlier factures, and which.</summary>
+    internal static string AnterieuresIds(CaisseOrigineDto origine)
+    {
+        // One mention per facture, with where it stands now (its last line carries the current reste).
+        var ids = (origine.Details ?? []).GroupBy(d => d.Numero)
+            .Select(g => g.Last())
+            .Select(d => d.Reste > 0 ? $"{d.Numero} partiel, reste {Money.Format(d.Reste)}" : $"{d.Numero} soldée")
+            .ToList();
+        return ids.Count == 0 ? origine.FacturesAnterieuresCount.ToString() : $"{origine.FacturesAnterieuresCount} : {string.Join(", ", ids)}";
+    }
+
+    /// <summary>"14:32  V-2026-0042 (Awa)  5 000 FCFA (mobile)" - which facture was paid, as React lists them.</summary>
+    internal static string FactureAnterieureLine(FactureAnterieureLineDto d) =>
+        $"{d.Date.ToLocalTime():dd/MM HH:mm}  {d.Numero}{(string.IsNullOrWhiteSpace(d.Client) ? "" : $" ({d.Client})")}  "
+        + $"{Money.Format(d.Montant)} ({ModeLabel(d.ModePaiement)})"
+        + (d.Reste > 0 ? $"  —  partiel, reste {Money.Format(d.Reste)}" : "  —  soldée");
+
+    private static string ModeLabel(string mode) => mode switch
+    {
+        "cash" => "espèces",
+        "mobile_money" or "orange_money" => "mobile",
+        "carte" or "card" => "banque/carte",
+        _ => mode,
+    };
 
     private void MontantFinal_Changed(object sender, TextChangedEventArgs e) => UpdateExpectedPreview();
 

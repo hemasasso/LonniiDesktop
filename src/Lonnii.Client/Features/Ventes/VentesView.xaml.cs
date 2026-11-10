@@ -749,6 +749,7 @@ public partial class VentesView : UserControl
         // read the best way the key presses allow; if that finds nothing, the other reading (what a
         // US layout would have typed) is tried before giving up.
         var typed = SearchBox.Text;
+        var wasScan = _scan.IsScan(typed);
         var alternate = _scan.Alternate(typed)?.Trim();
         var scanned = _scan.Resolve(typed).Trim();
         if (scanned != typed.Trim()) SearchBox.Text = scanned;
@@ -769,8 +770,19 @@ public partial class VentesView : UserControl
         {
             AddToCart(product);
             ScanTone.Play();
+            HideMessage();
             SearchBox.Text = string.Empty;
             await LoadAsync();
+        }
+        else if (matches.Count == 0 && wasScan)
+        {
+            // A scanned code no product carries: left in the box it would filter the list to nothing
+            // and spoil the next scan. Cleared, with the code named so the cashier can add it.
+            var code = SearchBox.Text.Trim();
+            SearchBox.Text = string.Empty;
+            await LoadAsync();
+            System.Media.SystemSounds.Exclamation.Play();
+            ShowMessage($"Aucun produit trouvé avec ce code-barres : {code}");
         }
 
         _scan.Reset();
@@ -1155,6 +1167,15 @@ public partial class VentesView : UserControl
         }
 
         var difference = recu - _currentTotal;
+        if (_modePaiement != "cash" && difference > 0)
+        {
+            // Mobile Money and card are charged what is due: nothing to hand back.
+            MonnaieAvoirCheck.Visibility = Visibility.Collapsed;
+            MonnaieAvoirCheck.IsChecked = false;
+            MonnaieARendreText.Foreground = (Brush)FindResource("Warning");
+            MonnaieARendreText.Text = $"Montant supérieur au total - {Money.Format(_currentTotal)} sera encaissé";
+            return;
+        }
         var hasChange = difference > 0;
         // Keeping change as an avoir is its own right (can_create_avoir).
         var canAvoir = hasChange && _canCreateAvoir;
@@ -1847,7 +1868,7 @@ public partial class VentesView : UserControl
             var (cash, mobile) = MixteSplit(_currentTotal);
             return Math.Max(0, _currentTotal - cash - mobile);
         }
-        return _modePaiement == "cash" && MontantRecuPanel.Visibility == Visibility.Visible
+        return MontantRecuPanel.Visibility == Visibility.Visible
             && Money.TryParse(MontantRecuBox.Text, out decimal recu) && recu > 0 && recu < _currentTotal
                 ? _currentTotal - recu : 0m;
     }
@@ -1906,7 +1927,9 @@ public partial class VentesView : UserControl
     /// from a previous total never lingers on screen.</summary>
     private void UpdateMontantRecuVisibility()
     {
-        var relevant = VenteRapideCheck.IsChecked == true && _modePaiement == "cash";
+        // Every single method can be paid in part (Mobile Money, Banque/Carte too): the amount actually
+        // received, empty = the whole total. Change and "monnaie en avoir" stay cash-only.
+        var relevant = VenteRapideCheck.IsChecked == true && _modePaiement is "cash" or "mobile_money" or "orange_money" or "carte";
         MontantRecuPanel.Visibility = relevant ? Visibility.Visible : Visibility.Collapsed;
 
         MixtePanel.Visibility = VenteRapideCheck.IsChecked == true && _modePaiement == "mixte"
@@ -1969,8 +1992,9 @@ public partial class VentesView : UserControl
     private void MixteMobile_TextChanged(object sender, TextChangedEventArgs e)
     {
         if (_settingMixteMobile) return;
-        // Cleared by hand: back to "mobile covers the rest".
-        _mixteMobileEdited = !string.IsNullOrWhiteSpace(MixteMobileBox.Text);
+        // Typed by hand - even emptied, so the cashier can clear it and type their own amount
+        // without it refilling under their fingers. Left empty, it goes back to "the rest" (LostFocus).
+        _mixteMobileEdited = true;
         UpdateMixte();
         SchedulePreview();
     }
@@ -1979,6 +2003,12 @@ public partial class VentesView : UserControl
     {
         if (Money.TryParse(MixteMobileBox.Text, out decimal mobile) && mobile > 0)
             SetMixteMobileText(Money.FormatPlain(mobile));
+        else if (string.IsNullOrWhiteSpace(MixteMobileBox.Text))
+        {
+            _mixteMobileEdited = false;
+            UpdateMixte();
+            SchedulePreview();
+        }
     }
 
     private void SetMixteMobileText(string text)
@@ -2117,6 +2147,7 @@ public partial class VentesView : UserControl
                 return;
         }
 
+        if (!isFacture && _modePaiement != "mixte") mobileDue = Math.Min(montantPaye, total);
         if (!isFacture && (_modePaiement == "mobile_money" || (_modePaiement == "mixte" && mobileDue > 0)))
         {
             var accounts = PaymentProviderRegistry.EnabledAccounts(PaymentProviderIds.MobileMoney);
@@ -2138,7 +2169,7 @@ public partial class VentesView : UserControl
             {
                 var reference = $"V-{DateTime.Now:yyyyMMddHHmmss}";
                 var dialog = new MobileMoneyPaymentDialog(
-                    total, accounts, provider, reference, Window.GetWindow(this));
+                    mobileDue, accounts, provider, reference, Window.GetWindow(this));
                 if (dialog.ShowDialog() != true) return;
             }
         }
@@ -2154,7 +2185,7 @@ public partial class VentesView : UserControl
 
             // Captured before the cart and the amount box are cleared: what the customer
             // handed over decides the change the display shows them.
-            var changeGiven = !isFacture && !monnaieEnAvoir && MontantRecuPanel.Visibility == Visibility.Visible
+            var changeGiven = !isFacture && !monnaieEnAvoir && _modePaiement == "cash" && MontantRecuPanel.Visibility == Visibility.Visible
                 && Money.TryParse(MontantRecuBox.Text, out decimal handed) && handed > vente.MontantTotal
                 ? handed - vente.MontantTotal
                 // Paiement mixte with more cash than the total collapsed into a cash sale with change.

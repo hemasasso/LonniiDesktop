@@ -23,45 +23,24 @@ public partial class AddPaymentDialog : Window
         _canCreateAvoir = canCreateAvoir;
         InitializeComponent();
 
-        // Amounts read "1 000" while they are typed (see MoneyInput).
+        // One box: what the customer hands over. Less than owed = paiement partiel; more, in cash,
+        // = change to give back (or an avoir). Amounts read "1 000" while typed (see MoneyInput).
         MoneyInput.GroupAsYouType(MontantBox);
-        MoneyInput.GroupAsYouType(MontantRecuBox);
         SubtitleText.Text = $"Vente {numeroVente} — restant à payer : {Money.Format(montantRestant)}";
-
-        // Left empty rather than pre-filled with the amount owed: a cashier who is not
-        // actually collecting that whole amount today (a partial instalment) would otherwise
-        // have to notice and overwrite it, instead of just typing what was actually handed over.
         MontantBox.Text = string.Empty;
 
-        // Grouped as "1 000,25", same convention as every other money field - reformatted only
-        // once typing is done, or it would fight the caret over the group spaces mid-entry.
         MontantBox.LostFocus += (_, _) =>
         {
-            if (Money.TryParse(MontantBox.Text, out decimal montant))
-                MontantBox.Text = Money.FormatPlain(montant, 2);
+            if (Money.TryParse(MontantBox.Text, out decimal montant) && montant > 0)
+                MontantBox.Text = Money.FormatPlain(montant);
         };
-        MontantBox.TextChanged += (_, _) =>
-        {
-            UpdateInsuffisant();
-            UpdateMonnaieARendre();
-        };
+        MontantBox.TextChanged += (_, _) => UpdateHints();
 
         // One "Mobile Money" choice only, as at checkout (VentesView): Orange Money stays hidden.
         PaymentOrangeButton.Visibility = Visibility.Collapsed;
 
         ApplyPaymentVisuals();
         Loaded += (_, _) => MontantBox.Focus();
-    }
-
-    /// <summary>Warns, in red, when the amount falls short of what is owed - it is still
-    /// accepted, but recorded as a partial payment with the difference left to pay.</summary>
-    private void UpdateInsuffisant()
-    {
-        var insufficient = Money.TryParse(MontantBox.Text, out decimal montant)
-            && montant > 0 && montant < _montantRestant;
-        InsuffisantText.Visibility = insufficient ? Visibility.Visible : Visibility.Collapsed;
-        if (insufficient)
-            InsuffisantText.Text = $"Montant insuffisant : il restera {Money.Format(_montantRestant - montant)} à payer (paiement partiel).";
     }
 
     private void PaymentMode_Click(object sender, RoutedEventArgs e)
@@ -79,63 +58,36 @@ public partial class AddPaymentDialog : Window
         PaymentMobileButton.Style = _modePaiement == "mobile_money" ? primary : secondary;
         PaymentOrangeButton.Style = _modePaiement == "orange_money" ? primary : secondary;
         PaymentCarteButton.Style  = _modePaiement == "carte"        ? primary : secondary;
-
-        MontantRecuPanel.Visibility = _modePaiement == "cash" ? Visibility.Visible : Visibility.Collapsed;
-        if (_modePaiement != "cash") MontantRecuBox.Text = string.Empty;
-        UpdateMonnaieARendre();
+        UpdateHints();
     }
 
-    /// <summary>Drives Montant from what was actually handed over: capped at what remains
-    /// owed, since a cash-only overpayment is change to give back, not something to apply to
-    /// the sale. Left alone if the box is cleared, so the cashier can still type Montant by
-    /// hand for a partial instalment with no "received" figure to type at all.</summary>
-    private void MontantRecu_TextChanged(object sender, TextChangedEventArgs e)
+    /// <summary>Short: what will still be owed. Over, in cash: the change, or the avoir if kept.
+    /// Over by Mobile Money or card: only what is owed is recorded.</summary>
+    private void UpdateHints()
     {
-        if (Money.TryParse(MontantRecuBox.Text, out decimal recu) && recu > 0)
-            MontantBox.Text = Money.FormatPlain(Math.Min(recu, _montantRestant), 2);
+        var typed = Money.TryParse(MontantBox.Text, out decimal t) ? t : 0m;
 
-        UpdateMonnaieARendre();
-    }
+        var insufficient = typed > 0 && typed < _montantRestant;
+        InsuffisantText.Visibility = insufficient || (typed > _montantRestant && _modePaiement != "cash")
+            ? Visibility.Visible : Visibility.Collapsed;
+        InsuffisantText.SetResourceReference(TextBlock.ForegroundProperty, insufficient ? "Warning" : "TextSecondary");
+        InsuffisantText.Text = insufficient
+            ? $"Paiement partiel - reste à payer : {Money.Format(_montantRestant - typed)}"
+            : $"Montant supérieur au restant - {Money.Format(_montantRestant)} sera encaissé.";
 
-    private void MontantRecu_LostFocus(object sender, RoutedEventArgs e)
-    {
-        if (Money.TryParse(MontantRecuBox.Text, out decimal recu) && recu > 0)
-            MontantRecuBox.Text = Money.FormatPlain(recu, 2);
-    }
-
-    /// <summary>Change is measured against Montant (what is actually being applied to the
-    /// sale), not the amount still owed - the cashier may only be collecting part of it.</summary>
-    private void UpdateMonnaieARendre()
-    {
-        if (MontantRecuPanel.Visibility != Visibility.Visible) return;
-
-        if (!Money.TryParse(MontantRecuBox.Text, out decimal recu) || recu <= 0
-            || !Money.TryParse(MontantBox.Text, out decimal montant))
-        {
-            MonnaieARendreText.Text = string.Empty;
-            MonnaieAvoirCheck.Visibility = Visibility.Collapsed;
-            MonnaieAvoirCheck.IsChecked = false;
-            return;
-        }
-
-        var difference = recu - montant;
-
-        // Only what exceeds the whole remaining balance can be an avoir; the rest of the
-        // change would still be settling the sale.
-        var avoir = recu - _montantRestant;
-        var canAvoir = difference > 0 && avoir > 0 && _canCreateAvoir;
+        var change = _modePaiement == "cash" ? typed - _montantRestant : 0m;
+        MontantRecuPanel.Visibility = change > 0 ? Visibility.Visible : Visibility.Collapsed;
+        var canAvoir = change > 0 && _canCreateAvoir;
         MonnaieAvoirCheck.Visibility = canAvoir ? Visibility.Visible : Visibility.Collapsed;
         if (!canAvoir) MonnaieAvoirCheck.IsChecked = false;
+        if (change <= 0) return;
 
-        var asAvoir = canAvoir && MonnaieAvoirCheck.IsChecked == true;
-        MonnaieARendreText.Foreground = (Brush)FindResource(difference < 0 ? "Danger" : asAvoir ? "Warning" : "Success");
-        MonnaieARendreText.Text = difference < 0
-            ? $"Il manque {Money.Format(-difference)}"
-            : asAvoir ? $"Avoir : {Money.Format(avoir)}"
-            : $"Monnaie à rendre : {Money.Format(difference)}";
+        var asAvoir = MonnaieAvoirCheck.IsChecked == true;
+        MonnaieARendreText.Foreground = (Brush)FindResource(asAvoir ? "Warning" : "Success");
+        MonnaieARendreText.Text = asAvoir ? $"Avoir : {Money.Format(change)}" : $"Monnaie à rendre : {Money.Format(change)}";
     }
 
-    private void MonnaieAvoir_Changed(object sender, RoutedEventArgs e) => UpdateMonnaieARendre();
+    private void MonnaieAvoir_Changed(object sender, RoutedEventArgs e) => UpdateHints();
 
     private void Confirm_Click(object sender, RoutedEventArgs e)
     {
@@ -146,10 +98,10 @@ public partial class AddPaymentDialog : Window
             return;
         }
 
-        // Keeping the change as an avoir means recording everything handed over; the server
-        // turns whatever exceeds the remaining balance into the avoir.
-        if (MonnaieAvoirCheck.IsChecked == true && Money.TryParse(MontantRecuBox.Text, out decimal recu) && recu > montant)
-            montant = recu;
+        // Over what is owed: the change goes back, so only the balance is recorded - unless it is
+        // kept as an avoir, when the whole amount is (the server makes the excess the avoir).
+        if (montant > _montantRestant && !(_modePaiement == "cash" && MonnaieAvoirCheck.IsChecked == true))
+            montant = _montantRestant;
 
         Montant = montant;
         DialogResult = true;

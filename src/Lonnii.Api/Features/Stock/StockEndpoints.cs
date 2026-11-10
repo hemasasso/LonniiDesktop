@@ -374,15 +374,14 @@ public static class StockEndpoints
     /// two stay in sync when narrowed to one category.
     /// </summary>
     private static async Task<IResult> MovementStatsAsync(
-        DateOnly? dateDebut, DateOnly? dateFin, string? categoryId, string? supplierId,
+        DateOnly? dateDebut, DateOnly? dateFin, string? categoryId, string? supplierId, int? tzOffsetMinutes,
         GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
         var query = db.StockHistories.AsNoTracking().Where(h => h.GroupId == scope.GroupId);
 
-        if (dateDebut is { } start)
-            query = query.Where(h => h.CreatedAt >= start.ToDateTime(TimeOnly.MinValue));
-        if (dateFin is { } end)
-            query = query.Where(h => h.CreatedAt < end.ToDateTime(TimeOnly.MinValue).AddDays(1));
+        var (start, end) = Lonnii.Api.Features.Ventes.VentesEndpoints.LocalRangeToUtc(dateDebut, dateFin, tzOffsetMinutes);
+        if (start is { } s) query = query.Where(h => h.CreatedAt >= s);
+        if (end is { } e) query = query.Where(h => h.CreatedAt < e);
         if (!string.IsNullOrWhiteSpace(categoryId))
             query = query.Where(h => h.Product!.CategoryId == categoryId);
         if (!string.IsNullOrWhiteSpace(supplierId))
@@ -406,16 +405,15 @@ public static class StockEndpoints
     /// des Mouvements" table right below the per-type summary.
     /// </summary>
     private static async Task<IResult> MovementDetailsAsync(
-        DateOnly? dateDebut, DateOnly? dateFin, string? categoryId, string? supplierId,
+        DateOnly? dateDebut, DateOnly? dateFin, string? categoryId, string? supplierId, int? tzOffsetMinutes,
         GroupScope scope, LonniiDbContext db, CancellationToken ct, int limit = 100)
     {
         var query = db.StockHistories.AsNoTracking()
             .Where(h => h.GroupId == scope.GroupId);
 
-        if (dateDebut is { } start)
-            query = query.Where(h => h.CreatedAt >= start.ToDateTime(TimeOnly.MinValue));
-        if (dateFin is { } end)
-            query = query.Where(h => h.CreatedAt < end.ToDateTime(TimeOnly.MinValue).AddDays(1));
+        var (start, end) = Lonnii.Api.Features.Ventes.VentesEndpoints.LocalRangeToUtc(dateDebut, dateFin, tzOffsetMinutes);
+        if (start is { } s) query = query.Where(h => h.CreatedAt >= s);
+        if (end is { } e) query = query.Where(h => h.CreatedAt < e);
         if (!string.IsNullOrWhiteSpace(categoryId))
             query = query.Where(h => h.Product!.CategoryId == categoryId);
         if (!string.IsNullOrWhiteSpace(supplierId))

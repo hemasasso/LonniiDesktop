@@ -61,6 +61,10 @@ public class LicenceGuard(LonniiDbContext db, string? publicKey = null)
     /// has none, or one that is altered, foreign, or for another espace.</summary>
     public async Task<LicenceClaims?> SignedClaimsAsync(string groupId, CancellationToken ct)
     {
+        // Our server stores no signed licence (no host_licence table on PostgreSQL): its rows, set from
+        // the dashboard, are the truth. Querying it there threw, and the phone's menu came back empty.
+        if (IsOurServer) return null;
+
         var token = await db.HostLicences.AsNoTracking()
             .Where(h => h.GroupId == groupId).Select(h => h.Token).FirstOrDefaultAsync(ct);
         return Verified(token, groupId);

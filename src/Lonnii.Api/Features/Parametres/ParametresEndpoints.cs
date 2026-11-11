@@ -128,6 +128,13 @@ public static class ParametresEndpoints
         row.ReceiptAmountInWords = request.ReceiptAmountInWords ?? row.ReceiptAmountInWords;
         row.FactureAmountInWords = request.FactureAmountInWords ?? row.FactureAmountInWords;
 
+        // An older client that does not send these leaves them as they were.
+        row.ServeurEnabled = request.ServeurEnabled ?? row.ServeurEnabled;
+        if (request.ServeurLabel is not null)
+            row.ServeurLabel = OrDefault(request.ServeurLabel, ReceiptSettingsDefaults.ServeurLabel);
+        if (request.ServeurLabelPlural is not null)
+            row.ServeurLabelPlural = OrDefault(request.ServeurLabelPlural, ReceiptSettingsDefaults.ServeurLabelPlural);
+
         row.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
 
@@ -264,6 +271,8 @@ public static class ParametresEndpoints
             ("Le message de fin de la facture", r.FactureFooterText, 255),
             ("Le message de fin du reçu", r.ReceiptFooterText, 255),
             ("Le libellé du vendeur", r.SellerLabel, 255),
+            ("Le libellé du serveur", r.ServeurLabel, 100),
+            ("Le pluriel du libellé du serveur", r.ServeurLabelPlural, 100),
             ("Le titre de la notice d'avoir", r.AvoirNoticeTitle, 255),
             ("Le texte de la notice d'avoir", r.AvoirNoticeText, 255),
             ("L'adresse", r.CompanyAddress, 255),
@@ -347,7 +356,10 @@ public static class ParametresEndpoints
         TileShowQuantity: p?.TileShowQuantity ?? true,
         TileShowPrice: p?.TileShowPrice ?? true,
         ReceiptAmountInWords: p?.ReceiptAmountInWords ?? false,
-        FactureAmountInWords: p?.FactureAmountInWords ?? false);
+        FactureAmountInWords: p?.FactureAmountInWords ?? false,
+        ServeurEnabled: p?.ServeurEnabled ?? false,
+        ServeurLabel: OrDefault(p?.ServeurLabel, ReceiptSettingsDefaults.ServeurLabel),
+        ServeurLabelPlural: OrDefault(p?.ServeurLabelPlural, ReceiptSettingsDefaults.ServeurLabelPlural));
 
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 

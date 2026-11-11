@@ -1,6 +1,14 @@
 {
   "$schema": "https://json.schemastore.org/launchsettings.json",
   "profiles": {
+    "Lonnii.Api (test local)": {
+      "commandName": "Project",
+      "launchBrowser": false,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "Lonnii__DataDirectory": "..\\..\\.lonnii-dev"
+      }
+    },
     "Lonnii.Api (hôte)": {
       "commandName": "Project",
       "launchBrowser": false,

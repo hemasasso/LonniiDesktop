@@ -3,6 +3,7 @@ using System.IO;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -64,6 +65,9 @@ public partial class VentesView : UserControl
     private List<ProductDto> _statsProducts = [];
     private string? _statsCategoryId;
     private string? _statsProductId;
+    private string? _statsServeurId;
+    private string? _statsVendeurId;
+    private string? _statsCaissierId;
     private DateOnly? _statsDateDebut;
     private DateOnly? _statsDateFin;
     private string _statsDateFilterTag = "month";
@@ -393,6 +397,16 @@ public partial class VentesView : UserControl
         ApplyPaymentVisuals();
         UpdateCheckoutMode();
         RenderCart();
+        // Coming back to Ventes from another module: follow any settings change made meanwhile.
+        // The first time it becomes visible is the initial display, which Loaded handles.
+        var shownBefore = false;
+        IsVisibleChanged += async (_, e) =>
+        {
+            if (e.NewValue is not true) return;
+            if (!shownBefore) { shownBefore = true; return; }
+            if (IsLoaded) await SetActiveTabAsync(_activeTab);
+        };
+
         Loaded += async (_, _) =>
         {
             // The initial tab is the first one this user actually has a privilege for -
@@ -580,6 +594,7 @@ public partial class VentesView : UserControl
         SetBusy(true);
         await RefreshReceiptSettingsAsync();
         await RefreshClientsAsync();
+        await RefreshServeursAsync();
         try
         {
             if (_categories.Count == 0)
@@ -810,6 +825,11 @@ public partial class VentesView : UserControl
     {
         _activeTab = tab;
         ApplyTabVisuals();
+
+        // Paramètres may have changed since Ventes loaded (serveur field on/off, its label): the
+        // session cache already holds the saved values, so re-reading costs nothing.
+        await RefreshReceiptSettingsAsync();
+        await RefreshServeursAsync();
 
         UiState.For(_session).Tabs[ModuleKey] = tab;
         UiState.Save();
@@ -1416,6 +1436,117 @@ public partial class VentesView : UserControl
             RemiseGlobalePanel.Visibility = visibility;
             RenderCart();
         }
+
+        // The serveur list button follows the Paramètres switch and carries the shop's own word.
+        // A cashier may add names from the till, so selling is enough to open the list.
+        ServeursButton.Visibility = ServeurEnabled && (_canManageClients || _session.Can(Priv.Gestion.CreateVente))
+            ? Visibility.Visible : Visibility.Collapsed;
+        ServeursButtonText.Text = _receiptSettings?.ServeurLabelPlural ?? ReceiptSettingsDefaults.ServeurLabelPlural;
+    }
+
+    /// <summary>Paramètres Reçu et Facture "Activer le champ Serveur".</summary>
+    private bool ServeurEnabled => _receiptSettings?.ServeurEnabled == true;
+
+    private string ServeurLabelText => _receiptSettings?.ServeurLabel ?? ReceiptSettingsDefaults.ServeurLabel;
+
+    private async void Serveurs_Click(object sender, RoutedEventArgs e)
+    {
+        var settings = _receiptSettings;
+        new ServeurManagerDialog(_session,
+            settings?.ServeurLabel ?? ReceiptSettingsDefaults.ServeurLabel,
+            settings?.ServeurLabelPlural ?? ReceiptSettingsDefaults.ServeurLabelPlural)
+        { Owner = Window.GetWindow(this) }.ShowDialog();
+
+        // A rename or a deactivation shows in the picker straight away.
+        await RefreshServeursAsync();
+    }
+
+    // --- Serveur picker ---
+
+    /// <summary>The picker's first entry: a sale with no serveur.</summary>
+    private static readonly ServeurDto NoServeur = new(string.Empty, "— Aucun —", null, true, default);
+
+    /// <summary>Kept across sales on purpose (never cleared by the checkout reset): the same
+    /// serveur often brings several orders in a row.</summary>
+    private string? _lastServeurId;
+
+    private string? SelectedServeurId =>
+        ServeurEnabled && ServeurCombo.SelectedItem is ServeurDto { Id.Length: > 0 } s ? s.Id : null;
+
+    private string? SelectedServeurNom =>
+        ServeurEnabled && ServeurCombo.SelectedItem is ServeurDto { Id.Length: > 0 } s ? s.Nom : null;
+
+    /// <summary>Fills the picker with the active serveurs, keeping the current choice when it
+    /// is still there. Hidden, and not even read, while the shop has the field off.</summary>
+    private async Task RefreshServeursAsync()
+    {
+        var label = _receiptSettings?.ServeurLabel ?? ReceiptSettingsDefaults.ServeurLabel;
+        ServeurRowLabel.Text = label;
+        AddServeurButton.ToolTip = $"Ajouter un {label.ToLower(CultureInfo.GetCultureInfo("fr-FR"))}";
+        ServeurRow.Visibility = ServeurEnabled ? Visibility.Visible : Visibility.Collapsed;
+        // Liste des Ventes: search by serveur, under the shop's own word.
+        ServeurSearchItem.Content = label;
+        ServeurSearchItem.Visibility = ServeurEnabled ? Visibility.Visible : Visibility.Collapsed;
+        if (!ServeurEnabled)
+        {
+            // Field off: no serveur filter may stay applied anywhere - back to "Tous".
+            if (ReferenceEquals(VenteSearchTypeCombo.SelectedItem, ServeurSearchItem))
+            {
+                VenteSearchTypeCombo.SelectedIndex = 0;
+                _venteSearchType = "both";
+            }
+            if (_statsServeurId is not null)
+            {
+                _statsServeurId = null;
+                if (StatsServeurCombo.Items.Count > 0)
+                {
+                    _suppressStatsFilterEvents = true;
+                    StatsServeurCombo.SelectedIndex = 0;
+                    _suppressStatsFilterEvents = false;
+                }
+            }
+            StatsServeurCombo.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        List<ServeurDto> serveurs;
+        try
+        {
+            serveurs = (await _session.Api.GetServeursAsync()).Where(s => s.IsActive).ToList();
+        }
+        catch (ApiException)
+        {
+            return; // The picker is a convenience; a failed read must not stop a sale.
+        }
+
+        ServeurCombo.ItemsSource = new[] { NoServeur }.Concat(serveurs).ToList();
+        ServeurCombo.SelectedItem = serveurs.FirstOrDefault(s => s.Id == _lastServeurId) ?? NoServeur;
+    }
+
+    private void ServeurCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ServeurCombo.SelectedItem is ServeurDto s) _lastServeurId = s.Id.Length > 0 ? s.Id : null;
+        SchedulePreview();
+    }
+
+    /// <summary>"+": a new name without leaving the sale. A name that already exists comes back
+    /// as that serveur (the server matches it), so a double entry just selects it.</summary>
+    private async void AddServeur_Click(object sender, RoutedEventArgs e)
+    {
+        var label = _receiptSettings?.ServeurLabel ?? ReceiptSettingsDefaults.ServeurLabel;
+        var nom = Lonnii.Client.Common.PromptDialog.Show(Window.GetWindow(this), $"Nouveau {label.ToLower(CultureInfo.GetCultureInfo("fr-FR"))}", "Nom :");
+        if (string.IsNullOrWhiteSpace(nom)) return;
+
+        try
+        {
+            var created = await _session.Api.CreateServeurAsync(new SaveServeurRequest(nom.Trim()));
+            _lastServeurId = created.Id;
+            await RefreshServeursAsync();
+        }
+        catch (ApiException ex)
+        {
+            MessageBox.Show(Window.GetWindow(this), ex.Message, label, MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     /// <summary>The TVA the till adds and the resulting TTC, when the workspace's prices are HT.
@@ -1853,11 +1984,12 @@ public partial class VentesView : UserControl
 
         return facture
             ? new ReceiptData("Aperçu", now, Blank(ClientNomBox.Text), Blank(ClientTelephoneBox.Text), Blank(ClientEmailBox.Text),
-                me, null, lines, _currentTotal, 0m, _currentTotal, "en_attente", null, 0m, false, [], tvaRate, tva)
+                me, null, lines, _currentTotal, 0m, _currentTotal, "en_attente", null, 0m, false, [], tvaRate, tva,
+                ServeurNom: SelectedServeurNom)
             : new ReceiptData("Aperçu", now, Blank(ClientNomBox.Text), Blank(ClientTelephoneBox.Text), Blank(ClientEmailBox.Text),
                 me, me, lines, _currentTotal, _currentTotal - PreviewReste(), PreviewReste(),
                 PreviewReste() > 0 ? "partiel" : "paye", _modePaiement, 0m, false,
-                PreviewPayments(now, me), tvaRate, tva);
+                PreviewPayments(now, me), tvaRate, tva, ServeurNom: SelectedServeurNom);
     }
 
     /// <summary>What a short cash payment leaves owed (0 when paid in full or not cash).</summary>
@@ -2176,7 +2308,7 @@ public partial class VentesView : UserControl
 
         var request = new CreateVenteRequest(
             items, _modePaiement, montantPaye, remise, clientNom, clientTelephone, clientEmail,
-            MonnaieEnAvoir: monnaieEnAvoir, Paiements: parts);
+            MonnaieEnAvoir: monnaieEnAvoir, Paiements: parts, ServeurId: SelectedServeurId);
 
         SetBusy(true);
         try
@@ -2522,7 +2654,9 @@ public partial class VentesView : UserControl
         VenteListEmptyPanel.Visibility = Visibility.Collapsed;
         VenteListScroll.Visibility = Visibility.Visible;
 
-        if (VenteListHeaderRow.Children.Count == 0) BuildVenteListHeader();
+        // Rebuilt each time (cheap): the Serveur column follows the setting as it changes.
+        VenteListHeaderRow.Children.Clear();
+        BuildVenteListHeader();
 
         var totalPages = Math.Max(1, (int)Math.Ceiling(_ventes.Count / (double)_ventePageSize));
         _ventePage = Math.Clamp(_ventePage, 1, totalPages);
@@ -2566,9 +2700,33 @@ public partial class VentesView : UserControl
                 Margin = new Thickness(4, 0, 4, 0), TextTrimming = TextTrimming.CharacterEllipsis,
             };
             SetBrush(text, TextBlock.ForegroundProperty, "TextSecondary");
-            Grid.SetColumn(text, VenteListHeaderRow.ColumnDefinitions.Count - 1);
-            VenteListHeaderRow.Children.Add(text);
+            FrameworkElement header = text;
+            if (label == "Client" && ServeurEnabled)
+            {
+                var serveurHeader = new TextBlock
+                {
+                    Text = ServeurLabelText, FontWeight = FontWeights.SemiBold, FontSize = 11,
+                    Margin = new Thickness(4, 0, 4, 0), TextTrimming = TextTrimming.CharacterEllipsis,
+                };
+                SetBrush(serveurHeader, TextBlock.ForegroundProperty, "TextSecondary");
+                header = SplitClientCell(text, serveurHeader);
+            }
+            Grid.SetColumn(header, VenteListHeaderRow.ColumnDefinitions.Count - 1);
+            VenteListHeaderRow.Children.Add(header);
         }
+    }
+
+    /// <summary>Client | Serveur side by side inside the one flexible Client column - the same
+    /// split for the header and every row, so they line up.</summary>
+    private static Grid SplitClientCell(FrameworkElement client, FrameworkElement serveur)
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.Children.Add(client);
+        Grid.SetColumn(serveur, 1);
+        grid.Children.Add(serveur);
+        return grid;
     }
 
     /// <summary>One row of the sales list. Column order and the action buttons' conditions
@@ -2612,7 +2770,23 @@ public partial class VentesView : UserControl
             Margin = new Thickness(4, 0, 4, 0),
         };
         SetBrush(client, TextBlock.ForegroundProperty, "TextPrimary");
-        AddCell(2, client);
+        if (ServeurEnabled)
+        {
+            // The serveur gets its own column: the flexible Client column is split in two, so the
+            // other columns keep their places.
+            var serveur = new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(vente.ServeurNom) ? "-" : vente.ServeurNom, FontSize = 12,
+                FontWeight = string.IsNullOrWhiteSpace(vente.ServeurNom) ? FontWeights.Normal : FontWeights.SemiBold,
+                TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(4, 0, 4, 0), ToolTip = vente.ServeurNom,
+            };
+            SetBrush(serveur, TextBlock.ForegroundProperty, string.IsNullOrWhiteSpace(vente.ServeurNom) ? "TextMuted" : "Accent");
+            AddCell(2, SplitClientCell(client, serveur));
+        }
+        else
+        {
+            AddCell(2, client);
+        }
 
         var vendeur = new TextBlock
         {
@@ -2884,7 +3058,8 @@ public partial class VentesView : UserControl
     private async Task EditVenteAsync(VenteListItemDto vente)
     {
         var dialog = new EditVenteDialog(
-            _session, vente.NumeroVente, vente.ClientNom, vente.DateVente, vente.ClientTelephone, vente.ClientEmail)
+            _session, vente.NumeroVente, vente.ClientNom, vente.DateVente, vente.ClientTelephone, vente.ClientEmail,
+            vente.ServeurId, vente.ServeurNom)
         {
             Owner = Window.GetWindow(this),
         };
@@ -2894,7 +3069,8 @@ public partial class VentesView : UserControl
         try
         {
             await _session.Api.EditVenteAsync(vente.Id,
-                new EditVenteRequest(dialog.ClientNom, dialog.DateVente, dialog.ClientTelephone, dialog.ClientEmail));
+                new EditVenteRequest(dialog.ClientNom, dialog.DateVente, dialog.ClientTelephone, dialog.ClientEmail,
+                    dialog.ServeurId));
             await LoadVentesAsync();
         }
         catch (ApiException ex)
@@ -2973,6 +3149,7 @@ public partial class VentesView : UserControl
         }
 
         if (StatsCategoryCombo.Items.Count == 0) BuildStatsFilterCombos();
+        await BuildStatsServeurComboAsync();
 
         await LoadStatsAsync();
     }
@@ -2993,6 +3170,62 @@ public partial class VentesView : UserControl
 
         PopulateStatsProductCombo(categoryId: null);
 
+        _suppressStatsFilterEvents = false;
+    }
+
+    /// <summary>Fills the Vendeur and Caissier filters from the people the server found in the
+    /// period (sent with the figures), keeping the current choice. A chosen person who no longer
+    /// appears (another period) stays listed so the filter does not silently reset.</summary>
+    private void FillStatsPeopleCombos(VentesStatsResponse stats)
+    {
+        _suppressStatsFilterEvents = true;
+        Fill(StatsVendeurCombo, $"Tous les {_sellerLabel.ToLower(CultureInfo.GetCultureInfo("fr-FR"))}s", stats.Vendeurs, _statsVendeurId);
+        Fill(StatsCaissierCombo, "Tous les caissiers", stats.Caissiers, _statsCaissierId);
+        _suppressStatsFilterEvents = false;
+
+        static void Fill(ComboBox combo, string all, IReadOnlyList<StatsPersonDto>? people, string? selectedId)
+        {
+            var list = (people ?? []).ToList();
+            var previous = combo.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string?)i.Tag == selectedId)?.Content as string;
+            if (selectedId is not null && list.All(p => p.UserId != selectedId))
+                list.Add(new StatsPersonDto(selectedId, previous ?? "?"));
+
+            combo.Items.Clear();
+            combo.Items.Add(new ComboBoxItem { Content = all, Tag = null });
+            foreach (var p in list) combo.Items.Add(new ComboBoxItem { Content = p.Nom, Tag = p.UserId });
+            combo.SelectedItem = combo.Items.Cast<ComboBoxItem>().First(i => (string?)i.Tag == selectedId);
+        }
+    }
+
+    /// <summary>The serveur filter: every serveur, deactivated ones too (their past sales still
+    /// count), shown while the field is on. Rebuilt each time the tab opens so a name added at
+    /// the till appears; the current choice is kept when it is still there.</summary>
+    private async Task BuildStatsServeurComboAsync()
+    {
+        StatsServeurCombo.Visibility = ServeurEnabled ? Visibility.Visible : Visibility.Collapsed;
+        if (!ServeurEnabled)
+        {
+            _statsServeurId = null;
+            return;
+        }
+
+        List<ServeurDto> serveurs;
+        try { serveurs = await _session.Api.GetServeursAsync(); }
+        catch (ApiException) { return; }
+
+        _suppressStatsFilterEvents = true;
+        StatsServeurCombo.Items.Clear();
+        StatsServeurCombo.Items.Add(new ComboBoxItem
+        {
+            Content = $"Tous les {(_receiptSettings?.ServeurLabelPlural ?? ReceiptSettingsDefaults.ServeurLabelPlural).ToLower(CultureInfo.GetCultureInfo("fr-FR"))}",
+            Tag = null,
+        });
+        foreach (var s in serveurs.OrderBy(s => s.Nom, StringComparer.CurrentCultureIgnoreCase))
+            StatsServeurCombo.Items.Add(new ComboBoxItem { Content = s.IsActive ? s.Nom : $"{s.Nom} (désactivé)", Tag = s.Id });
+
+        if (!serveurs.Any(s => s.Id == _statsServeurId)) _statsServeurId = null;
+        StatsServeurCombo.SelectedItem = StatsServeurCombo.Items.Cast<ComboBoxItem>()
+            .First(i => (string?)i.Tag == _statsServeurId);
         _suppressStatsFilterEvents = false;
     }
 
@@ -3021,6 +3254,18 @@ public partial class VentesView : UserControl
             PopulateStatsProductCombo(_statsCategoryId);
             _suppressStatsFilterEvents = false;
             _statsProductId = null;
+        }
+        else if (sender == StatsServeurCombo)
+        {
+            _statsServeurId = (StatsServeurCombo.SelectedItem as ComboBoxItem)?.Tag as string;
+        }
+        else if (sender == StatsVendeurCombo)
+        {
+            _statsVendeurId = (StatsVendeurCombo.SelectedItem as ComboBoxItem)?.Tag as string;
+        }
+        else if (sender == StatsCaissierCombo)
+        {
+            _statsCaissierId = (StatsCaissierCombo.SelectedItem as ComboBoxItem)?.Tag as string;
         }
         else
         {
@@ -3085,7 +3330,9 @@ public partial class VentesView : UserControl
         try
         {
             _stats = await _session.Api.GetVentesStatsAsync(
-                _statsDateDebut, _statsDateFin, _statsCategoryId, _statsProductId);
+                _statsDateDebut, _statsDateFin, _statsCategoryId, _statsProductId, serveurId: _statsServeurId,
+                vendeurId: _statsVendeurId, caissierId: _statsCaissierId);
+            FillStatsPeopleCombos(_stats);
             RenderStats();
             HideMessage();
         }
@@ -3249,6 +3496,47 @@ public partial class VentesView : UserControl
                 MinStep = ChartAxis.NiceStep(topProducts.Count == 0 ? 0 : (double)topProducts.Max(p => p.MontantTotal)),
             },
         ];
+
+        RenderServeurStats(stats);
+    }
+
+    /// <summary>One row of the "Par serveur" table, ranked by total sold.</summary>
+    private sealed record ServeurStatsRow(int Rang, string Nom, int NombreVentes, decimal MontantTotal,
+        decimal VenteMoyenne, decimal MontantEncaisse, decimal MontantRestant, decimal Part)
+    {
+        public string TotalDisplay => Money.Format(MontantTotal);
+        public string MoyenneDisplay => Money.Format(VenteMoyenne);
+        public string EncaisseDisplay => Money.Format(MontantEncaisse);
+        public string ResteDisplay => MontantRestant > 0 ? Money.Format(MontantRestant) : "—";
+        public string PartDisplay => $"{Part:0}%";
+    }
+
+    /// <summary>"Par serveur" over the period the filters chose - "Aujourd'hui" is the end-of-day
+    /// view, "Ce mois" / "Cette année" show who performs best over time.</summary>
+    private void RenderServeurStats(VentesStatsResponse stats)
+    {
+        // Off in Paramètres = no serveur anywhere in Ventes, even if older sales carry one.
+        var sales = stats.ServeurSales ?? [];
+        var show = ServeurEnabled;
+        ServeurStatsPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        if (!show) return;
+
+        var label = _receiptSettings?.ServeurLabel ?? ReceiptSettingsDefaults.ServeurLabel;
+        ServeurStatsTitle.Text = $"Par {label.ToLower(CultureInfo.GetCultureInfo("fr-FR"))} ({Money.Label})";
+        ServeurStatsNomColumn.Header = label;
+
+        var total = sales.Sum(s => s.MontantTotal);
+        ServeurStatsGrid.ItemsSource = sales.Select((s, i) => new ServeurStatsRow(
+            i + 1, s.Nom, s.NombreVentes, s.MontantTotal, s.VenteMoyenne, s.MontantEncaisse, s.MontantRestant,
+            total > 0 ? s.MontantTotal / total * 100 : 0)).ToList();
+        ServeurStatsGrid.Visibility = sales.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        // Sales with no serveur are not in the table; say how much that is so the totals add up.
+        var sansServeur = stats.ChiffreAffaires - total;
+        ServeurStatsEmptyText.Text = sales.Count == 0
+            ? $"Aucune vente avec un {label.ToLower(CultureInfo.GetCultureInfo("fr-FR"))} sur cette période."
+            : sansServeur > 0 ? $"Ventes sans {label.ToLower(CultureInfo.GetCultureInfo("fr-FR"))} : {Money.Format(sansServeur)}" : string.Empty;
+        ServeurStatsEmptyText.Visibility = ServeurStatsEmptyText.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>One KPI tile: a muted label over a bold coloured value, same visual weight

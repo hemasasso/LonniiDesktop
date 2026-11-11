@@ -81,6 +81,14 @@ public class Vente
     public string? ClientTelephone { get; set; }
     public string? ClientEmail { get; set; }
 
+    /// <summary>The serveur who served this sale, when the shop uses the field. Desktop-only
+    /// column (db/postgres/029_serveurs.sql).</summary>
+    public string? ServeurId { get; set; }
+
+    /// <summary>The serveur's name as it was at the time of the sale, so renaming or removing a
+    /// serveur later does not rewrite old receipts or move their sales in the stats.</summary>
+    public string? ServeurNom { get; set; }
+
     /// <summary>What the customer owes, TVA included when the till added it.</summary>
     public decimal MontantTotal { get; set; }
 
@@ -520,6 +528,34 @@ public class VentesParametres
     /// <summary>Configuration: show the price on Nouvelle Vente product tiles. Null reads as on.</summary>
     public bool? TileShowPrice { get; set; }
 
+    /// <summary>Paramètres Reçu et Facture: the till offers a serveur picker on each sale
+    /// (maquis, restaurant…). Null reads as off.</summary>
+    public bool? ServeurEnabled { get; set; }
+
+    /// <summary>The shop's own name for the field ("Serveur", "Vendeur", "Agent"…). Null reads as "Serveur".</summary>
+    public string? ServeurLabel { get; set; }
+
+    /// <summary>Plural of <see cref="ServeurLabel"/>, for the list and the stats. Null reads as "Serveurs".</summary>
+    public string? ServeurLabelPlural { get; set; }
+
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// A serveur the till can put on a sale. Desktop-only table (db/postgres/029_serveurs.sql):
+/// a name list like the clients, not an account - serveurs never sign in.
+/// </summary>
+public class Serveur
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string GroupId { get; set; } = string.Empty;
+    public string Nom { get; set; } = string.Empty;
+    public string? Telephone { get; set; }
+
+    /// <summary>Off hides the serveur from the till's picker; past sales and stats keep them.</summary>
+    public bool IsActive { get; set; } = true;
+
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
 

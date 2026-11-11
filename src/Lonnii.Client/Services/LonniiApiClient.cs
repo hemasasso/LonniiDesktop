@@ -507,6 +507,18 @@ public class LonniiApiClient
     public Task<ClientDto> UpdateClientAsync(string id, SaveClientRequest request, CancellationToken ct = default) =>
         SendAsync<ClientDto>(HttpMethod.Put, $"api/ventes/clients/{id}", request, ct);
 
+    // --- Serveurs ---
+
+    public Task<List<ServeurDto>> GetServeursAsync(CancellationToken ct = default) =>
+        GetAsync<List<ServeurDto>>("api/ventes/serveurs", ct);
+
+    /// <summary>Adding a name that already exists returns that serveur (reactivated) instead of failing.</summary>
+    public Task<ServeurDto> CreateServeurAsync(SaveServeurRequest request, CancellationToken ct = default) =>
+        PostAsync<ServeurDto>("api/ventes/serveurs", request, ct);
+
+    public Task<ServeurDto> UpdateServeurAsync(string id, SaveServeurRequest request, CancellationToken ct = default) =>
+        SendAsync<ServeurDto>(HttpMethod.Put, $"api/ventes/serveurs/{id}", request, ct);
+
     // --- Ventes ---
 
     public Task<VenteDto> CreateVenteAsync(CreateVenteRequest request, CancellationToken ct = default) =>
@@ -569,7 +581,8 @@ public class LonniiApiClient
     /// <see cref="VentesStatsResponse"/>.</summary>
     public Task<VentesStatsResponse> GetVentesStatsAsync(
         DateOnly? dateDebut = null, DateOnly? dateFin = null,
-        string? categoryId = null, string? productId = null, CancellationToken ct = default)
+        string? categoryId = null, string? productId = null, CancellationToken ct = default, string? serveurId = null,
+        string? vendeurId = null, string? caissierId = null)
     {
         var query = new List<string>();
         if (dateDebut is { } debut) query.Add($"dateDebut={debut:yyyy-MM-dd}");
@@ -577,6 +590,9 @@ public class LonniiApiClient
         if (dateDebut is not null || dateFin is not null) query.Add($"tzOffsetMinutes={LocalTzOffsetMinutes()}");
         if (!string.IsNullOrWhiteSpace(categoryId)) query.Add($"categoryId={Uri.EscapeDataString(categoryId)}");
         if (!string.IsNullOrWhiteSpace(productId)) query.Add($"productId={Uri.EscapeDataString(productId)}");
+        if (!string.IsNullOrWhiteSpace(serveurId)) query.Add($"serveurId={Uri.EscapeDataString(serveurId)}");
+        if (!string.IsNullOrWhiteSpace(vendeurId)) query.Add($"vendeurId={Uri.EscapeDataString(vendeurId)}");
+        if (!string.IsNullOrWhiteSpace(caissierId)) query.Add($"caissierId={Uri.EscapeDataString(caissierId)}");
 
         var url = "api/ventes/stats" + (query.Count > 0 ? "?" + string.Join("&", query) : string.Empty);
         return GetAsync<VentesStatsResponse>(url, ct);

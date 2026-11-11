@@ -281,6 +281,68 @@ public class ReceiptSettingsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Serveur_field_is_off_by_default_and_keeps_the_shops_own_label()
+    {
+        var owner = await SignUpOwnerAsync();
+        var fresh = await GetAsync(owner);
+        Assert.False(fresh.ServeurEnabled);
+        Assert.Equal("Serveur", fresh.ServeurLabel);
+        Assert.Equal("Serveurs", fresh.ServeurLabelPlural);
+
+        (await SendAsync(HttpMethod.Put, "/api/parametres/recu", owner,
+                From(fresh, companyName: "Maquis") with
+                {
+                    ServeurEnabled = true, ServeurLabel = " Agent ", ServeurLabelPlural = "Agents",
+                }))
+            .EnsureSuccessStatusCode();
+        var saved = await GetAsync(owner);
+        Assert.True(saved.ServeurEnabled);
+        Assert.Equal("Agent", saved.ServeurLabel);
+        Assert.Equal("Agents", saved.ServeurLabelPlural);
+
+        // An older client that does not send the fields leaves them alone; a blank label
+        // falls back to the default rather than printing ": Koffi".
+        (await SendAsync(HttpMethod.Put, "/api/parametres/recu", owner,
+                From(saved, companyName: "Maquis") with
+                {
+                    ServeurEnabled = null, ServeurLabel = "  ", ServeurLabelPlural = null,
+                }))
+            .EnsureSuccessStatusCode();
+        var again = await GetAsync(owner);
+        Assert.True(again.ServeurEnabled);
+        Assert.Equal("Serveur", again.ServeurLabel);
+        Assert.Equal("Agents", again.ServeurLabelPlural);
+    }
+
+    [Fact]
+    public async Task Serveurs_are_listed_and_a_retyped_name_returns_the_existing_one()
+    {
+        var owner = await SignUpOwnerAsync();
+
+        var koffi = await (await SendAsync(HttpMethod.Post, "/api/ventes/serveurs", owner,
+            new SaveServeurRequest("  Koffi   Yao "))).Content.ReadFromJsonAsync<ServeurDto>();
+        Assert.Equal("Koffi Yao", koffi!.Nom);
+
+        // Deactivated, then typed again from the till's "+": same row, back in the picker.
+        (await SendAsync(HttpMethod.Put, $"/api/ventes/serveurs/{koffi.Id}", owner,
+            new SaveServeurRequest("Koffi Yao", IsActive: false))).EnsureSuccessStatusCode();
+        var retyped = await (await SendAsync(HttpMethod.Post, "/api/ventes/serveurs", owner,
+            new SaveServeurRequest("koffi yao"))).Content.ReadFromJsonAsync<ServeurDto>();
+        Assert.Equal(koffi.Id, retyped!.Id);
+        Assert.True(retyped.IsActive);
+
+        var awa = await (await SendAsync(HttpMethod.Post, "/api/ventes/serveurs", owner,
+            new SaveServeurRequest("Awa"))).Content.ReadFromJsonAsync<ServeurDto>();
+        var rename = await SendAsync(HttpMethod.Put, $"/api/ventes/serveurs/{awa!.Id}", owner,
+            new SaveServeurRequest("KOFFI YAO"));
+        Assert.Equal(HttpStatusCode.Conflict, rename.StatusCode);
+
+        var list = await (await SendAsync(HttpMethod.Get, "/api/ventes/serveurs", owner))
+            .Content.ReadFromJsonAsync<List<ServeurDto>>();
+        Assert.Equal(["Awa", "Koffi Yao"], list!.Select(s => s.Nom));
+    }
+
+    [Fact]
     public async Task SavedWording_IsReadBack()
     {
         var owner = await SignUpOwnerAsync();
@@ -470,6 +532,128 @@ public class ReceiptSettingsTests : IAsyncLifetime
             new CreateVenteRequest([new CartItemRequest(product!.Id, 1, price)], "cash", montantPaye, remiseGlobale));
         Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
         return (await response.Content.ReadFromJsonAsync<VenteDto>())!;
+    }
+
+    [Fact]
+    public async Task A_sale_keeps_its_serveurs_name_and_refuses_another_shops_serveur()
+    {
+        var owner = await SignUpOwnerAsync();
+        var koffi = await (await SendAsync(HttpMethod.Post, "/api/ventes/serveurs", owner,
+            new SaveServeurRequest("Koffi"))).Content.ReadFromJsonAsync<ServeurDto>();
+
+        var product = await (await SendAsync(HttpMethod.Post, "/api/stock/products", owner,
+            new SaveProductRequest("Bière", 1000m, Quantity: 10))).Content.ReadFromJsonAsync<ProductDto>();
+        CreateVenteRequest Sale(string serveurId) =>
+            new([new CartItemRequest(product!.Id, 1, 1000m)], "cash", 1000m, ServeurId: serveurId);
+
+        var sold = await SendAsync(HttpMethod.Post, "/api/ventes", owner, Sale(koffi!.Id));
+        Assert.True(sold.IsSuccessStatusCode, await sold.Content.ReadAsStringAsync());
+        var vente = (await sold.Content.ReadFromJsonAsync<VenteDto>())!;
+        Assert.Equal("Koffi", vente.ServeurNom);
+
+        // Renamed later: the sale keeps the name it was made with.
+        (await SendAsync(HttpMethod.Put, $"/api/ventes/serveurs/{koffi.Id}", owner,
+            new SaveServeurRequest("Koffi Yao"))).EnsureSuccessStatusCode();
+        var reread = await (await SendAsync(HttpMethod.Get, $"/api/ventes/{vente.Id}", owner))
+            .Content.ReadFromJsonAsync<VenteDto>();
+        Assert.Equal("Koffi", reread!.ServeurNom);
+
+        var unknown = await SendAsync(HttpMethod.Post, "/api/ventes", owner, Sale(Guid.NewGuid().ToString()));
+        Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
+    }
+
+    [Fact]
+    public async Task Editing_a_sale_changes_or_removes_its_serveur_and_leaves_it_alone_otherwise()
+    {
+        var owner = await SignUpOwnerAsync();
+        async Task<ServeurDto> AddServeur(string nom) => (await (await SendAsync(HttpMethod.Post,
+            "/api/ventes/serveurs", owner, new SaveServeurRequest(nom))).Content.ReadFromJsonAsync<ServeurDto>())!;
+        var koffi = await AddServeur("Koffi");
+        var awa = await AddServeur("Awa");
+
+        var product = await (await SendAsync(HttpMethod.Post, "/api/stock/products", owner,
+            new SaveProductRequest("Bière", 1000m, Quantity: 10))).Content.ReadFromJsonAsync<ProductDto>();
+        var vente = (await (await SendAsync(HttpMethod.Post, "/api/ventes", owner,
+            new CreateVenteRequest([new CartItemRequest(product!.Id, 1, 1000m)], "cash", 1000m, ServeurId: koffi.Id)))
+            .Content.ReadFromJsonAsync<VenteDto>())!;
+
+        async Task<VenteDto> Edit(EditVenteRequest r)
+        {
+            (await SendAsync(HttpMethod.Put, $"/api/ventes/{vente.Id}", owner, r)).EnsureSuccessStatusCode();
+            return (await (await SendAsync(HttpMethod.Get, $"/api/ventes/{vente.Id}", owner))
+                .Content.ReadFromJsonAsync<VenteDto>())!;
+        }
+
+        // A client-only edit does not touch the serveur.
+        Assert.Equal("Koffi", (await Edit(new EditVenteRequest("Jean", null))).ServeurNom);
+        var moved = await Edit(new EditVenteRequest(null, null, ServeurId: awa.Id));
+        Assert.Equal((awa.Id, "Awa"), (moved.ServeurId, moved.ServeurNom));
+        var removed = await Edit(new EditVenteRequest(null, null, ServeurId: ""));
+        Assert.Null(removed.ServeurNom);
+
+        var unknown = await SendAsync(HttpMethod.Put, $"/api/ventes/{vente.Id}", owner,
+            new EditVenteRequest(null, null, ServeurId: Guid.NewGuid().ToString()));
+        Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
+    }
+
+    [Fact]
+    public async Task Stats_rank_sales_by_serveur_and_a_rename_keeps_one_line()
+    {
+        var owner = await SignUpOwnerAsync();
+        async Task<ServeurDto> AddServeur(string nom) => (await (await SendAsync(HttpMethod.Post,
+            "/api/ventes/serveurs", owner, new SaveServeurRequest(nom))).Content.ReadFromJsonAsync<ServeurDto>())!;
+        var koffi = await AddServeur("Koffi");
+        var awa = await AddServeur("Awa");
+
+        var product = await (await SendAsync(HttpMethod.Post, "/api/stock/products", owner,
+            new SaveProductRequest("Bière", 1000m, Quantity: 50))).Content.ReadFromJsonAsync<ProductDto>();
+        async Task Sell(int qty, decimal paye, string? serveurId) => (await SendAsync(HttpMethod.Post, "/api/ventes", owner,
+            new CreateVenteRequest([new CartItemRequest(product!.Id, qty, 1000m)], "cash", paye, ServeurId: serveurId)))
+            .EnsureSuccessStatusCode();
+
+        await Sell(2, 2000m, koffi.Id);
+        (await SendAsync(HttpMethod.Put, $"/api/ventes/serveurs/{koffi.Id}", owner,
+            new SaveServeurRequest("Koffi Yao"))).EnsureSuccessStatusCode();
+        await Sell(3, 3000m, koffi.Id);
+        await Sell(4, 1000m, awa.Id);   // part-paid: 3000 still owed
+        await Sell(1, 1000m, null);     // no serveur: not in the table
+
+        var stats = await (await SendAsync(HttpMethod.Get, "/api/ventes/stats", owner))
+            .Content.ReadFromJsonAsync<VentesStatsResponse>();
+
+        Assert.Equal(["Koffi Yao", "Awa"], stats!.ServeurSales!.Select(s => s.Nom));
+        var k = stats.ServeurSales![0];
+        Assert.Equal((2, 5000m, 2500m), (k.NombreVentes, k.MontantTotal, k.VenteMoyenne));
+        var a = stats.ServeurSales[1];
+        Assert.Equal((4000m, 1000m, 3000m), (a.MontantTotal, a.MontantEncaisse, a.MontantRestant));
+
+        // Filtered on one serveur: the tiles describe that person alone.
+        var awaOnly = await (await SendAsync(HttpMethod.Get, $"/api/ventes/stats?serveurId={awa.Id}", owner))
+            .Content.ReadFromJsonAsync<VentesStatsResponse>();
+        Assert.Equal((1, 4000m, 3000m), (awaOnly!.TotalVentes, awaOnly.ChiffreAffaires, awaOnly.MontantRestant));
+
+        // Liste des Ventes searched by serveur, on the name stored on the sale.
+        var list = await (await SendAsync(HttpMethod.Get, "/api/ventes?search=koffi&searchType=serveur", owner))
+            .Content.ReadFromJsonAsync<VentesListResponse>();
+        Assert.Equal(2, list!.Ventes.Count);
+        Assert.All(list.Ventes, v => Assert.StartsWith("Koffi", v.ServeurNom));
+
+        // "Serveur" chosen with nothing typed: the sales that have one, not every sale.
+        var tagged = await (await SendAsync(HttpMethod.Get, "/api/ventes?searchType=serveur", owner))
+            .Content.ReadFromJsonAsync<VentesListResponse>();
+        Assert.Equal(3, tagged!.Ventes.Count);
+
+        // Vendeur / Caissier filters: the owner rang up and cashed every sale.
+        var vendeur = Assert.Single(stats.Vendeurs!);
+        Assert.Equal(owner.UserId, vendeur.UserId);
+        Assert.Equal(owner.UserId, Assert.Single(stats.Caissiers!).UserId);
+        var byVendeur = await (await SendAsync(HttpMethod.Get, $"/api/ventes/stats?vendeurId={owner.UserId}", owner))
+            .Content.ReadFromJsonAsync<VentesStatsResponse>();
+        Assert.Equal(4, byVendeur!.TotalVentes);
+        var nobody = await (await SendAsync(HttpMethod.Get, $"/api/ventes/stats?caissierId={Guid.NewGuid()}", owner))
+            .Content.ReadFromJsonAsync<VentesStatsResponse>();
+        Assert.Equal(0, nobody!.TotalVentes);
+        Assert.Single(nobody.Caissiers!); // the choices stay, even when the filter matches nothing
     }
 
     [Fact]

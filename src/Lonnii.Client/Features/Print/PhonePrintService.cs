@@ -72,7 +72,16 @@ public sealed class PhonePrintService(AppSession session)
         if (job.Format == "caisse")
         {
             var caisse = await session.Api.GetPrintJobCaisseAsync(job.Id);
-            Caisse.CaisseReportDialog.PrintSilently(caisse, session.Groupe?.Nom);
+            // Only a heading word: a failed settings read must not stop the print.
+            // Null = the serveur field is off: the report then has no per-serveur section.
+            var receipt = session.CachedReceiptSettings;
+            if (receipt is null)
+            {
+                try { receipt = await session.GetReceiptSettingsAsync(); }
+                catch (ApiException) { }
+            }
+            string? label = receipt?.ServeurEnabled == true ? receipt.ServeurLabel : null;
+            Caisse.CaisseReportDialog.PrintSilently(caisse, session.Groupe?.Nom, label);
             return;
         }
 

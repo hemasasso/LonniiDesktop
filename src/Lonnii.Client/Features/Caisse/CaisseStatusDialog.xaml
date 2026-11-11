@@ -60,6 +60,7 @@
                         <RowDefinition />
                         <RowDefinition />
                         <RowDefinition />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
                     <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,10">
@@ -125,6 +126,30 @@
                                    ToolTip="Avoirs remboursés depuis cette caisse pendant la session (y compris ceux créés avant)" />
                         <TextBlock x:Name="AvoirsSoldesText" FontWeight="SemiBold"
                                    Foreground="{DynamicResource Danger}" />
+                    </StackPanel>
+
+                    <!-- Fin de journée: the session's sales split by serveur. Only when at least
+                         one sale names one; the heading uses the shop's own label. -->
+                    <StackPanel x:Name="ServeursPanel" Grid.Row="4" Grid.ColumnSpan="2" Margin="0,12,0,0"
+                                Visibility="Collapsed">
+                        <TextBlock x:Name="ServeursTitle" Text="Par serveur" Style="{StaticResource PageSubtitle}" />
+                        <ItemsControl x:Name="ServeursList" Margin="0,4,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding Nom}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="1" Text="{Binding Detail}" Margin="12,0,0,0"
+                                                   Style="{StaticResource PageSubtitle}" FontSize="12" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="2" Text="{Binding Total}" FontWeight="SemiBold" Margin="12,0,0,0" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
                 </Grid>
             </Border>

@@ -23,9 +23,16 @@ public partial class CaisseReportDialog : Window
     private static readonly Brush Accent = new SolidColorBrush(Color.FromRgb(0x4C, 0x3B, 0x9E));
     private static readonly Brush Loss = new SolidColorBrush(Color.FromRgb(0xC0, 0x39, 0x2B));
 
-    public CaisseReportDialog(CaisseDto caisse, string? groupName)
+    private readonly string _serveurLabel;
+    private readonly bool _showServeurs;
+
+    /// <param name="serveurLabel">The shop's word for the serveur field ("Serveur", "Agent"…),
+    /// for the per-serveur section's heading. Null = the field is off: no per-serveur section.</param>
+    public CaisseReportDialog(CaisseDto caisse, string? groupName, string? serveurLabel = null)
     {
         _caisse = caisse;
+        _showServeurs = !string.IsNullOrWhiteSpace(serveurLabel);
+        _serveurLabel = _showServeurs ? serveurLabel!.Trim() : ReceiptSettingsDefaults.ServeurLabel;
         InitializeComponent();
         Build(groupName);
     }
@@ -54,6 +61,21 @@ public partial class CaisseReportDialog : Window
         Row("Avoirs créés", Money.Format(c.TotalAvoir));
         Row("Avoirs remboursés", Money.Format(c.AvoirsSoldes));
         Divider();
+
+        // Fin de journée par serveur: only when the session's sales name at least one.
+        if (_showServeurs && c.ServeurSales is { Count: > 0 } serveurs)
+        {
+            Section($"PAR {_serveurLabel.ToUpperInvariant()}");
+            foreach (var s in serveurs)
+            {
+                Row($"{s.Nom} ({s.NombreVentes} vente{(s.NombreVentes > 1 ? "s" : "")})", Money.Format(s.MontantTotal), wrapLabel: true);
+                if (s.MontantRestant > 0)
+                    Row("  dont reste à payer", Money.Format(s.MontantRestant), color: Loss);
+            }
+            var sans = c.TotalChiffreAffaires - serveurs.Sum(s => s.MontantTotal);
+            if (sans > 0) Row($"Sans {_serveurLabel.ToLowerInvariant()}", Money.Format(sans));
+            Divider();
+        }
 
         Section("ENCAISSEMENTS");
         // PaiementCash folds in facture/avoir CaisseTransaction movements, but not manual
@@ -203,12 +225,12 @@ public partial class CaisseReportDialog : Window
     /// Prints a report on this computer's default printer with no dialog: a phone asked for it
     /// (PhonePrintService), and nobody is at this screen to answer one.
     /// </summary>
-    public static void PrintSilently(CaisseDto caisse, string? groupName)
+    public static void PrintSilently(CaisseDto caisse, string? groupName, string? serveurLabel = null)
     {
         var printDialog = new PrintDialog();
         _ = printDialog.PrintQueue ?? throw new InvalidOperationException("Aucune imprimante par défaut sur ce poste.");
 
-        var window = new CaisseReportDialog(caisse, groupName);
+        var window = new CaisseReportDialog(caisse, groupName, serveurLabel);
         var paper = window.ReportPaper;
         ((System.Windows.Controls.ScrollViewer)paper.Parent).Content = null; // printed on its own, never shown
         paper.BorderThickness = new Thickness(0);

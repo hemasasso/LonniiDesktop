@@ -103,6 +103,11 @@ public partial class ReceiptSettingsDialog : Window
                     check.Content = ReceiptSections.Label(ReceiptSections.Seller, facture: false, SellerLabelBox.Text);
         };
 
+        // Same for the serveur section, and both follow the on/off switch.
+        ServeurLabelBox.TextChanged += (_, _) => SyncServeurControls();
+        ServeurEnabledCheck.Checked += (_, _) => SyncServeurControls();
+        ServeurEnabledCheck.Unchecked += (_, _) => SyncServeurControls();
+
         FontFamilyBox.SelectionChanged += (_, _) => RenderPreview();
         ReceiptTemplateBox.SelectionChanged += (_, _) => RenderPreview();
         TvaIncluseRadio.Checked += (_, _) => RenderPreview();
@@ -112,6 +117,24 @@ public partial class ReceiptSettingsDialog : Window
         Slider[] sliders = [FontSizeSlider, ReceiptTitleSizeSlider, FactureTitleSizeSlider];
         foreach (var slider in sliders) slider.ValueChanged += (_, _) => RenderPreview();
     }
+
+    /// <summary>The label boxes and the "Serveur" section switches only matter while the field
+    /// is on, and the switch carries the shop's own name for it.</summary>
+    private void SyncServeurControls()
+    {
+        var enabled = ServeurEnabledCheck.IsChecked == true;
+        ServeurLabelPanel.IsEnabled = enabled;
+        ServeurEnabledCheck.Content = $"Activer le champ « {ServeurLabelText} » sur chaque vente";
+
+        foreach (var panel in new[] { ReceiptSectionsPanel, FactureSectionsPanel })
+            foreach (var check in panel.Children.OfType<CheckBox>().Where(c => (string?)c.Tag == ReceiptSections.Serveur))
+            {
+                check.Content = ReceiptSections.Label(ReceiptSections.Serveur, facture: false, serveurLabel: ServeurLabelBox.Text);
+                check.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+            }
+    }
+
+    private string ServeurLabelText => Blank(ServeurLabelBox.Text) ?? ReceiptSettingsDefaults.ServeurLabel;
 
     private async Task LoadAsync()
     {
@@ -167,6 +190,9 @@ public partial class ReceiptSettingsDialog : Window
         FacturePrintAfterSaleCheck.IsChecked = s.FacturePrintAfterSale;
         ReceiptAmountInWordsCheck.IsChecked = s.ReceiptAmountInWords;
         FactureAmountInWordsCheck.IsChecked = s.FactureAmountInWords;
+        ServeurEnabledCheck.IsChecked = s.ServeurEnabled;
+        ServeurLabelBox.Text = s.ServeurLabel;
+        ServeurLabelPluralBox.Text = s.ServeurLabelPlural;
 
         ReceiptTemplateBox.SelectedValue = s.ReceiptTemplate;
         FactureTemplateBox.SelectedValue = s.FactureTemplate;
@@ -183,6 +209,7 @@ public partial class ReceiptSettingsDialog : Window
 
         ShowLogo(_logoBytes);
         ShowQr(_qrBytes);
+        SyncServeurControls();
 
         _loading = false;
         RenderPreview();
@@ -414,7 +441,10 @@ public partial class ReceiptSettingsDialog : Window
         ReceiptPrintAfterSale: ReceiptPrintAfterSaleCheck.IsChecked == true,
         FacturePrintAfterSale: FacturePrintAfterSaleCheck.IsChecked == true,
         ReceiptAmountInWords: ReceiptAmountInWordsCheck.IsChecked == true,
-        FactureAmountInWords: FactureAmountInWordsCheck.IsChecked == true);
+        FactureAmountInWords: FactureAmountInWordsCheck.IsChecked == true,
+        ServeurEnabled: ServeurEnabledCheck.IsChecked == true,
+        ServeurLabel: ServeurLabelBox.Text,
+        ServeurLabelPlural: ServeurLabelPluralBox.Text);
 
     // --- Sections ----------------------------------------------------------------
 
@@ -424,7 +454,7 @@ public partial class ReceiptSettingsDialog : Window
         {
             var check = new CheckBox
             {
-                Content = ReceiptSections.Label(section, facture, SellerLabelBox.Text),
+                Content = ReceiptSections.Label(section, facture, SellerLabelBox.Text, ServeurLabelBox.Text),
                 Tag = section,
                 Width = 210,
                 Margin = new Thickness(0, 0, 8, 6),
@@ -447,6 +477,7 @@ public partial class ReceiptSettingsDialog : Window
         ReceiptSections.ClientSignature => "La case du client dans la zone Signature / cachet. Décochée, seul le cachet s'imprime - même sur un reçu avec avoir.",
         ReceiptSections.Qr => "Imprimé seulement si un QR code ou une note est configuré.",
         ReceiptSections.Cashier => "Imprimé seulement sur un reçu (pas une facture), avec le nom de la personne qui a encaissé le dernier paiement.",
+        ReceiptSections.Serveur => "Imprimé seulement quand un nom a été choisi sur la vente.",
         ReceiptSections.PaymentHistory => "Imprimé seulement quand la vente a été réglée en plusieurs fois.",
         ReceiptSections.Notice when !facture => "Imprimé seulement quand le client a trop payé et repart avec un avoir.",
         _ => null,
@@ -514,6 +545,9 @@ public partial class ReceiptSettingsDialog : Window
         FacturePrintAfterSale = FacturePrintAfterSaleCheck.IsChecked == true,
         ReceiptAmountInWords = ReceiptAmountInWordsCheck.IsChecked == true,
         FactureAmountInWords = FactureAmountInWordsCheck.IsChecked == true,
+        ServeurEnabled = ServeurEnabledCheck.IsChecked == true,
+        ServeurLabel = ServeurLabelText,
+        ServeurLabelPlural = Blank(ServeurLabelPluralBox.Text) ?? ReceiptSettingsDefaults.ServeurLabelPlural,
     };
 
     private string SelectedTvaMode => TvaAjouteeRadio.IsChecked == true ? TvaModes.Ajoutee : TvaModes.Incluse;

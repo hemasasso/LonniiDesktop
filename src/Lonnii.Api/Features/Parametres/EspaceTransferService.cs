@@ -304,6 +304,7 @@ public sealed class EspaceTransferService(
             ("Snapshots stock", await db.StockSnapshots.CountAsync(x => x.GroupId == g, ct)),
             ("Ventes", await db.Ventes.CountAsync(x => x.GroupId == g, ct)),
             ("Clients", await db.Clients.CountAsync(x => x.GroupId == g, ct)),
+            ("Serveurs", await db.Serveurs.CountAsync(x => x.GroupId == g, ct)),
             ("Sessions caisse", await db.Caisses.CountAsync(x => x.GroupId == g, ct)),
             ("Transactions caisse", await db.CaisseTransactions.CountAsync(x => x.GroupId == g, ct)),
             ("Paiements groupés", await db.GroupePayments.CountAsync(x => x.GroupId == g, ct)),

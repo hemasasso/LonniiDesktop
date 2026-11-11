@@ -127,6 +127,7 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
     public DbSet<CaisseTransaction> CaisseTransactions => Set<CaisseTransaction>();
     public DbSet<VentesParametres> VentesParametres => Set<VentesParametres>();
     public DbSet<Client> Clients => Set<Client>();
+    public DbSet<Serveur> Serveurs => Set<Serveur>();
     public DbSet<VentesUserActivity> VentesUserActivities => Set<VentesUserActivity>();
 
     // Charges
@@ -248,6 +249,7 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         [typeof(CaisseTransaction)] = "caisse_transactions",
         [typeof(VentesParametres)] = "ventes_parametres",
         [typeof(Client)] = "clients",
+        [typeof(Serveur)] = "serveurs",
         [typeof(VentesUserActivity)] = "ventes_user_activity",
         [typeof(Charge)] = "charges",
         [typeof(ChargeCategory)] = "charges_categories",
@@ -670,6 +672,14 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         {
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.GroupId);
+        });
+
+        b.Entity<Serveur>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.GroupId);
+            e.Property(x => x.Nom).HasMaxLength(255);
+            e.Property(x => x.Telephone).HasMaxLength(100);
         });
 
         b.Entity<VentesUserActivity>(e =>

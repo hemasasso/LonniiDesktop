@@ -18,6 +18,12 @@ public partial class EditVenteDialog : Window
     public string? ClientTelephone { get; private set; }
     public string? ClientEmail { get; private set; }
 
+    /// <summary>Null = serveur untouched (field off, or same choice); "" = removed; else the new id.</summary>
+    public string? ServeurId { get; private set; }
+
+    private readonly string? _currentServeurId;
+    private readonly string? _currentServeurNom;
+
     private sealed record ClientSuggestion(ClientDto Client)
     {
         public string Nom => Client.Nom;
@@ -30,9 +36,12 @@ public partial class EditVenteDialog : Window
 
     public EditVenteDialog(
         AppSession session, string numeroVente, string? currentClientNom, DateTime currentDateVente,
-        string? currentClientTelephone = null, string? currentClientEmail = null)
+        string? currentClientTelephone = null, string? currentClientEmail = null,
+        string? currentServeurId = null, string? currentServeurNom = null)
     {
         _session = session;
+        _currentServeurId = currentServeurId;
+        _currentServeurNom = currentServeurNom;
         InitializeComponent();
         SubtitleText.Text = $"Vente {numeroVente}";
         ClientNomBox.Text = currentClientNom ?? string.Empty;
@@ -45,7 +54,38 @@ public partial class EditVenteDialog : Window
             ClientNomBox.CaretIndex = ClientNomBox.Text.Length;
             await LoadClientsAsync();
             UpdateClientDue();
+            await LoadServeursAsync();
         };
+    }
+
+    /// <summary>The picker, when the shop uses the field (or this sale already has a serveur).
+    /// The sale's own serveur stays offered even if deactivated since, so opening the dialog
+    /// and saving does not silently drop it.</summary>
+    private async Task LoadServeursAsync()
+    {
+        try
+        {
+            // Off in Paramètres = no serveur picker, even on a sale that has one (it is kept as is).
+            var settings = await _session.GetReceiptSettingsAsync();
+            if (!settings.ServeurEnabled) return;
+
+            var all = await _session.Api.GetServeursAsync();
+            var none = new ServeurDto(string.Empty, "— Aucun —", null, true, default);
+            var choices = new List<ServeurDto> { none };
+            choices.AddRange(all.Where(s => s.IsActive || s.Id == _currentServeurId));
+            // A sale whose serveur row is gone still shows the name it was made with.
+            if (_currentServeurNom is not null && !choices.Any(s => s.Id == _currentServeurId))
+                choices.Add(new ServeurDto(_currentServeurId ?? "?", $"{_currentServeurNom} (supprimé)", null, false, default));
+
+            ServeurLabel.Text = settings.ServeurLabel;
+            ServeurCombo.ItemsSource = choices;
+            ServeurCombo.SelectedItem = choices.FirstOrDefault(s => _currentServeurId is not null && s.Id == _currentServeurId) ?? none;
+            ServeurPanel.Visibility = Visibility.Visible;
+        }
+        catch (ApiException)
+        {
+            // No picker: the rest of the edit still works, and the serveur stays as it is.
+        }
     }
 
     private async Task LoadClientsAsync()
@@ -170,6 +210,15 @@ public partial class EditVenteDialog : Window
         DateVente = date;
         ClientTelephone = ClientTelephoneBox.Text.Trim();
         ClientEmail = ClientEmailBox.Text.Trim();
+
+        // Sent only when it actually changed, so an edit of the client never touches the serveur.
+        // The "(supprimé)" stand-in for a serveur row that no longer exists means "keep as is".
+        if (ServeurPanel.Visibility == Visibility.Visible && ServeurCombo.SelectedItem is ServeurDto chosen
+            && !chosen.Nom.EndsWith(" (supprimé)", StringComparison.Ordinal)
+            && chosen.Id != (_currentServeurId ?? string.Empty))
+        {
+            ServeurId = chosen.Id;
+        }
         DialogResult = true;
     }
 

@@ -146,6 +146,10 @@ public static class VentesEndpoints
             return !string.IsNullOrWhiteSpace(full) ? full : u.Username ?? u.Email;
         }
 
+        // "Serveur" chosen with nothing typed: every sale that has a serveur, not every sale.
+        if (string.IsNullOrWhiteSpace(search) && searchType == "serveur")
+            ventes = ventes.Where(v => !string.IsNullOrWhiteSpace(v.ServeurNom)).ToList();
+
         if (!string.IsNullOrWhiteSpace(search))
         {
             var term = search.Trim();
@@ -155,9 +159,12 @@ public static class VentesEndpoints
                 "vendeur" => ventes.Where(v => NameFor(v.CreatedBy)?.Contains(term, StringComparison.OrdinalIgnoreCase) == true),
                 "caissier" => ventes.Where(v => v.Paiements.Any(p =>
                     NameFor(p.CreatedBy)?.Contains(term, StringComparison.OrdinalIgnoreCase) == true)),
+                // The name stored on the sale - what the receipt printed.
+                "serveur" => ventes.Where(v => v.ServeurNom?.Contains(term, StringComparison.OrdinalIgnoreCase) == true),
                 _ => ventes.Where(v =>
                     v.NumeroVente.Contains(term, StringComparison.OrdinalIgnoreCase)
                     || v.ClientNom?.Contains(term, StringComparison.OrdinalIgnoreCase) == true
+                    || v.ServeurNom?.Contains(term, StringComparison.OrdinalIgnoreCase) == true
                     || NameFor(v.CreatedBy)?.Contains(term, StringComparison.OrdinalIgnoreCase) == true
                     || v.Paiements.Any(p => NameFor(p.CreatedBy)?.Contains(term, StringComparison.OrdinalIgnoreCase) == true)),
             }).ToList();
@@ -168,7 +175,7 @@ public static class VentesEndpoints
             v.MontantTotal, v.MontantPaye, v.MontantRestant,
             v.AvoirAmount, v.IsAvoirSolded,
             StatutPaiement.Normalise(v.StatutPaiement), v.CancellationReason, v.ModePaiement,
-            v.ClientTelephone, v.ClientEmail))
+            v.ClientTelephone, v.ClientEmail, v.ServeurId, v.ServeurNom))
             .ToList();
 
         return Results.Ok(new VentesListResponse(items));
@@ -183,12 +190,17 @@ public static class VentesEndpoints
     /// </summary>
     private static async Task<IResult> GetStatsAsync(
         DateOnly? dateDebut, DateOnly? dateFin, string? categoryId, string? productId, int? tzOffsetMinutes,
+        string? serveurId, string? vendeurId, string? caissierId,
         GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
         var query = db.Ventes.AsNoTracking()
             .Include(v => v.Items)
             .Include(v => v.Paiements)
             .Where(v => v.GroupId == scope.GroupId);
+
+        // One serveur's sales only: every tile and chart then describes that person.
+        if (!string.IsNullOrWhiteSpace(serveurId))
+            query = query.Where(v => v.ServeurId == serveurId);
 
         var (rangeStart, rangeEnd) = LocalRangeToUtc(dateDebut, dateFin, tzOffsetMinutes);
 
@@ -199,6 +211,28 @@ public static class VentesEndpoints
             query = query.Where(v => v.DateVente < end);
 
         var ventes = await query.ToListAsync(ct);
+
+        // The Vendeur / Caissier filter choices: everyone who rang up a sale, or recorded a payment,
+        // in the period - read before those two filters narrow the list, so picking one person does
+        // not empty the other dropdown. People who left the espace still appear for their old sales.
+        var vendeurIds = ventes.Select(v => v.CreatedBy).Where(id => id is not null).Distinct().ToList();
+        var caissierIds = ventes.SelectMany(v => v.Paiements.Select(p => p.CreatedBy)).Where(id => id is not null).Distinct().ToList();
+        var peopleIds = vendeurIds.Concat(caissierIds).Distinct().ToList();
+        var peopleNames = (await db.Users.AsNoTracking().Where(u => peopleIds.Contains(u.IdUser))
+                .Select(u => new { u.IdUser, u.FirstName, u.LastName, u.Username, u.Email }).ToListAsync(ct))
+            .ToDictionary(u => u.IdUser, u => $"{u.FirstName} {u.LastName}".Trim() is { Length: > 0 } full ? full : u.Username ?? u.Email ?? u.IdUser);
+        List<StatsPersonDto> People(IEnumerable<string?> ids) => ids
+            .Select(id => new StatsPersonDto(id!, peopleNames.GetValueOrDefault(id!) ?? "?"))
+            .OrderBy(p => p.Nom, StringComparer.CurrentCultureIgnoreCase).ToList();
+        var vendeurs = People(vendeurIds);
+        var caissiers = People(caissierIds);
+
+        // Vendeur = who rang the sale up; caissier = who recorded a payment on it (in the
+        // préparateur/caissier flow, not the same person).
+        if (!string.IsNullOrWhiteSpace(vendeurId))
+            ventes = ventes.Where(v => v.CreatedBy == vendeurId).ToList();
+        if (!string.IsNullOrWhiteSpace(caissierId))
+            ventes = ventes.Where(v => v.Paiements.Any(p => p.CreatedBy == caissierId)).ToList();
 
         var productCategories = await db.Products.AsNoTracking()
             .Where(p => p.GroupId == scope.GroupId)
@@ -314,12 +348,34 @@ public static class VentesEndpoints
 
             var previousTotal = await db.Ventes.AsNoTracking()
                 .Where(v => v.GroupId == scope.GroupId && v.DateVente >= prevStart && v.DateVente < prevEnd
-                    && v.StatutPaiement != StatutPaiement.Annule)
+                    && v.StatutPaiement != StatutPaiement.Annule
+                    && (string.IsNullOrEmpty(serveurId) || v.ServeurId == serveurId)
+                    && (string.IsNullOrEmpty(vendeurId) || v.CreatedBy == vendeurId)
+                    && (string.IsNullOrEmpty(caissierId) || v.Paiements.Any(p => p.CreatedBy == caissierId)))
                 .SumAsync(v => (decimal?)v.MontantTotal, ct) ?? 0;
 
             if (previousTotal > 0)
                 croissance = (chiffreAffaires - previousTotal) / previousTotal * 100;
         }
+
+        // "Par serveur": same rows (so the same filters and line shares), grouped by serveur.
+        var serveurRows = rows.Where(r => r.Vente.ServeurId is not null || r.Vente.ServeurNom is not null).ToList();
+        var serveurNames = serveurRows.Count == 0 ? new Dictionary<string, string>()
+            : await db.Serveurs.AsNoTracking().Where(s => s.GroupId == scope.GroupId)
+                .ToDictionaryAsync(s => s.Id, s => s.Nom, ct);
+        var serveurSales = serveurRows
+            .GroupBy(r => r.Vente.ServeurId ?? "nom:" + r.Vente.ServeurNom!.Trim().ToLowerInvariant())
+            .Select(g =>
+            {
+                var id = g.First().Vente.ServeurId;
+                var nom = id is not null && serveurNames.TryGetValue(id, out var current) ? current
+                    : g.OrderByDescending(r => r.Vente.DateVente).First().Vente.ServeurNom ?? "?";
+                return new ServeurSalesDto(id, nom, g.Count(), g.Sum(r => r.Montant),
+                    g.Sum(r => r.Vente.MontantPaye * r.Share),
+                    g.Sum(r => Math.Max(0, r.Vente.MontantRestant) * r.Share));
+            })
+            .OrderByDescending(s => s.MontantTotal)
+            .ToList();
 
         return Results.Ok(new VentesStatsResponse(
             rows.Count, chiffreAffaires, montantEncaisse, montantRestant, totalAvoir,
@@ -327,7 +383,7 @@ public static class VentesEndpoints
             CountByStatus(StatutPaiement.Paye), CountByStatus(StatutPaiement.Partiel),
             CountByStatus(StatutPaiement.EnAttente), ventes.Count - active.Count,
             clientsUniques, paiementCash, paiementMobile, paiementCarte, paiementAutres,
-            moyenneQuotidienne, croissance, categorySales, topProducts, serie));
+            moyenneQuotidienne, croissance, categorySales, topProducts, serie, serveurSales, vendeurs, caissiers));
     }
 
     /// <summary>
@@ -530,7 +586,7 @@ public static class VentesEndpoints
         string id, EditVenteRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
     {
         if (request.ClientNom is null && request.DateVente is null
-            && request.ClientTelephone is null && request.ClientEmail is null)
+            && request.ClientTelephone is null && request.ClientEmail is null && request.ServeurId is null)
             return Results.BadRequest(new ApiError("Aucune modification fournie"));
 
         var vente = await db.Ventes.FirstOrDefaultAsync(v => v.Id == id && v.GroupId == scope.GroupId, ct);
@@ -540,6 +596,34 @@ public static class VentesEndpoints
         if (request.DateVente is { } date) vente.DateVente = date;
         if (request.ClientTelephone is not null) vente.ClientTelephone = Blank(request.ClientTelephone);
         if (request.ClientEmail is not null) vente.ClientEmail = Blank(request.ClientEmail);
+
+        // Serveur: "" removes it, an id sets it. Logged, because it moves the sale from one
+        // person's total to another's in the stats.
+        if (request.ServeurId is not null)
+        {
+            Serveur? serveur = null;
+            if (Blank(request.ServeurId) is { } serveurId)
+            {
+                serveur = await db.Serveurs.AsNoTracking()
+                    .FirstOrDefaultAsync(s => s.Id == serveurId && s.GroupId == scope.GroupId, ct);
+                if (serveur is null) return Results.BadRequest(new ApiError("Le serveur choisi est introuvable"));
+            }
+
+            if (serveur?.Id != vente.ServeurId)
+            {
+                db.VentesUserActivities.Add(new VentesUserActivity
+                {
+                    GroupId = scope.GroupId,
+                    UserId = scope.UserId,
+                    Action = "vente.serveur",
+                    TargetId = vente.Id,
+                    Details = $"Vente {vente.NumeroVente} : {vente.ServeurNom ?? "aucun"} -> {serveur?.Nom ?? "aucun"}",
+                });
+                vente.ServeurId = serveur?.Id;
+                vente.ServeurNom = serveur?.Nom;
+            }
+        }
+
         vente.UpdatedBy = scope.UserId;
         vente.UpdatedAt = DateTime.UtcNow;
 
@@ -610,6 +694,18 @@ public static class VentesEndpoints
             return Results.BadRequest(new ApiError(
                 $"« {notForSale.Name} » ({ProductTypes.DisplayName(notForSale.TypeProduit)}) n'est pas destiné à la vente"));
 
+        // The serveur must be this shop's; the name is copied onto the sale so a later rename
+        // does not rewrite this receipt or move it in the stats. A deactivated one is still
+        // accepted - a till that loaded the list before the change should not lose the sale.
+        Serveur? serveur = null;
+        if (Blank(request.ServeurId) is { } serveurId)
+        {
+            serveur = await db.Serveurs.AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Id == serveurId && s.GroupId == scope.GroupId, ct);
+            if (serveur is null)
+                return Results.BadRequest(new ApiError("Le serveur choisi est introuvable"));
+        }
+
         var vente = new Vente
         {
             GroupId = scope.GroupId,
@@ -627,6 +723,8 @@ public static class VentesEndpoints
             IdempotencyKey = Blank(request.IdempotencyKey),
             CreatedBy = scope.UserId,
             UpdatedBy = scope.UserId,
+            ServeurId = serveur?.Id,
+            ServeurNom = serveur?.Nom,
         };
 
         decimal total = 0;
@@ -939,6 +1037,6 @@ public static class VentesEndpoints
                 .ToList(),
             v.AvoirAmount, v.IsAvoirSolded, avoirSoldedByName, v.AvoirSoldedAt,
             v.CancellationReason, cancelledByName, v.CancelledAt, paiements, v.TvaRate, v.TvaAmount,
-            avoirCreatedByName);
+            avoirCreatedByName, v.ServeurNom, v.ServeurId);
     }
 }

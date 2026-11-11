@@ -245,7 +245,8 @@ public partial class CaisseHistoryDialog : Window
     private void Report_Click(object sender, RoutedEventArgs e)
     {
         if (SelectedCaisse() is not { } caisse) return;
-        new CaisseReportDialog(caisse, _session.Groupe?.Nom) { Owner = this }.ShowDialog();
+        var settings = _session.CachedReceiptSettings;
+        new CaisseReportDialog(caisse, _session.Groupe?.Nom, settings?.ServeurEnabled == true ? settings.ServeurLabel : null) { Owner = this }.ShowDialog();
     }
 
     private void HistoryGrid_DoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e) =>

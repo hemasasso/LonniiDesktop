@@ -176,6 +176,10 @@ public class AppSession(LonniiApiClient api)
     /// after <see cref="GetReceiptSettingsAsync"/> has run.</summary>
     public byte[]? ReceiptLogo => _receiptLogo;
 
+    /// <summary>The cached settings without fetching - null until something has read them.
+    /// For labels on screens that should not wait on the network for a word.</summary>
+    public ReceiptSettingsDto? CachedReceiptSettings => _receiptSettings;
+
     public byte[]? ReceiptQrCode => _receiptQrCode;
 
     /// <summary>

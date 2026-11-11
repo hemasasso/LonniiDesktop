@@ -81,6 +81,14 @@
         <StackPanel Grid.Row="3">
             <TextBlock Text="Date de vente" Style="{StaticResource FieldLabel}" />
             <DatePicker x:Name="DateVentePicker" Margin="0,4,0,0" Padding="8,6" />
+
+            <!-- Serveur: only when the shop has the field on. Changing it moves the sale to
+                 another person's total in the stats, so the server logs it. -->
+            <StackPanel x:Name="ServeurPanel" Visibility="Collapsed" Margin="0,12,0,0">
+                <TextBlock x:Name="ServeurLabel" Text="Serveur" Style="{StaticResource FieldLabel}" />
+                <ComboBox x:Name="ServeurCombo" Margin="0,4,0,0" DisplayMemberPath="Nom"
+                          IsTextSearchEnabled="True" TextSearch.TextPath="Nom" />
+            </StackPanel>
         </StackPanel>
 
         <Border x:Name="ErrorPanel" Grid.Row="4" Visibility="Collapsed"

@@ -215,7 +215,11 @@ public static class CaisseEndpoints
                 ? await ToDtoAsync(db, caisse, ct, own)
                 : ToDto(caisse, own) with { AvoirsSoldes = soldes.GetValueOrDefault(caisse.Id) };
             if (dto.Origine is null) dto = dto with { Origine = await ComputeOrigineAsync(db, caisse, ct) };
-            dtos.Add(dto with { ResteAPayer = await ComputeResteAsync(db, caisse, ct) });
+            dtos.Add(dto with
+            {
+                ResteAPayer = await ComputeResteAsync(db, caisse, ct),
+                ServeurSales = dto.ServeurSales ?? await ComputeServeurSalesAsync(db, caisse, ct),
+            });
         }
 
         return Results.Ok(new CaisseHistoryResponse(dtos, total));
@@ -536,8 +540,9 @@ public static class CaisseEndpoints
 
         var avoirsSoldes = (await LoadAvoirsSoldesAsync(db, [caisse.Id], ct)).GetValueOrDefault(caisse.Id);
         var reste = await ComputeResteAsync(db, caisse, ct);
+        var serveurSales = await ComputeServeurSalesAsync(db, caisse, ct);
         if (caisse.Status == CaisseStatus.Closed)
-            return ToDto(caisse, retraits) with { AvoirsSoldes = avoirsSoldes, ResteAPayer = reste };
+            return ToDto(caisse, retraits) with { AvoirsSoldes = avoirsSoldes, ResteAPayer = reste, ServeurSales = serveurSales };
 
         var stats = await ComputeLiveStatsAsync(db, caisse, DateTime.UtcNow, ct);
         return new CaisseDto(
@@ -549,7 +554,45 @@ public static class CaisseEndpoints
             Ecart: 0, EcartResolved: false, EcartResolutionNote: null,
             caisse.Status, caisse.Notes, retraits ?? [], caisse.MontantFinalMobile,
             MontantInitialCarte: caisse.MontantInitialCarte, MontantFinalCarte: caisse.MontantFinalCarte,
-            Origine: await ComputeOrigineAsync(db, caisse, ct), AvoirsSoldes: avoirsSoldes, ResteAPayer: reste);
+            Origine: await ComputeOrigineAsync(db, caisse, ct), AvoirsSoldes: avoirsSoldes, ResteAPayer: reste,
+            ServeurSales: serveurSales);
+    }
+
+    /// <summary>
+    /// The session's sales split by serveur, for the closing ("fin de journée") view - same
+    /// sales as <see cref="ComputeLiveStatsAsync"/> counts: this cashier's, made during the
+    /// session, not cancelled. Null when none of them names a serveur, so a shop that does not
+    /// use the field sees nothing new. Computed from the sales on every read rather than stored
+    /// at closing: the sales keep the serveur's name, so the answer cannot drift.
+    /// </summary>
+    private static async Task<List<ServeurSalesDto>?> ComputeServeurSalesAsync(
+        LonniiDbContext db, Lonnii.Data.Entities.Caisse caisse, CancellationToken ct)
+    {
+        var asOf = caisse.DateFermeture ?? DateTime.UtcNow;
+        var ventes = await db.Ventes.AsNoTracking()
+            .Include(v => v.Paiements)
+            .Where(v => v.GroupId == caisse.GroupId && v.CreatedBy == caisse.UserId
+                && v.DateVente >= caisse.DateOuverture && v.DateVente <= asOf
+                && v.StatutPaiement != StatutPaiement.Annule
+                && (v.ServeurId != null || v.ServeurNom != null))
+            .ToListAsync(ct);
+        if (ventes.Count == 0) return null;
+
+        var names = await db.Serveurs.AsNoTracking().Where(s => s.GroupId == caisse.GroupId)
+            .ToDictionaryAsync(s => s.Id, s => s.Nom, ct);
+
+        return ventes
+            .GroupBy(v => v.ServeurId ?? "nom:" + v.ServeurNom!.Trim().ToLowerInvariant())
+            .Select(g =>
+            {
+                var id = g.First().ServeurId;
+                var nom = id is not null && names.TryGetValue(id, out var current) ? current
+                    : g.OrderByDescending(v => v.DateVente).First().ServeurNom ?? "?";
+                return new ServeurSalesDto(id, nom, g.Count(), g.Sum(v => v.MontantTotal),
+                    g.Sum(v => v.MontantPaye), g.Sum(v => Math.Max(0, v.MontantRestant)));
+            })
+            .OrderByDescending(s => s.MontantTotal)
+            .ToList();
     }
 
     /// <summary>
@@ -612,6 +655,7 @@ public static class CaisseEndpoints
             {
                 AvoirsSoldes = (await LoadAvoirsSoldesAsync(db, [caisse.Id], ct)).GetValueOrDefault(caisse.Id),
                 ResteAPayer = await ComputeResteAsync(db, caisse, ct),
+                ServeurSales = await ComputeServeurSalesAsync(db, caisse, ct),
             };
         return dto.Origine is null ? dto with { Origine = await ComputeOrigineAsync(db, caisse, ct) } : dto;
     }

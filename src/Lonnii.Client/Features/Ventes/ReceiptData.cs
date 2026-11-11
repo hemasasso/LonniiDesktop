@@ -32,7 +32,8 @@ public sealed record ReceiptData(
     IReadOnlyList<ReceiptPayment> Paiements,
     decimal? TvaRate = null,
     decimal? TvaAmount = null,
-    bool ForceFacture = false)
+    bool ForceFacture = false,
+    string? ServeurNom = null)
 {
     /// <summary>An unpaid sale prints as a facture to settle at the till; anything else as a
     /// reçu - unless the till asked for a facture anyway, which ForceFacture always honours
@@ -87,7 +88,8 @@ public sealed record ReceiptData(
                 .ToList(),
             vente.TvaRate,
             vente.TvaAmount,
-            forceFacture);
+            forceFacture,
+            vente.ServeurNom);
     }
 
     /// <summary>
@@ -112,7 +114,7 @@ public sealed record ReceiptData(
         if (facture)
         {
             return new ReceiptData("V2026-00042", now, "Client Exemple", "690 00 00 00", "client@exemple.com",
-                "Jean Dupont", null, lines, total, 0m, total, "en_attente", null, 0m, false, [], addedTvaRate, tva);
+                "Jean Dupont", null, lines, total, 0m, total, "en_attente", null, 0m, false, [], addedTvaRate, tva, ServeurNom: "Koffi Yao");
         }
 
         const decimal avoir = 5000m;
@@ -125,6 +127,6 @@ public sealed record ReceiptData(
 
         return new ReceiptData("V2026-00042", now, "Client Exemple", "690 00 00 00", "client@exemple.com",
             "Jean Dupont", "Awa Diallo", lines, total, paye, 0m, "paye", "cash", avoir, false, paiements,
-            addedTvaRate, tva);
+            addedTvaRate, tva, ServeurNom: "Koffi Yao");
     }
 }

@@ -1005,16 +1005,25 @@ public partial class StockView : UserControl
         {
             Children =
             {
-                new TextBlock
+                // Same size as the Marges tiles (18 pt); only an exceptionally long amount
+                // shrinks to fit, rather than being cut as "4 702 870 FC…".
+                new Viewbox
                 {
-                    Text = value, FontSize = 22, FontWeight = FontWeights.Bold, Foreground = accent,
-                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    Stretch = Stretch.Uniform,
+                    StretchDirection = StretchDirection.DownOnly,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Height = 25,
+                    Child = new TextBlock
+                    {
+                        Text = value, FontSize = 18, FontWeight = FontWeights.Bold, Foreground = accent,
+                        VerticalAlignment = VerticalAlignment.Center,
+                    },
                 },
                 new TextBlock
                 {
                     Text = label, Margin = new Thickness(0, 4, 0, 0),
                     Foreground = (Brush)Application.Current.Resources["TextSecondary"],
-                    TextWrapping = TextWrapping.Wrap, FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap, FontSize = 11,
                 },
             },
         },

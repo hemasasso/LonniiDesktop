@@ -464,6 +464,7 @@ public sealed class ReceiptDocument
         var references = new List<string>();
         if (Show(ReceiptSections.Seller) && !string.IsNullOrWhiteSpace(_data.VendeurNom))
             references.Add($"{_settings.SellerLabel} : {_data.VendeurNom}");
+        if (ShowsServeur) references.Add($"{_settings.ServeurLabel} : {_data.ServeurNom}");
         if (ShowsCashier) references.Add($"Caissier : {_data.CaissierNom}");
         if (references.Count > 0)
             body.Children.Add(Text(string.Join("        ", references), ReceiptTypography.Meta(_size), brush: Muted,
@@ -827,6 +828,12 @@ public sealed class ReceiptDocument
             added = true;
         }
 
+        if (ShowsServeur)
+        {
+            s.Children.Add(Row($"{_settings.ServeurLabel}:", _data.ServeurNom!, size, valueWeight: FontWeights.SemiBold));
+            added = true;
+        }
+
         if (ShowsCashier)
         {
             s.Children.Add(Row("Caissier:", PersonName.Abbreviate(_data.CaissierNom), size, valueWeight: FontWeights.SemiBold));
@@ -950,7 +957,12 @@ public sealed class ReceiptDocument
     private bool ShowsCashier => !_facture && Show(ReceiptSections.Cashier) && !string.IsNullOrWhiteSpace(_data.CaissierNom)
         && !(Show(ReceiptSections.Seller) && string.Equals(_data.VendeurNom?.Trim(), _data.CaissierNom.Trim(), StringComparison.OrdinalIgnoreCase));
 
-    private bool ShowsPaymentInfo => !_facture && Show(ReceiptSections.PaymentInfo);
+    /// <summary>The serveur line: only while the shop has the field on, its section is ticked,
+    /// and the sale actually names one. Under the shop's own label ("Agent : Koffi").</summary>
+    private bool ShowsServeur => _settings.ServeurEnabled && Show(ReceiptSections.Serveur)
+        && !string.IsNullOrWhiteSpace(_data.ServeurNom);
+
+    private bool ShowsPaymentInfo =>!_facture && Show(ReceiptSections.PaymentInfo);
 
     /// <summary>Only for a sale settled in more than one instalment: with a single payment
     /// the table would just repeat the "Total Payé" line.</summary>

@@ -900,6 +900,7 @@ public static class GroupEndpoints
 
         // Clients
         await db.Clients.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
+        await db.Serveurs.Where(x => x.GroupId == groupe.Id).ExecuteDeleteAsync(ct);
 
         // Receipt settings (images deleted below)
         var parametres = await db.VentesParametres.FirstOrDefaultAsync(p => p.GroupeId == groupe.Id, ct);

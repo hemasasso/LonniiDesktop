@@ -84,6 +84,17 @@
                         <TextBlock Text="Clients" Style="{StaticResource ButtonContentText}" />
                     </StackPanel>
                 </Button>
+                <!-- Shown only when Paramètres Reçu et Facture turns the serveur field on;
+                     the text is the shop's own plural ("Serveurs", "Agents"…). -->
+                <Button x:Name="ServeursButton" Style="{StaticResource SecondaryButton}" Click="Serveurs_Click"
+                        Margin="6,0,0,0" Visibility="Collapsed"
+                        ToolTip="La liste des noms proposés à la caisse sur chaque vente">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE77B;" FontFamily="Segoe MDL2 Assets"
+                                   Style="{StaticResource ButtonContentText}" Margin="0,0,6,0" />
+                        <TextBlock x:Name="ServeursButtonText" Text="Serveurs" Style="{StaticResource ButtonContentText}" />
+                    </StackPanel>
+                </Button>
             </StackPanel>
         </Border>
 
@@ -111,6 +122,7 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
+                        <StackPanel>
                         <StackPanel Orientation="Horizontal">
                             <ComboBox x:Name="StatsPeriodCombo" Width="170" Margin="0,0,8,0"
                                       SelectionChanged="StatsPeriod_Changed">
@@ -124,6 +136,17 @@
                                       SelectionChanged="StatsFilters_Changed" />
                             <ComboBox x:Name="StatsProductCombo" Width="200"
                                       SelectionChanged="StatsFilters_Changed" />
+                        </StackPanel>
+                        <!-- Second row - one person's figures: who rang the sale up (vendeur), who took
+                             the money (caissier), who served it (serveur). Every tile and chart follows. -->
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <ComboBox x:Name="StatsVendeurCombo" Width="170" Margin="0,0,8,0"
+                                      SelectionChanged="StatsFilters_Changed" />
+                            <ComboBox x:Name="StatsCaissierCombo" Width="170" Margin="0,0,8,0"
+                                      SelectionChanged="StatsFilters_Changed" />
+                            <ComboBox x:Name="StatsServeurCombo" Width="170" Visibility="Collapsed"
+                                      SelectionChanged="StatsFilters_Changed" />
+                        </StackPanel>
                         </StackPanel>
                         <Button Grid.Column="1" Style="{StaticResource SecondaryButton}" Click="RefreshStats_Click">
                             <StackPanel Orientation="Horizontal">
@@ -231,6 +254,62 @@
                                 </StackPanel>
                             </Border>
 
+                            <!-- Par serveur: who sold how much over the chosen period (Aujourd'hui
+                                 = end of day, Ce mois, Cette année…). Shown while the field is on,
+                                 or when the period has sales carrying a serveur. -->
+                            <Border x:Name="ServeurStatsPanel" Padding="14" Margin="0,10,0,0" CornerRadius="8" BorderThickness="1"
+                                    Visibility="Collapsed"
+                                    Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Border}">
+                                <StackPanel>
+                                    <TextBlock x:Name="ServeurStatsTitle" Text="Par serveur"
+                                               FontWeight="SemiBold" Margin="0,0,0,8" />
+                                    <DataGrid x:Name="ServeurStatsGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                                              RowHeight="30" HeadersVisibility="Column" CanUserSortColumns="True"
+                                              MaxHeight="360">
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="#" Binding="{Binding Rang}" Width="40" />
+                                            <DataGridTextColumn x:Name="ServeurStatsNomColumn" Header="Serveur" Binding="{Binding Nom}" Width="2*" />
+                                            <DataGridTextColumn Header="Ventes" Binding="{Binding NombreVentes}" Width="70">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}" />
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="Total vendu" Binding="{Binding TotalDisplay}" SortMemberPath="MontantTotal" Width="*">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}">
+                                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="Part" Binding="{Binding PartDisplay}" SortMemberPath="MontantTotal" Width="60">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}" />
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="Vente moyenne" Binding="{Binding MoyenneDisplay}" SortMemberPath="VenteMoyenne" Width="*">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}" />
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="Encaissé" Binding="{Binding EncaisseDisplay}" SortMemberPath="MontantEncaisse" Width="*">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}" />
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="Reste à payer" Binding="{Binding ResteDisplay}" SortMemberPath="MontantRestant" Width="*">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}">
+                                                        <Setter Property="Foreground" Value="{DynamicResource Danger}" />
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                    <TextBlock x:Name="ServeurStatsEmptyText" Visibility="Collapsed" Margin="0,8,0,0"
+                                               Style="{StaticResource PageSubtitle}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+
                         </StackPanel>
                     </ScrollViewer>
 
@@ -271,6 +350,8 @@
                             <ComboBoxItem Content="Client" Tag="client" />
                             <ComboBoxItem x:Name="VendeurSearchItem" Content="Vendeur" Tag="vendeur" />
                             <ComboBoxItem Content="Caissier" Tag="caissier" />
+                            <!-- Shown while the serveur field is on; carries the shop's own label. -->
+                            <ComboBoxItem x:Name="ServeurSearchItem" Content="Serveur" Tag="serveur" Visibility="Collapsed" />
                         </ComboBox>
                         <ComboBox x:Name="VenteStatusCombo" Width="150" Margin="0,0,8,6"
                                   SelectionChanged="VenteFilters_Changed">
@@ -732,6 +813,19 @@
                              neither checked, same as the payment-method row and for the
                              same reason: nothing would be done with what is typed here. -->
                         <StackPanel x:Name="ClientFieldsPanel">
+                            <!-- Serveur: only when Paramètres Reçu et Facture turns it on. The
+                                 choice stays for the next sale - the same serveur often brings
+                                 several orders in a row. -->
+                            <DockPanel x:Name="ServeurRow" Margin="0,0,0,6" Visibility="Collapsed">
+                                <TextBlock x:Name="ServeurRowLabel" Text="Serveur" DockPanel.Dock="Left"
+                                           VerticalAlignment="Center" Margin="0,0,8,0" FontSize="12"
+                                           Foreground="{DynamicResource TextMuted}" />
+                                <Button x:Name="AddServeurButton" DockPanel.Dock="Right" Content="+" Width="34" MinWidth="34"
+                                        Padding="0" Margin="6,0,0,0" Style="{StaticResource SecondaryButton}"
+                                        Click="AddServeur_Click" ToolTip="Ajouter un nom" />
+                                <ComboBox x:Name="ServeurCombo" DisplayMemberPath="Nom" IsTextSearchEnabled="True"
+                                          TextSearch.TextPath="Nom" SelectionChanged="ServeurCombo_SelectionChanged" />
+                            </DockPanel>
                             <!-- All three on one row, not stacked: with the Montant reçu panel
                                  now also competing for space here, three separate rows plus the
                                  popup pushed this section past its scroll cap on a short screen. -->

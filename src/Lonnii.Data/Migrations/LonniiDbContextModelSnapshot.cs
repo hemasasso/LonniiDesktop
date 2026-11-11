@@ -2422,6 +2422,47 @@ namespace Lonnii.Data.Migrations
                     b.ToTable("role_privileges");
                 });
 
+            modelBuilder.Entity("Lonnii.Data.Entities.Serveur", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("GroupId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("group_id");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Nom")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("nom");
+
+                    b.Property<string>("Telephone")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("telephone");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GroupId");
+
+                    b.ToTable("serveurs");
+                });
+
             modelBuilder.Entity("Lonnii.Data.Entities.StockHistory", b =>
                 {
                     b.Property<string>("Id")
@@ -3013,6 +3054,14 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("sale_number");
 
+                    b.Property<string>("ServeurId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("serveur_id");
+
+                    b.Property<string>("ServeurNom")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("serveur_nom");
+
                     b.Property<string>("StatutPaiement")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -3237,6 +3286,18 @@ namespace Lonnii.Data.Migrations
                     b.Property<string>("SellerLabel")
                         .HasColumnType("TEXT")
                         .HasColumnName("seller_label");
+
+                    b.Property<bool?>("ServeurEnabled")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("serveur_enabled");
+
+                    b.Property<string>("ServeurLabel")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("serveur_label");
+
+                    b.Property<string>("ServeurLabelPlural")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("serveur_label_plural");
 
                     b.Property<bool?>("TileShowPrice")
                         .HasColumnType("INTEGER")

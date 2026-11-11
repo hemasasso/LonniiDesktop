@@ -52,6 +52,7 @@ internal sealed class EspaceCopier(
     private readonly Dictionary<string, string> _supplierIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _productIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _venteIds = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _serveurIds = new(StringComparer.Ordinal);
     private Dictionary<int, int> _caisseIds = [];
 
     // Old product id -> its name, for a sale line the source left without one.
@@ -178,6 +179,14 @@ internal sealed class EspaceCopier(
         }
         await InsertAsync("Clients", clients, ct);
 
+        var serveurs = await LoadAsync(source.Serveurs.Where(x => x.GroupId == sourceGroupId), ct);
+        foreach (var row in serveurs)
+        {
+            row.GroupId = targetGroupId;
+            row.Id = Renew(row.Id, _serveurIds);
+        }
+        await InsertAsync("Serveurs", serveurs, ct);
+
         // Caisse ids are database-generated integers, so the copy gets new ones and
         // everything pointing at a session has to be renumbered with it.
         var caisses = await LoadAsync(source.Caisses.Where(x => x.GroupId == sourceGroupId), ct);
@@ -206,6 +215,8 @@ internal sealed class EspaceCopier(
                 ? renumbered
                 : null;
             row.Id = Renew(row.Id, _venteIds);
+            // ServeurNom keeps the name either way; the link follows the copied serveur.
+            row.ServeurId = Lookup(_serveurIds, row.ServeurId);
         }
         Unique(ventes, v => v.NumeroVente, (v, n) => v.NumeroVente = n!, Suffixed);
         Unique(ventes, v => v.IdempotencyKey, (v, k) => v.IdempotencyKey = k, (_, _) => null);

@@ -100,6 +100,18 @@ public partial class CaisseStatusDialog : Window
         AvoirsText.Text = Money.Format(_caisse.TotalAvoir);
         AvoirsSoldesText.Text = Money.Format(_caisse.AvoirsSoldes);
 
+        // Fin de journée par serveur - the label is the one Paramètres set, when it is cached.
+        // Only while the serveur field is on (Paramètres Reçu et Facture).
+        var serveurs = _session.CachedReceiptSettings?.ServeurEnabled == true ? _caisse.ServeurSales ?? [] : [];
+        ServeursPanel.Visibility = serveurs.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        ServeursTitle.Text = $"Ventes par {(_session.CachedReceiptSettings?.ServeurLabel ?? ReceiptSettingsDefaults.ServeurLabel).ToLowerInvariant()}";
+        ServeursList.ItemsSource = serveurs.Select(s => new
+        {
+            s.Nom,
+            Detail = $"{s.NombreVentes} vente(s)" + (s.MontantRestant > 0 ? $" • reste {Money.Format(s.MontantRestant)}" : string.Empty),
+            Total = Money.Format(s.MontantTotal),
+        }).ToList();
+
         var retraits = _caisse.Retraits ?? [];
         RetraitsPanel.Visibility = retraits.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         RetraitsText.Text = $"-{Money.Format(_caisse.TotalRetraits)}";

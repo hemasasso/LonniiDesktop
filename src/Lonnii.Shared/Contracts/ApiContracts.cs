@@ -620,7 +620,8 @@ public sealed record CreateVenteRequest(
     string? Notes = null,
     string? IdempotencyKey = null,
     bool MonnaieEnAvoir = false,
-    IReadOnlyList<PaiementPartRequest>? Paiements = null);
+    IReadOnlyList<PaiementPartRequest>? Paiements = null,
+    string? ServeurId = null);
 
 /// <summary>One part of a split payment at checkout. <paramref name="Reference"/> is the
 /// operator's transaction id for a mobile money part, kept for reconciling statements.</summary>
@@ -677,7 +678,9 @@ public sealed record VenteDto(
     IReadOnlyList<PaiementDto>? Paiements = null,
     decimal? TvaRate = null,
     decimal? TvaAmount = null,
-    string? AvoirCreatedByName = null);
+    string? AvoirCreatedByName = null,
+    string? ServeurNom = null,
+    string? ServeurId = null);
 
 /// <summary>
 /// A customer and what they have bought. Sales carry the customer's name and phone as text,
@@ -714,6 +717,23 @@ public sealed record SaveClientRequest(
     string? Notes = null,
     bool IsActive = true);
 
+/// <summary>
+/// A serveur (waiter, agent…) the till can put on a sale - a name list like the clients, not
+/// a Lonnii account: serveurs do not sign in and do not count as members or devices.
+/// </summary>
+public sealed record ServeurDto(
+    string Id,
+    string Nom,
+    string? Telephone,
+    bool IsActive,
+    DateTime CreatedAt);
+
+/// <summary>Creates or updates a serveur.</summary>
+public sealed record SaveServeurRequest(
+    string Nom,
+    string? Telephone = null,
+    bool IsActive = true);
+
 /// <summary>One row of the "Liste des Ventes" table - lighter than <see cref="VenteDto"/>,
 /// since a list of up to a thousand sales does not need every line item loaded.</summary>
 public sealed record VenteListItemDto(
@@ -731,7 +751,9 @@ public sealed record VenteListItemDto(
     string? CancellationReason,
     string? ModePaiement,
     string? ClientTelephone = null,
-    string? ClientEmail = null);
+    string? ClientEmail = null,
+    string? ServeurId = null,
+    string? ServeurNom = null);
 
 /// <summary>Response of <c>GET /api/ventes</c>.</summary>
 public sealed record VentesListResponse(IReadOnlyList<VenteListItemDto> Ventes);
@@ -791,8 +813,11 @@ public sealed record SolderAvoirRequest(string? ModePaiement);
 /// <summary>Edits a sale's client details - name, date, phone and email are all sometimes
 /// forgotten or wrong at creation time, which otherwise skews analytics and stale contact
 /// info. At least one field must be supplied; each null one is simply left untouched.</summary>
+/// <param name="ServeurId">Null leaves the serveur as it is; an empty string removes it;
+/// an id sets that serveur (this shop's) and copies its current name onto the sale.</param>
 public sealed record EditVenteRequest(
-    string? ClientNom, DateTime? DateVente, string? ClientTelephone = null, string? ClientEmail = null);
+    string? ClientNom, DateTime? DateVente, string? ClientTelephone = null, string? ClientEmail = null,
+    string? ServeurId = null);
 
 // --- Ventes: Statistiques ---
 
@@ -802,6 +827,22 @@ public sealed record VenteStatsPointDto(DateOnly Date, int NombreVentes, decimal
 
 /// <summary>One slice of the category breakdown pie chart.</summary>
 public sealed record CategorySalesDto(string? CategoryId, string Categorie, decimal MontantTotal, int Quantite);
+
+/// <summary>
+/// One row of the "Par serveur" ranking. Sales with no serveur are left out. Grouped by the
+/// serveur row, so a rename keeps one line; <paramref name="Nom"/> is the current name, or
+/// the name stored on the sales when the serveur no longer exists.
+/// </summary>
+public sealed record ServeurSalesDto(
+    string? ServeurId,
+    string Nom,
+    int NombreVentes,
+    decimal MontantTotal,
+    decimal MontantEncaisse,
+    decimal MontantRestant)
+{
+    public decimal VenteMoyenne => NombreVentes > 0 ? MontantTotal / NombreVentes : 0;
+}
 
 /// <summary>One bar of the top-products chart.</summary>
 public sealed record TopProductDto(string? ProductId, string Nom, int Quantite, decimal MontantTotal);
@@ -839,7 +880,14 @@ public sealed record VentesStatsResponse(
     decimal Croissance,
     IReadOnlyList<CategorySalesDto> CategorySales,
     IReadOnlyList<TopProductDto> TopProducts,
-    IReadOnlyList<VenteStatsPointDto> Serie);
+    IReadOnlyList<VenteStatsPointDto> Serie,
+    IReadOnlyList<ServeurSalesDto>? ServeurSales = null,
+    IReadOnlyList<StatsPersonDto>? Vendeurs = null,
+    IReadOnlyList<StatsPersonDto>? Caissiers = null);
+
+/// <summary>A choice for the Statistiques Vendeur / Caissier filters: someone who rang up a sale
+/// or recorded a payment in the period.</summary>
+public sealed record StatsPersonDto(string UserId, string Nom);
 
 // --- Caisse ---
 
@@ -878,7 +926,8 @@ public sealed record CaisseDto(
     decimal? MontantFinalCarte = null,
     CaisseOrigineDto? Origine = null,
     decimal AvoirsSoldes = 0,
-    decimal ResteAPayer = 0)
+    decimal ResteAPayer = 0,
+    IReadOnlyList<ServeurSalesDto>? ServeurSales = null)
 {
     // ResteAPayer: what customers still owe, today, on the sales rung up in this session
     // (paiements partiels and factures not settled yet) - it shrinks as they come back and pay.
@@ -1024,6 +1073,11 @@ public static class ReceiptSettingsDefaults
     public const string FactureFooterText = "Merci de votre visite!";
     public const string ReceiptFooterText = "Merci pour votre achat!";
     public const string SellerLabel = "Vendeur";
+
+    /// <summary>The waiter / agent field's default name ("Serveur"). The shop renames it in
+    /// Paramètres Reçu et Facture; the plural names the list and the stats.</summary>
+    public const string ServeurLabel = "Serveur";
+    public const string ServeurLabelPlural = "Serveurs";
     public const string AvoirNoticeTitle = "NOTE IMPORTANTE:";
     public const string AvoirNoticeText = "Le client peut présenter ce reçu pour récupérer un avoir de";
 
@@ -1143,9 +1197,13 @@ public static class ReceiptSections
     public const string ClientSignature = "client_signature";
     public const string LegalFooter = "legal_footer";
 
+    /// <summary>The serveur chosen on the sale ("Servi par"). Prints only when the field is
+    /// enabled and the sale has one, so it is not hidden by default.</summary>
+    public const string Serveur = "serveur";
+
     public static readonly IReadOnlyList<string> All =
     [
-        Logo, Company, CompanyContact, CompanyLegal, Client, Seller, Cashier, UnitPrice, Discounts,
+        Logo, Company, CompanyContact, CompanyLegal, Client, Seller, Serveur, Cashier, UnitPrice, Discounts,
         Tva, PaymentInfo, PaymentHistory, Notice, Footer, Qr, Signature, ClientSignature, LegalFooter,
     ];
 
@@ -1156,7 +1214,8 @@ public static class ReceiptSections
 
     /// <param name="sellerLabel">The shop's own name for the seller ("Libellé du vendeur"),
     /// which the Seller section follows instead of the fixed "Vendeur".</param>
-    public static string Label(string section, bool facture, string? sellerLabel = null) => section switch
+    /// <param name="serveurLabel">The shop's own name for the serveur field.</param>
+    public static string Label(string section, bool facture, string? sellerLabel = null, string? serveurLabel = null) => section switch
     {
         Logo => "Logo",
         Company => "Nom de l'entreprise",
@@ -1164,6 +1223,7 @@ public static class ReceiptSections
         CompanyLegal => "Mentions légales (RCCM, NIU…)",
         Client => "Client",
         Seller => string.IsNullOrWhiteSpace(sellerLabel) ? "Vendeur" : sellerLabel.Trim(),
+        Serveur => string.IsNullOrWhiteSpace(serveurLabel) ? ReceiptSettingsDefaults.ServeurLabel : serveurLabel.Trim(),
         Cashier => "Caissier",
         UnitPrice => "Colonne prix unitaire",
         Discounts => "Sous-total et remises",
@@ -1237,7 +1297,10 @@ public sealed record ReceiptSettingsDto(
     bool TileShowQuantity = true,
     bool TileShowPrice = true,
     bool ReceiptAmountInWords = false,
-    bool FactureAmountInWords = false)
+    bool FactureAmountInWords = false,
+    bool ServeurEnabled = false,
+    string ServeurLabel = ReceiptSettingsDefaults.ServeurLabel,
+    string ServeurLabelPlural = ReceiptSettingsDefaults.ServeurLabelPlural)
 {
     public IReadOnlyList<string> HiddenSections(bool facture) =>
         (facture ? FactureHiddenSections : ReceiptHiddenSections) ?? ReceiptSettingsDefaults.DefaultHiddenSections;
@@ -1289,7 +1352,10 @@ public sealed record UpdateReceiptSettingsRequest(
     bool? ReceiptPrintAfterSale = null,
     bool? FacturePrintAfterSale = null,
     bool? ReceiptAmountInWords = null,
-    bool? FactureAmountInWords = null);
+    bool? FactureAmountInWords = null,
+    bool? ServeurEnabled = null,
+    string? ServeurLabel = null,
+    string? ServeurLabelPlural = null);
 
 /// <summary>"Activer remise" in Configuration - saved on its own, without the receipt wording.</summary>
 public sealed record SaveRemiseSettingRequest(bool Enabled);

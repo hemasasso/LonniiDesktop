@@ -49,6 +49,14 @@
             <TextBlock x:Name="QuantityLabel" Text="Quantité" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
             <TextBox x:Name="QuantityBox" TextChanged="Quantity_Changed" LostFocus="Quantity_LostFocus" />
 
+            <!-- Returnable crates delivered: who delivered them, so they are owed back (Stock > Emballages). -->
+            <StackPanel x:Name="SupplierPanel" Visibility="Collapsed">
+                <TextBlock Text="Fournisseur qui a livré (emballages à lui rendre)" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
+                <ComboBox x:Name="SupplierBox" DisplayMemberPath="Name" />
+                <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap" Margin="0,4,0,0"
+                           Text="Les caisses livrées comptent comme à rendre à ce fournisseur. Choisissez « — » pour ne rien compter." />
+            </StackPanel>
+
             <Border Margin="0,12,0,0" Padding="12,10"
                     Background="{DynamicResource SurfaceAlt}"
                     BorderBrush="{DynamicResource Border}" BorderThickness="1"

@@ -28,6 +28,13 @@ public partial class ProductDialog : Window
     private static readonly SupplierDto NoSupplier =
         new("", "— Aucun —", null, null, null, null, null, null, null, null, null, true);
 
+    /// <summary>A row of the "Interchangeable avec" list; Id "" is "none".</summary>
+    private sealed record EmballageTypeOption(string Id, string Label);
+
+    /// <summary>False until the groups have loaded: the save then sends no group, which keeps
+    /// whatever the product had instead of taking it out.</summary>
+    private bool _emballageTypesLoaded;
+
     /// <summary>The request to send, once the dialog has been accepted.</summary>
     public SaveProductRequest? Result { get; private set; }
 
@@ -138,15 +145,149 @@ public partial class ProductDialog : Window
 
         _updatingPricing = false;
 
+        Loaded += async (_, _) => await LoadEmballageTypesAsync();
+
+        MoneyInput.GroupAsYouType(EffortGuerreBox);
+        MoneyInput.GroupAsYouType(ConsigneBox);
+        MoneyInput.GroupAsYouType(QuartBox);
+        MoneyInput.GroupAsYouType(DemiBox);
+        MoneyInput.GroupAsYouType(TroisQuartsBox);
+        if (existing is not null)
+        {
+            EffortGuerreCheck.IsChecked = existing.EffortGuerre is > 0;
+            EffortGuerreBox.Text = existing.EffortGuerre is { } eg ? Money.FormatPlain(eg) : string.Empty;
+            EmballageCheck.IsChecked = existing.EmballageRecuperable;
+            ConsigneBox.Text = existing.ConsigneMontant is { } cm ? Money.FormatPlain(cm) : string.Empty;
+            ContenanceBox.Text = existing.EmballageContenance?.ToString() ?? string.Empty;
+            QuartCheck.IsChecked = existing.PrixQuart is not null;
+            QuartBox.Text = existing.PrixQuart is { } q ? Money.FormatPlain(q) : string.Empty;
+            DemiCheck.IsChecked = existing.PrixDemi is not null;
+            DemiBox.Text = existing.PrixDemi is { } d ? Money.FormatPlain(d) : string.Empty;
+            TroisQuartsCheck.IsChecked = existing.PrixTroisQuarts is not null;
+            TroisQuartsBox.Text = existing.PrixTroisQuarts is { } t ? Money.FormatPlain(t) : string.Empty;
+        }
+
+        // Auto when every fraction is sold at exactly its share of the price.
+        if (existing is { PrixQuart: { } aq, PrixDemi: { } ad, PrixTroisQuarts: { } at }
+            && aq == Prorata(existing.Price, 1) && ad == Prorata(existing.Price, 2) && at == Prorata(existing.Price, 3))
+            FractionAutoCheck.IsChecked = true;
+        PriceBox.TextChanged += (_, _) => ApplyFractionAuto();
+
+        // A product that already has fraction prices keeps showing them, so they can be removed
+        // even after the option was turned off.
+        if (session?.CachedReceiptSettings is { } named)
+            EffortGuerreCheck.Content = $"{named.EffortGuerreName} (montant fixe par unité)";
+        // Offered only when switched on in Paramètres de vente (or already set on this product).
+        if (session?.CachedReceiptSettings?.EffortGuerreEnabled != true && existing?.EffortGuerre is not > 0)
+            EffortGuerrePanel.Visibility = Visibility.Collapsed;
+        if (existing?.SellsFractions == true || session?.CachedReceiptSettings?.FractionsEnabled == true)
+            FractionsPanel.Visibility = Visibility.Visible;
+
         ApplySalesModeVisuals();
         ApplyNegotiableVisuals();
+        ApplyExtrasVisuals();
 
         Loaded += async (_, _) =>
         {
             NameBox.Focus();
             NameBox.SelectAll();
+            await LoadFractionsSettingAsync();
             await LoadExistingPhotoAsync();
         };
+    }
+
+    /// <summary>Shows the fraction prices when the shop sells by ¼, ½, ¾ (Paramètres).</summary>
+    private async Task LoadFractionsSettingAsync()
+    {
+        if (_session is null || FractionsPanel.Visibility == Visibility.Visible) return;
+        try
+        {
+            var settings = await _session.GetReceiptSettingsAsync();
+            if (settings.FractionsEnabled) FractionsPanel.Visibility = Visibility.Visible;
+        }
+        catch (ApiException)
+        {
+            // Without the settings the section just stays hidden.
+        }
+    }
+
+    private void Extras_Changed(object sender, RoutedEventArgs e) => ApplyExtrasVisuals();
+
+    private static decimal Prorata(decimal price, int quarts) =>
+        Math.Round(price * quarts / 4m, 0, MidpointRounding.AwayFromZero);
+
+    private void FractionAuto_Changed(object sender, RoutedEventArgs e)
+    {
+        ApplyFractionAuto();
+        ApplyExtrasVisuals();
+    }
+
+    /// <summary>Auto: ticks ¼, ½, ¾ and fills each with its exact share of the selling price,
+    /// following the price as it is typed. Untick it to type your own prices.</summary>
+    private void ApplyFractionAuto()
+    {
+        if (FractionAutoCheck?.IsChecked != true || TroisQuartsBox is null) return;
+        QuartCheck.IsChecked = DemiCheck.IsChecked = TroisQuartsCheck.IsChecked = true;
+        if (!Money.TryParse(PriceBox.Text, out decimal price) || price <= 0)
+        {
+            QuartBox.Text = DemiBox.Text = TroisQuartsBox.Text = string.Empty;
+            return;
+        }
+        QuartBox.Text = Money.FormatPlain(Prorata(price, 1));
+        DemiBox.Text = Money.FormatPlain(Prorata(price, 2));
+        TroisQuartsBox.Text = Money.FormatPlain(Prorata(price, 3));
+    }
+
+    /// <summary>Fills "Interchangeable avec" with the shop's groups. No group yet, or no
+    /// connection: the line stays hidden and the product keeps the group it had.</summary>
+    private async Task LoadEmballageTypesAsync()
+    {
+        if (_session is null) return;
+        try
+        {
+            var types = await _session.Api.GetEmballageTypesAsync();
+            if (types.Count == 0) return;
+            var options = new List<EmballageTypeOption> { new("", "— Aucun (compté seul) —") };
+            options.AddRange(types.OrderBy(t => t.Nom, StringComparer.CurrentCultureIgnoreCase)
+                .Select(t => new EmballageTypeOption(t.Id,
+                    $"{t.Nom}  ({t.ProductIds.Count(id => id != _existing?.Id)} produit{(t.ProductIds.Count(id => id != _existing?.Id) > 1 ? "s" : "")})")));
+            EmballageTypeBox.ItemsSource = options;
+            EmballageTypeBox.SelectedItem = options.FirstOrDefault(o => o.Id == (_existing?.EmballageTypeId ?? "")) ?? options[0];
+            _emballageTypesLoaded = true;
+            ApplyExtrasVisuals();
+        }
+        catch
+        {
+            // Not fatal: the product saves without touching its group.
+        }
+    }
+
+    private void ApplyExtrasVisuals()
+    {
+        if (ConsigneBox is null || TroisQuartsBox is null) return; // still loading the XAML
+        EffortGuerreBox.Visibility = EffortGuerreCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        var emballage = EmballageCheck.IsChecked == true;
+        ConsigneBox.Visibility = emballage ? Visibility.Visible : Visibility.Collapsed;
+        ConsigneHint.Visibility = emballage ? Visibility.Visible : Visibility.Collapsed;
+        ContenancePanel.Visibility = emballage ? Visibility.Visible : Visibility.Collapsed;
+        EmballageTypePanel.Visibility = emballage && _emballageTypesLoaded ? Visibility.Visible : Visibility.Collapsed;
+        // Auto: the prices follow the selling price and cannot be typed over.
+        var auto = FractionAutoCheck.IsChecked == true;
+        QuartCheck.IsEnabled = DemiCheck.IsEnabled = TroisQuartsCheck.IsEnabled = !auto;
+        QuartBox.IsEnabled = !auto && QuartCheck.IsChecked == true;
+        DemiBox.IsEnabled = !auto && DemiCheck.IsChecked == true;
+        TroisQuartsBox.IsEnabled = !auto && TroisQuartsCheck.IsChecked == true;
+    }
+
+    /// <summary>Reads an optional amount: unchecked sends 0 (clears it), checked needs a number.</summary>
+    private bool TryAmount(System.Windows.Controls.CheckBox check, System.Windows.Controls.TextBox box,
+        string label, bool allowZero, out decimal value)
+    {
+        value = 0;
+        if (check.IsChecked != true) return true;
+        if (Money.TryParse(box.Text, out value) && (value > 0 || (allowZero && value == 0))) return true;
+        Fail($"{label} : indiquez un montant valide.", box);
+        return false;
     }
 
     /// <summary>Downloads and shows the product's current photo, if it has one.</summary>
@@ -347,6 +488,30 @@ public partial class ProductDialog : Window
             if (confirm != MessageBoxResult.Yes) return;
         }
 
+        if (!TryAmount(EffortGuerreCheck, EffortGuerreBox, "Effort de guerre", false, out var effortGuerre)) return;
+        // The consigne is optional: a crate can be tracked without charging a deposit.
+        decimal consigne = 0;
+        if (EmballageCheck.IsChecked == true && !string.IsNullOrWhiteSpace(ConsigneBox.Text)
+            && !TryAmount(EmballageCheck, ConsigneBox, "Consigne", true, out consigne)) return;
+        var contenance = 0;
+        if (EmballageCheck.IsChecked == true && !string.IsNullOrWhiteSpace(ContenanceBox.Text)
+            && (!int.TryParse(ContenanceBox.Text.Trim(), out contenance) || contenance is < 1 or > 10000))
+        {
+            Fail("Emballage de : indiquez un nombre d'unités (ex. 12, 16, 24).", ContenanceBox);
+            return;
+        }
+        if (!TryAmount(QuartCheck, QuartBox, "Prix du 1/4", true, out var prixQuart)) return;
+        if (!TryAmount(DemiCheck, DemiBox, "Prix du 1/2", true, out var prixDemi)) return;
+        if (!TryAmount(TroisQuartsCheck, TroisQuartsBox, "Prix des 3/4", true, out var prixTroisQuarts)) return;
+
+        // A fraction offered at 0 would be a gift; the API stores 0 as "not sold".
+        if ((QuartCheck.IsChecked == true && prixQuart == 0) || (DemiCheck.IsChecked == true && prixDemi == 0)
+            || (TroisQuartsCheck.IsChecked == true && prixTroisQuarts == 0))
+        {
+            Fail("Indiquez le prix de chaque fraction cochée.", QuartBox);
+            return;
+        }
+
         var categoryId = (CategoryBox.SelectedItem as CategoryDto)?.Id;
         var supplierId = (SupplierBox.SelectedItem as SupplierDto)?.Id;
 
@@ -379,7 +544,15 @@ public partial class ProductDialog : Window
             VenteMixte: _existing?.VenteMixte ?? false,
             UniteVente: _existing?.UniteVente,
             FacteurConversion: _existing?.FacteurConversion,
-            PrixVenteDetail: _existing?.PrixVenteDetail);
+            PrixVenteDetail: _existing?.PrixVenteDetail,
+            EffortGuerre: effortGuerre,
+            EmballageRecuperable: EmballageCheck.IsChecked == true,
+            ConsigneMontant: consigne,
+            PrixQuart: prixQuart,
+            PrixDemi: prixDemi,
+            PrixTroisQuarts: prixTroisQuarts,
+            EmballageContenance: contenance,
+            EmballageTypeId: _emballageTypesLoaded ? (EmballageTypeBox.SelectedItem as EmballageTypeOption)?.Id ?? "" : null);
 
         DialogResult = true;
     }

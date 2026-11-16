@@ -29,6 +29,55 @@ public static class HostMachineIdentity
         ? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("lonnii-device-v1|" + guid))).ToLowerInvariant()
         : null;
 
+    /// <summary>
+    /// This computer's second fingerprint (see <see cref="Lonnii.Shared.Security.HardwareSignature"/>),
+    /// sent when the host renews its own licence so our server can tell the real machine from a copy of
+    /// its MachineGuid. Built from the same inputs the desktop client's DeviceIdentity uses. Null off
+    /// Windows (the licence server) or when nothing could be read.
+    /// </summary>
+    public static string? Hardware { get; } = OperatingSystem.IsWindows()
+        ? Lonnii.Shared.Security.HardwareSignature.Of(
+            ReadMachineGuid(), WindowsValue("ProductId"), WindowsValue("InstallDate"), SystemVolumeSerial())
+        : null;
+
+    private static string? WindowsValue(string name)
+    {
+        if (!OperatingSystem.IsWindows()) return null;
+        try
+        {
+            using var key = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64)
+                .OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
+            return key?.GetValue(name)?.ToString();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return null;
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool GetVolumeInformation(
+        string? rootPathName, System.Text.StringBuilder? volumeNameBuffer, int volumeNameSize,
+        out uint volumeSerialNumber, out uint maximumComponentLength, out uint fileSystemFlags,
+        System.Text.StringBuilder? fileSystemNameBuffer, int fileSystemNameSize);
+
+    private static string? SystemVolumeSerial()
+    {
+        if (!OperatingSystem.IsWindows()) return null;
+        try
+        {
+            var root = Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.Windows));
+            if (string.IsNullOrEmpty(root)) return null;
+            return GetVolumeInformation(root, null, 0, out var serial, out _, out _, null, 0)
+                ? serial.ToString("x8") : null;
+        }
+        catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException)
+        {
+            return null;
+        }
+    }
+
     private static string? ReadMachineGuid()
     {
         if (!OperatingSystem.IsWindows()) return null;

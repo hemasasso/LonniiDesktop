@@ -14,10 +14,12 @@ public partial class PromptDialog : Window
         Loaded += (_, _) => { ValueBox.Focus(); ValueBox.SelectAll(); };
     }
 
-    /// <summary>Shows the prompt and returns what was typed, or null if it was cancelled.</summary>
-    public static string? Show(Window owner, string title, string prompt, string? initialValue = null)
+    /// <summary>Shows the prompt and returns what was typed, or null if it was cancelled.
+    /// <paramref name="money"/> groups the digits as they are typed ("5 000").</summary>
+    public static string? Show(Window owner, string title, string prompt, string? initialValue = null, bool money = false)
     {
         var dialog = new PromptDialog(title, prompt, initialValue) { Owner = owner };
+        if (money) MoneyInput.GroupAsYouType(dialog.ValueBox);
         return dialog.ShowDialog() == true ? dialog.ValueBox.Text : null;
     }
 

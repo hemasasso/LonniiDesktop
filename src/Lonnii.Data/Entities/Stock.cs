@@ -130,6 +130,39 @@ public class Product
     /// one <see cref="UniteVente"/> (bulk) unit. Set only when <see cref="VenteMixte"/>.</summary>
     public decimal? PrixVenteDetail { get; set; }
 
+    /// <summary>Effort de guerre (Burkina Faso): a fixed amount added for each unit sold,
+    /// printed under the TVA. Null or 0 = none. Desktop-only column (030_invoice_extras.sql).</summary>
+    public decimal? EffortGuerre { get; set; }
+
+    /// <summary>Emballage récupérable: the bottle or crate is returnable, and the till can
+    /// charge <see cref="ConsigneMontant"/> per unit as a deposit (consigne).</summary>
+    public bool EmballageRecuperable { get; set; }
+
+    /// <summary>The deposit for one unit's packaging. Only used with <see cref="EmballageRecuperable"/>.</summary>
+    public decimal? ConsigneMontant { get; set; }
+
+    /// <summary>How many units one emballage of this product holds ("Caisse de 12", "de 24").
+    /// Each product has its own; null = not stated.</summary>
+    public int? EmballageContenance { get; set; }
+
+    /// <summary>The <see cref="EmballageType"/> whose crates this product shares (interchangeable
+    /// with its other products); null = its emballage is counted on its own.</summary>
+    public string? EmballageTypeId { get; set; }
+
+    /// <summary>Price of a quarter, a half and three quarters of one unit (caisse, paquet…),
+    /// set by the shop - often a little above the pro-rata price. Null = that fraction is not
+    /// sold. Only offered when the shop turned fractions on in Paramètres.</summary>
+    public decimal? PrixQuart { get; set; }
+
+    public decimal? PrixDemi { get; set; }
+
+    public decimal? PrixTroisQuarts { get; set; }
+
+    /// <summary>Quarters (0-3) still left in a unit already opened by a fraction sale, on top of
+    /// <see cref="Quantity"/>. Stock reads "Quantity + FractionOuverte/4": selling ½ of 10 caisses
+    /// leaves Quantity 9 and FractionOuverte 2 ("9 + ½"). Keeps Quantity a whole number everywhere.</summary>
+    public int FractionOuverte { get; set; }
+
     /// <summary>
     /// One of <c>Lonnii.Shared.Contracts.ProductTypes</c>. Maps to Lonnii Business's own
     /// <c>stock_type</c> column (marchandise, produit_fini, matiere_premiere), which its Bilan

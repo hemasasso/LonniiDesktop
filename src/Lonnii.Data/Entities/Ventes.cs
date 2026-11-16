@@ -102,6 +102,41 @@ public class Vente
 
     public decimal? TvaAmount { get; set; }
 
+    /// <summary>Prélèvement: a percentage of the HT amount added on top, printed after the TVA.
+    /// Rate and amount stored with the sale, like the TVA. Desktop-only (030_invoice_extras.sql).</summary>
+    public decimal? PrelevementRate { get; set; }
+
+    public decimal? PrelevementAmount { get; set; }
+
+    /// <summary>Sum of the products' effort de guerre for this sale, added on top.</summary>
+    public decimal? EffortGuerreAmount { get; set; }
+
+    /// <summary>Deposit charged for returnable packaging (consigne), added on top.</summary>
+    public decimal? ConsigneAmount { get; set; }
+
+    /// <summary>Delivery fee for the whole sale, added on top.</summary>
+    public decimal? LivraisonAmount { get; set; }
+
+    /// <summary>Returnable packaging taken with this sale (whole units of emballage products),
+    /// when the shop tracks emballages. Null = not tracked.</summary>
+    public decimal? EmballagesPris { get; set; }
+
+    /// <summary>Empty packaging the client brought back at this sale.</summary>
+    public decimal? EmballagesRendus { get; set; }
+
+    /// <summary>Emballages taken on this sale that the client's credit covered.</summary>
+    public decimal? EmballagesCredit { get; set; }
+
+    /// <summary>The client's emballage credit left after this sale, for the receipt.</summary>
+    public decimal? EmballagesCreditRestant { get; set; }
+
+    /// <summary>Empties the client already owed before this sale (net of any credit), so the reçu and
+    /// facture can print the client's total still to bring back, old ones included - also on a reprint.</summary>
+    public decimal? EmballagesDusAvant { get; set; }
+
+    /// <summary>Consigne given back for those empties, taken off this sale's total.</summary>
+    public decimal? ConsigneRendue { get; set; }
+
     /// <summary>
     /// What has been paid so far, summed from <see cref="Paiements"/> rather than stored.
     ///
@@ -208,6 +243,27 @@ public class VenteItem
     /// <summary>The unit this line was sold in - only set for a Vente Mixte product's bulk or
     /// base unit (e.g. "Carton", "unité"). Null for every ordinary product.</summary>
     public string? Unite { get; set; }
+
+    /// <summary>A fraction of one unit sold on top of <see cref="Quantite"/>, in quarters (1 = ¼,
+    /// 2 = ½, 3 = ¾): 1 caisse and a half is Quantite 1, Quarts 2. Null for a whole-unit line.</summary>
+    public int? Quarts { get; set; }
+
+    /// <summary>The price charged for <see cref="Quarts"/>, already inside <see cref="PrixTotal"/>.</summary>
+    public decimal? PrixFraction { get; set; }
+
+    /// <summary>Consigne charged on this line (all its units), so a later refund follows
+    /// what this product's deposit actually was.</summary>
+    public decimal? Consigne { get; set; }
+
+    /// <summary>Returnable packaging handed over with this line (whole units).</summary>
+    public decimal? EmballagesPris { get; set; }
+
+    /// <summary>Of <see cref="EmballagesPris"/>, how many the client's emballage credit covered
+    /// (empties already left at the shop): no consigne is charged on those.</summary>
+    public decimal? EmballagesCredit { get; set; }
+
+    /// <summary>The product's emballage size at the time of the sale ("de 12"), kept with the line.</summary>
+    public int? EmballageContenance { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
@@ -538,6 +594,40 @@ public class VentesParametres
     /// <summary>Plural of <see cref="ServeurLabel"/>, for the list and the stats. Null reads as "Serveurs".</summary>
     public string? ServeurLabelPlural { get; set; }
 
+    /// <summary>Prélèvement rate (%) added on the HT amount of every sale. Null = off.</summary>
+    public decimal? PrelevementRate { get; set; }
+
+    /// <summary>The till asks for a delivery fee on each sale. Null reads as off.</summary>
+    public bool? LivraisonEnabled { get; set; }
+
+    /// <summary>Products can be sold by ¼, ½, ¾ of a unit. Null reads as off.</summary>
+    public bool? FractionsEnabled { get; set; }
+
+    /// <summary>Track returnable packaging per client (taken vs brought back). Null reads as off.</summary>
+    public bool? EmballagesSuivi { get; set; }
+
+    /// <summary>Word for one emballage ("Caisse"). Null reads as "emballage".</summary>
+    public string? EmballagesUnite { get; set; }
+
+    /// <summary>A4 / A5 pages printed "portrait" or "paysage". Null reads as portrait.</summary>
+    public string? PageOrientation { get; set; }
+
+    /// <summary>Prélèvement on the TTC amount (after TVA) instead of HT. Null reads as HT.</summary>
+    public bool? PrelevementApresTva { get; set; }
+
+    /// <summary>The shop's name for the prélèvement ("Autres taxes"…). Null reads as "Prélèvement".</summary>
+    public string? PrelevementLabel { get; set; }
+
+    /// <summary>The shop's name for the effort de guerre. Null reads as "Effort de guerre".</summary>
+    public string? EffortGuerreLabel { get; set; }
+
+    /// <summary>The fixed tax per unit is in use. Null (shops from before the switch) reads as off in
+    /// the forms, but products that already carry an amount keep being charged until it is set to false.</summary>
+    public bool? EffortGuerreEnabled { get; set; }
+
+    /// <summary>Emballages brought back in advance are kept as a client credit. Null reads as off.</summary>
+    public bool? EmballagesCreditAccepte { get; set; }
+
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
 
@@ -555,6 +645,79 @@ public class Serveur
     /// <summary>Off hides the serveur from the till's picker; past sales and stats keep them.</summary>
     public bool IsActive { get; set; } = true;
 
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>Empty packaging a client brought back outside a sale. Matched to the client
+/// the way sales are (phone, then email, then name), so it lowers what they owe.</summary>
+public class EmballageRetour
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string GroupId { get; set; } = string.Empty;
+    public string? ClientNom { get; set; }
+    public string? ClientTelephone { get; set; }
+    public string? ClientEmail { get; set; }
+    public decimal Quantite { get; set; }
+
+    /// <summary>Which product's packaging; null on returns recorded before per-product counts.</summary>
+    public string? ProductId { get; set; }
+    public string? NomProduit { get; set; }
+
+    /// <summary>Consigne refunded for these empties (0 when none was paid).</summary>
+    public decimal? Montant { get; set; }
+
+    /// <summary>How the refund was paid out (outside a sale): espèces, mobile money, carte.</summary>
+    public string? ModePaiement { get; set; }
+
+    /// <summary>The sale the empties were brought back at - its total was lowered instead of
+    /// paying cash out. Null for a return without a sale.</summary>
+    public string? VenteId { get; set; }
+
+    public string? CreatedBy { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// A change to the shop's own stock of empty packaging (emballages vides) that is not a client
+/// bringing empties back: a count (inventaire, stored as the difference it made), empties sent
+/// back to the supplier, or broken/lost ones. Quantite is signed: + adds empties, - removes.
+/// </summary>
+public class EmballageMouvement
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string GroupId { get; set; } = string.Empty;
+
+    /// <summary>The product's id, or an <see cref="EmballageType"/>'s id when the empties are a
+    /// shared type (one count for all its products).</summary>
+    public string ProductId { get; set; } = string.Empty;
+    public string? NomProduit { get; set; }
+
+    /// <summary>One of <c>EmballageMouvementTypes</c>: inventaire, retour_fournisseur, casse.</summary>
+    public string Type { get; set; } = string.Empty;
+    public decimal Quantite { get; set; }
+
+    /// <summary>Consigne the supplier paid back for empties returned (into the caisse); null when none.</summary>
+    public decimal? Montant { get; set; }
+    public string? ModePaiement { get; set; }
+    public string? SupplierId { get; set; }
+    public string? SupplierName { get; set; }
+    public string? Note { get; set; }
+    public string? CreatedBy { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// Interchangeable packaging: products whose crates are the same (all SODIBO crates, Brafaso and
+/// Brafort...) share one type, so the Emballages tab counts their empties and what clients owe as
+/// one - a client who took a Brafaso crate can bring back a Brafort one. Products point at it
+/// through <see cref="Product.EmballageTypeId"/>; a product without one is its own type.
+/// </summary>
+public class EmballageType
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string GroupId { get; set; } = string.Empty;
+    public string Nom { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

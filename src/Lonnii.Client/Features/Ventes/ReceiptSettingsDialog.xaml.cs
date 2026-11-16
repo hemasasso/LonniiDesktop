@@ -56,10 +56,14 @@ public partial class ReceiptSettingsDialog : Window
 
     private sealed record TemplateOption(string Value, string Label);
 
-    public ReceiptSettingsDialog(AppSession session)
+    /// <param name="salesOnly">Opens as "Paramètres de vente": only how sales are charged and
+    /// tracked (TVA, prélèvement, serveur, livraison, fractions, emballages), no printing options.
+    /// Both views save the same settings, each keeping the other's values as they are.</param>
+    public ReceiptSettingsDialog(AppSession session, bool salesOnly = false, bool stockOnly = false)
     {
         _session = session;
         InitializeComponent();
+        ApplyView(salesOnly, stockOnly);
 
         FontFamilyBox.ItemsSource = ReceiptSettingsDefaults.FontFamilies;
 
@@ -91,7 +95,7 @@ public partial class ReceiptSettingsDialog : Window
             CompanyNameBox, SellerLabelBox, NoteUnderQrBox,
             ReceiptTitleBox, ReceiptFooterBox, AvoirNoticeTitleBox, AvoirNoticeTextBox,
             FactureTitleBox, FactureNoticeTitleBox, FactureNoticeTextBox, FactureFooterBox,
-            CompanyAddressBox, CompanyPhoneBox, CompanyEmailBox, CompanyLegalInfoBox, LegalFooterBox, TvaRateBox,
+            CompanyAddressBox, CompanyPhoneBox, CompanyEmailBox, CompanyLegalInfoBox, LegalFooterBox, TvaRateBox, PrelevementRateBox,
         ];
         foreach (var box in boxes) box.TextChanged += (_, _) => RenderPreview();
 
@@ -112,7 +116,14 @@ public partial class ReceiptSettingsDialog : Window
         ReceiptTemplateBox.SelectionChanged += (_, _) => RenderPreview();
         TvaIncluseRadio.Checked += (_, _) => RenderPreview();
         TvaAjouteeRadio.Checked += (_, _) => RenderPreview();
+        PrelevementCheck.Checked += (_, _) => { SyncPrelevementControls(); RenderPreview(); };
+        PrelevementCheck.Unchecked += (_, _) => { SyncPrelevementControls(); RenderPreview(); };
+        PrelevementHtRadio.Checked += (_, _) => RenderPreview();
+        EffortGuerreEnabledCheck.Checked += (_, _) => EffortGuerreLabelPanel.IsEnabled = true;
+        EffortGuerreEnabledCheck.Unchecked += (_, _) => EffortGuerreLabelPanel.IsEnabled = false;
+        PrelevementTtcRadio.Checked += (_, _) => RenderPreview();
         FactureTemplateBox.SelectionChanged += (_, _) => RenderPreview();
+        OrientationBox.SelectionChanged += (_, _) => RenderPreview();
 
         Slider[] sliders = [FontSizeSlider, ReceiptTitleSizeSlider, FactureTitleSizeSlider];
         foreach (var slider in sliders) slider.ValueChanged += (_, _) => RenderPreview();
@@ -193,6 +204,23 @@ public partial class ReceiptSettingsDialog : Window
         ServeurEnabledCheck.IsChecked = s.ServeurEnabled;
         ServeurLabelBox.Text = s.ServeurLabel;
         ServeurLabelPluralBox.Text = s.ServeurLabelPlural;
+        PrelevementCheck.IsChecked = s.PrelevementRate is > 0;
+        PrelevementRateBox.Text = s.PrelevementRate is { } prel ? prel.ToString("0.##", French) : string.Empty;
+        PrelevementTtcRadio.IsChecked = s.PrelevementApresTva;
+        PrelevementLabelBox.Text = s.PrelevementLabel ?? string.Empty;
+        EffortGuerreLabelBox.Text = s.EffortGuerreLabel ?? string.Empty;
+        EffortGuerreEnabledCheck.IsChecked = s.EffortGuerreEnabled;
+        EmballagesCreditCheck.IsChecked = s.EmballagesCreditAccepte;
+        EffortGuerreLabelPanel.IsEnabled = s.EffortGuerreEnabled;
+        PrelevementHtRadio.IsChecked = !s.PrelevementApresTva;
+        LivraisonCheck.IsChecked = s.LivraisonEnabled;
+        RemiseEnabledCheck.IsChecked = s.RemiseEnabled;
+        TileShowQuantityCheck.IsChecked = s.TileShowQuantity;
+        TileShowPriceCheck.IsChecked = s.TileShowPrice;
+        FractionsCheck.IsChecked = s.FractionsEnabled;
+        EmballagesSuiviCheck.IsChecked = s.EmballagesSuivi;
+        OrientationBox.SelectedIndex = s.Landscape ? 1 : 0;
+        SyncPrelevementControls();
 
         ReceiptTemplateBox.SelectedValue = s.ReceiptTemplate;
         FactureTemplateBox.SelectedValue = s.FactureTemplate;
@@ -221,12 +249,16 @@ public partial class ReceiptSettingsDialog : Window
 
     private void ShowFacture_Click(object sender, RoutedEventArgs e) => ShowDocument(facture: true);
 
+    /// <summary>True when opened as Paramètres de vente or de stock (no printing options).</summary>
+    private bool _settingsView;
+
     private void ShowDocument(bool facture)
     {
         _showingFacture = facture;
 
-        RecuCard.Visibility = facture ? Visibility.Collapsed : Visibility.Visible;
-        FactureCard.Visibility = facture ? Visibility.Visible : Visibility.Collapsed;
+        // Paramètres de vente / de stock show no document card at all.
+        RecuCard.Visibility = facture || _settingsView ? Visibility.Collapsed : Visibility.Visible;
+        FactureCard.Visibility = facture && !_settingsView ? Visibility.Visible : Visibility.Collapsed;
 
         // Same active-tab treatment as the Ventes module's own tabs (VentesView.ApplyTabVisuals):
         // ModuleTabButton carries no selected state of its own.
@@ -356,6 +388,14 @@ public partial class ReceiptSettingsDialog : Window
             return;
         }
 
+        if (PrelevementCheck.IsChecked == true
+            && (!TryReadRate(PrelevementRateBox, out var prelevement) || prelevement is not > 0))
+        {
+            ShowStatus("Le taux de prélèvement doit être un nombre entre 0 et 100, ex. 2.", error: true);
+            PrelevementRateBox.Focus();
+            return;
+        }
+
         SetBusy(true);
         ShowStatus(null);
 
@@ -444,7 +484,18 @@ public partial class ReceiptSettingsDialog : Window
         FactureAmountInWords: FactureAmountInWordsCheck.IsChecked == true,
         ServeurEnabled: ServeurEnabledCheck.IsChecked == true,
         ServeurLabel: ServeurLabelBox.Text,
-        ServeurLabelPlural: ServeurLabelPluralBox.Text);
+        ServeurLabelPlural: ServeurLabelPluralBox.Text,
+        // 0 turns it off on the server (null would mean "unchanged").
+        PrelevementRate: SelectedPrelevementRate ?? 0,
+        LivraisonEnabled: LivraisonCheck.IsChecked == true,
+        FractionsEnabled: FractionsCheck.IsChecked == true,
+        EmballagesSuivi: EmballagesSuiviCheck.IsChecked == true,
+        PageOrientation: SelectedOrientation,
+        PrelevementApresTva: PrelevementTtcRadio.IsChecked == true,
+        PrelevementLabel: PrelevementLabelBox.Text.Trim(),
+        EffortGuerreLabel: EffortGuerreLabelBox.Text.Trim(),
+        EffortGuerreEnabled: EffortGuerreEnabledCheck.IsChecked == true,
+        EmballagesCreditAccepte: EmballagesCreditCheck.IsChecked == true);
 
     // --- Sections ----------------------------------------------------------------
 
@@ -495,10 +546,13 @@ public partial class ReceiptSettingsDialog : Window
     private static string SelectedTemplate(ComboBox box) => box.SelectedValue as string ?? ReceiptTemplates.Ticket;
 
     /// <summary>Accepts "19,25" as well as "19.25". Blank is valid and means no TVA.</summary>
-    private bool TryReadTvaRate(out decimal? rate)
+    private bool TryReadTvaRate(out decimal? rate) => TryReadRate(TvaRateBox, out rate);
+
+    /// <summary>A percentage typed as "19,25" or "19.25". Blank is valid and reads as null.</summary>
+    private static bool TryReadRate(TextBox box, out decimal? rate)
     {
         rate = null;
-        var text = TvaRateBox.Text.Trim().Replace(" ", string.Empty);
+        var text = box.Text.Trim().Replace(" ", string.Empty);
         if (text.Length == 0) return true;
 
         if (!decimal.TryParse(text.Replace('.', ','), NumberStyles.Number, French, out var value)
@@ -548,7 +602,82 @@ public partial class ReceiptSettingsDialog : Window
         ServeurEnabled = ServeurEnabledCheck.IsChecked == true,
         ServeurLabel = ServeurLabelText,
         ServeurLabelPlural = Blank(ServeurLabelPluralBox.Text) ?? ReceiptSettingsDefaults.ServeurLabelPlural,
+        PrelevementRate = SelectedPrelevementRate,
+        LivraisonEnabled = LivraisonCheck.IsChecked == true,
+        FractionsEnabled = FractionsCheck.IsChecked == true,
+        EmballagesSuivi = EmballagesSuiviCheck.IsChecked == true,
+        PageOrientation = SelectedOrientation,
+        PrelevementApresTva = PrelevementTtcRadio.IsChecked == true,
+        PrelevementLabel = string.IsNullOrWhiteSpace(PrelevementLabelBox.Text) ? null : PrelevementLabelBox.Text.Trim(),
+        EffortGuerreLabel = string.IsNullOrWhiteSpace(EffortGuerreLabelBox.Text) ? null : EffortGuerreLabelBox.Text.Trim(),
     };
+
+    private string SelectedOrientation =>
+        (OrientationBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag as string ?? PageOrientations.Portrait;
+
+    /// <summary>The prélèvement rate when the box is ticked and holds a valid rate, else null.</summary>
+    private decimal? SelectedPrelevementRate =>
+        PrelevementCheck.IsChecked == true && TryReadRate(PrelevementRateBox, out var r) && r is > 0 ? r : null;
+
+    private void SyncPrelevementControls() =>
+        PrelevementRateBox.IsEnabled = PrelevementHtRadio.IsEnabled = PrelevementTtcRadio.IsEnabled = PrelevementCheck.IsChecked == true;
+
+    // --- Remise and Nouvelle Vente tiles (moved from Configuration): saved as soon as ticked ---
+
+    private async void RemiseEnabled_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        try
+        {
+            _session.ApplyReceiptSettingsChange(await _session.Api.SaveRemiseSettingAsync(RemiseEnabledCheck.IsChecked == true));
+        }
+        catch (ApiException ex)
+        {
+            MessageBox.Show(this, ex.Message, "Remise", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private async void TileDisplay_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading || !IsLoaded) return;
+        try
+        {
+            _session.ApplyReceiptSettingsChange(await _session.Api.SaveTileDisplayAsync(
+                TileShowQuantityCheck.IsChecked == true, TileShowPriceCheck.IsChecked == true));
+        }
+        catch (ApiException ex)
+        {
+            MessageBox.Show(this, ex.Message, "Produits", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    /// <summary>Shows the sales settings alone, or the printing settings without them.</summary>
+    private void ApplyView(bool salesOnly, bool stockOnly = false)
+    {
+        if (!salesOnly && !stockOnly)
+        {
+            SalesCard.Visibility = Visibility.Collapsed;
+            StockCard.Visibility = Visibility.Collapsed;
+            return;
+        }
+        _settingsView = true;
+        var shown = stockOnly ? StockCard : SalesCard;
+        Title = stockOnly ? "Paramètres de stock" : "Paramètres de vente";
+        HeaderTitle.Text = Title;
+        HeaderSubtitle.Text = stockOnly
+            ? "Vente par fraction et suivi des emballages."
+            : "TVA, prélèvement et taxe par unité, serveur, livraison.";
+        DocumentTabs.Visibility = Visibility.Collapsed;
+        foreach (UIElement child in FormPanel.Children)
+            if (!ReferenceEquals(child, shown)) child.Visibility = Visibility.Collapsed;
+        // No document to preview: the form takes the whole window.
+        foreach (UIElement child in BodyGrid.Children)
+            if (Grid.GetColumn(child) > 0) child.Visibility = Visibility.Collapsed;
+        BodyGrid.ColumnDefinitions[1].Width = new GridLength(0);
+        BodyGrid.ColumnDefinitions[2].Width = new GridLength(0);
+        Width = 720;
+        MinWidth = 520;
+    }
 
     private string SelectedTvaMode => TvaAjouteeRadio.IsChecked == true ? TvaModes.Ajoutee : TvaModes.Incluse;
 
@@ -568,7 +697,7 @@ public partial class ReceiptSettingsDialog : Window
 
         var draft = Draft();
         PreviewBox.Child = ReceiptDocument.Build(
-            ReceiptData.Sample(_showingFacture, draft.AddedTvaRate), draft, _logoBytes, _qrBytes, FallbackCompany,
+            ReceiptData.Sample(_showingFacture, draft.AddedTvaRate, draft.PrelevementRate, draft.TvaRate, draft.TvaMode, draft.PrelevementApresTva), draft, _logoBytes, _qrBytes, FallbackCompany,
             forPrint: false);
     }
 
@@ -577,7 +706,7 @@ public partial class ReceiptSettingsDialog : Window
         if (_loading) return;
 
         var draft = Draft();
-        new VenteReceiptDialog(ReceiptData.Sample(_showingFacture, draft.AddedTvaRate), draft, _logoBytes, _qrBytes,
+        new VenteReceiptDialog(ReceiptData.Sample(_showingFacture, draft.AddedTvaRate, draft.PrelevementRate, draft.TvaRate, draft.TvaMode, draft.PrelevementApresTva), draft, _logoBytes, _qrBytes,
             FallbackCompany)
         {
             Owner = this,

@@ -8,7 +8,7 @@ namespace Lonnii.Client.Services;
 /// rather than whatever they were when it was saved.</summary>
 public sealed record SavedCartLine(
     string ProductId, int Quantity, decimal UnitPrice, decimal Discount, string DiscountType,
-    bool VenteEnGros = false);
+    bool VenteEnGros = false, int Quarts = 0);
 
 /// <summary>What one user was looking at, and had in the cart, in one group.</summary>
 public sealed class ScreenState

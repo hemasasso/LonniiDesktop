@@ -69,6 +69,7 @@ public sealed class ReceiptDocument
         var paper = settings.Template(data.IsFacture) switch
         {
             ReceiptTemplates.A4 => document.BuildA4(),
+            ReceiptTemplates.A5 => document.BuildA5(),
             ReceiptTemplates.Compact => document.BuildCompact(),
             _ => document.BuildTicket(),
         };
@@ -84,6 +85,7 @@ public sealed class ReceiptDocument
         {
             paper.BorderBrush = ScreenEdge;
             paper.BorderThickness = new Thickness(1);
+            if (paper.MinHeight > 0) ShowPageBreaks(paper);
         }
 
         return paper;
@@ -95,7 +97,7 @@ public sealed class ReceiptDocument
     /// right-hand column. An A4 page is also scaled to fit the page's height, so a long sale
     /// prints small rather than cut off at the bottom.
     /// </summary>
-    public static void Print(Func<Border> buildForPrint, bool singlePage, string jobName)
+    public static void Print(Func<Border> buildForPrint, bool singlePage, string jobName, bool a5 = false)
     {
         var dialog = new PrintDialog();
 
@@ -105,7 +107,7 @@ public sealed class ReceiptDocument
         {
             try
             {
-                PrintOn(dialog, buildForPrint, singlePage, jobName);
+                PrintOn(dialog, buildForPrint, singlePage, jobName, a5);
                 return;
             }
             catch (Exception)
@@ -114,24 +116,54 @@ public sealed class ReceiptDocument
             }
         }
 
+        if (a5) AskForA5(dialog);
         if (dialog.ShowDialog() != true) return;
-        PrintOn(dialog, buildForPrint, singlePage, jobName);
+        PrintOn(dialog, buildForPrint, singlePage, jobName, a5);
     }
 
     /// <summary>
     /// Prints on this computer's default printer without asking - a phone's request, the person
     /// being at the counter rather than at this screen. Throws when Windows has no printer.
     /// </summary>
-    public static void PrintSilently(Func<Border> buildForPrint, bool singlePage, string jobName)
+    public static void PrintSilently(Func<Border> buildForPrint, bool singlePage, string jobName, bool a5 = false)
     {
         var dialog = new PrintDialog();
         _ = dialog.PrintQueue ?? throw new InvalidOperationException("Aucune imprimante par défaut sur ce poste.");
-        PrintOn(dialog, buildForPrint, singlePage, jobName);
+        PrintOn(dialog, buildForPrint, singlePage, jobName, a5);
     }
 
-    private static void PrintOn(PrintDialog dialog, Func<Border> buildForPrint, bool singlePage, string jobName)
+    /// <summary>Asks the printer for A5 sheets. A printer without A5 keeps its own paper, and the
+    /// half-size page then prints centred at the top of it.</summary>
+    private static void AskForLandscape(PrintDialog dialog)
     {
+        try
+        {
+            if (dialog.PrintTicket is { } ticket) ticket.PageOrientation = System.Printing.PageOrientation.Landscape;
+        }
+        catch (Exception)
+        {
+            // The driver refused: the page is then scaled to fit portrait paper.
+        }
+    }
+
+    private static void AskForA5(PrintDialog dialog)
+    {
+        try
+        {
+            if (dialog.PrintTicket is { } ticket)
+                ticket.PageMediaSize = new System.Printing.PageMediaSize(System.Printing.PageMediaSizeName.ISOA5);
+        }
+        catch (Exception)
+        {
+            // The driver refused the paper size: print on what it has.
+        }
+    }
+
+    private static void PrintOn(PrintDialog dialog, Func<Border> buildForPrint, bool singlePage, string jobName, bool a5 = false)
+    {
+        if (a5) AskForA5(dialog);
         var paper = buildForPrint();
+        if (paper.Tag as string == PageOrientations.Paysage) AskForLandscape(dialog);
         var unbounded = new Size(double.PositiveInfinity, double.PositiveInfinity);
         paper.Measure(unbounded);
         var desired = paper.DesiredSize;
@@ -140,8 +172,18 @@ public sealed class ReceiptDocument
         var scale = 1.0;
         if (dialog.PrintableAreaWidth > 0)
             scale = Math.Min(scale, Math.Max(1, dialog.PrintableAreaWidth - 2 * originX) / desired.Width);
+
+        // A4 / A5 longer than one sheet continues on the next page instead of shrinking.
+        // Its MinHeight (the sheet's height) is dropped first: only the content counts.
         if (singlePage && dialog.PrintableAreaHeight > 0)
-            scale = Math.Min(scale, Math.Max(1, dialog.PrintableAreaHeight - 2 * originY) / desired.Height);
+        {
+            paper.MinHeight = 0;
+            paper.Measure(unbounded);
+            var usable = Math.Max(1, dialog.PrintableAreaHeight - 2 * originY);
+            // Always through the paged printer, so every sheet carries "Page 1 / N".
+            PrintPaged(dialog, paper, scale, originY, usable, jobName);
+            return;
+        }
 
         if (scale < 1) paper.LayoutTransform = new ScaleTransform(scale, scale);
 
@@ -163,6 +205,169 @@ public sealed class ReceiptDocument
         page.UpdateLayout();
 
         dialog.PrintVisual(page, jobName);
+    }
+
+    /// <summary>On screen, an A4/A5 page longer than one sheet shows where each printed page ends
+    /// ("— Page 1 / 2 —" on a dashed line). Nothing is drawn when it fits on one sheet.</summary>
+    private static void ShowPageBreaks(Border paper)
+    {
+        if (paper.Child is not UIElement content) return;
+        var overlay = new Canvas { IsHitTestVisible = false };
+        var host = new Grid();
+        paper.Child = null;
+        host.Children.Add(content);
+        host.Children.Add(overlay);
+        paper.Child = host;
+
+        var sheet = paper.MinHeight;
+        void Refresh()
+        {
+            overlay.Children.Clear();
+            var total = paper.ActualHeight;
+            if (total <= sheet + 1) return;
+            var texts = TextBounds(paper).ToList();
+            var cuts = new List<double>();
+            for (var start = 0.0; start + sheet < total - 1;)
+            {
+                var end = SafeCut(texts, start, start + sheet - PageNumberRoom, sheet - PageNumberRoom);
+                cuts.Add(end);
+                start = end;
+            }
+            var count = cuts.Count + 1;
+            var offset = paper.Padding.Top + paper.BorderThickness.Top;
+            var width = Math.Max(0, paper.ActualWidth - paper.Padding.Left - paper.Padding.Right);
+            for (var i = 0; i < cuts.Count; i++)
+            {
+                var y = cuts[i] - offset;
+                var line = new Line
+                {
+                    X1 = -paper.Padding.Left, X2 = width + paper.Padding.Right, Y1 = y, Y2 = y,
+                    Stroke = Brushes.IndianRed, StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 6, 4 },
+                };
+                overlay.Children.Add(line);
+                var label = new TextBlock
+                {
+                    Text = $"Page {i + 1} / {count}  ·  suite page {i + 2}", FontSize = 10,
+                    Foreground = Brushes.IndianRed, Background = Brushes.White, Padding = new Thickness(6, 0, 6, 0),
+                };
+                label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                Canvas.SetLeft(label, Math.Max(0, (width - label.DesiredSize.Width) / 2));
+                Canvas.SetTop(label, y - label.DesiredSize.Height / 2);
+                overlay.Children.Add(label);
+            }
+        }
+        var pending = false;
+        paper.SizeChanged += (_, _) =>
+        {
+            if (pending) return;
+            pending = true;
+            paper.Dispatcher.BeginInvoke(() => { pending = false; Refresh(); }, System.Windows.Threading.DispatcherPriority.Loaded);
+        };
+    }
+
+    /// <summary>Room kept at the foot of each printed sheet for "Page X / N".</summary>
+    private const double PageNumberRoom = 18;
+
+    /// <summary>Prints a tall page over several sheets. Each sheet shows a slice of the same
+    /// paper; slices end between lines of text, never through one.</summary>
+    private static void PrintPaged(PrintDialog dialog, Border paper, double scale, double originY, double usable, string jobName)
+    {
+        var unbounded = new Size(double.PositiveInfinity, double.PositiveInfinity);
+        paper.Measure(unbounded);
+        paper.Arrange(new Rect(paper.DesiredSize));
+        paper.UpdateLayout();
+
+        var width = paper.ActualWidth;
+        var total = paper.ActualHeight;
+        var sliceHeight = usable / scale;
+        // A sale longer than one sheet keeps room at each foot for "Page X / N".
+        if (total > sliceHeight + 1) sliceHeight = (usable - PageNumberRoom) / scale;
+        var texts = TextBounds(paper).ToList();
+
+        var pageWidth = dialog.PrintableAreaWidth;
+        var pageHeight = dialog.PrintableAreaHeight;
+        var document = new FixedDocument();
+        document.DocumentPaginator.PageSize = new Size(pageWidth, pageHeight);
+
+        var starts = new List<(double Start, double End)>();
+        for (var start = 0.0; start < total - 1;)
+        {
+            var end = Math.Min(start + sliceHeight, total);
+            if (end < total) end = SafeCut(texts, start, end, sliceHeight);
+            starts.Add((start, end));
+            start = end;
+        }
+
+        for (var i = 0; i < starts.Count; i++)
+        {
+            var (start, end) = starts[i];
+            var slice = new Rectangle
+            {
+                Width = width * scale,
+                Height = (end - start) * scale,
+                Fill = new VisualBrush(paper)
+                {
+                    ViewboxUnits = BrushMappingMode.Absolute,
+                    Viewbox = new Rect(0, start, width, end - start),
+                    Stretch = Stretch.Fill,
+                },
+            };
+            var sheet = new FixedPage { Width = pageWidth, Height = pageHeight, Background = Brushes.White };
+            FixedPage.SetLeft(slice, Math.Max(0, (pageWidth - slice.Width) / 2));
+            FixedPage.SetTop(slice, originY);
+            sheet.Children.Add(slice);
+
+            if (starts.Count > 1)
+            {
+                var number = new TextBlock
+                {
+                    Text = $"Page {i + 1} / {starts.Count}", FontSize = 9, Foreground = Brushes.Gray,
+                    Width = pageWidth, TextAlignment = TextAlignment.Center,
+                };
+                FixedPage.SetTop(number, Math.Max(0, pageHeight - originY - 14));
+                sheet.Children.Add(number);
+            }
+
+            var content = new PageContent();
+            ((System.Windows.Markup.IAddChild)content).AddChild(sheet);
+            document.Pages.Add(content);
+        }
+
+        dialog.PrintDocument(document.DocumentPaginator, jobName);
+    }
+
+    /// <summary>Where every line of text sits on the paper, so a page break can avoid them.</summary>
+    private static IEnumerable<Rect> TextBounds(Visual root)
+    {
+        var stack = new Stack<DependencyObject>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var node = stack.Pop();
+            if (node is FrameworkElement { ActualHeight: > 0 } element and (TextBlock or Image))
+            {
+                Rect? bounds = null;
+                try { bounds = element.TransformToAncestor(root).TransformBounds(new Rect(element.RenderSize)); }
+                catch (InvalidOperationException) { }
+                if (bounds is { } b) yield return b;
+            }
+            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++)
+                stack.Push(VisualTreeHelper.GetChild(node, i));
+        }
+    }
+
+    /// <summary>Moves a page break up until it falls between lines; gives up past half a page.</summary>
+    private static double SafeCut(List<Rect> texts, double start, double end, double sliceHeight)
+    {
+        var cut = end;
+        for (var guard = 0; guard < 200; guard++)
+        {
+            var hit = texts.FirstOrDefault(r => r.Top < cut - 0.5 && r.Bottom > cut + 0.5);
+            if (hit == default) return cut;
+            cut = hit.Top - 1;
+            if (cut <= start + sliceHeight / 2) return end;
+        }
+        return cut;
     }
 
     private static bool HasDefaultPrinter(PrintDialog dialog)
@@ -247,14 +452,14 @@ public sealed class ReceiptDocument
         name.TextWrapping = TextWrapping.NoWrap;
         name.TextTrimming = TextTrimming.CharacterEllipsis;
         Place(grid, 0, name);
-        Place(grid, 1, Text(line.Quantity.ToString(), body, align: TextAlignment.Center));
+        Place(grid, 1, Text(line.QuantityLabel, body, align: TextAlignment.Center));
         if (showPrice) Place(grid, 2, Text(Money.FormatPlain(line.UnitPrice), body, align: TextAlignment.Right));
 
         FrameworkElement total;
         if (line.Discount > 0 && Show(ReceiptSections.Discounts))
         {
             var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Right };
-            var raw = Text(Money.FormatPlain(line.UnitPrice * line.Quantity), small, brush: Brushes.Gray, align: TextAlignment.Right);
+            var raw = Text(Money.FormatPlain(line.Gross), small, brush: Brushes.Gray, align: TextAlignment.Right);
             raw.TextDecorations = TextDecorations.Strikethrough;
             stack.Children.Add(raw);
             stack.Children.Add(Text($"- {Money.FormatPlain(line.Discount)} (Remise)", small, brush: Danger, align: TextAlignment.Right));
@@ -394,7 +599,7 @@ public sealed class ReceiptDocument
             var amounts = new Grid();
             amounts.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             amounts.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var qty = line.Unite is null ? line.Quantity.ToString() : $"{line.Quantity} {line.Unite}";
+            var qty = line.Unite is null ? line.QuantityLabel : $"{line.QuantityLabel} ({line.Unite})";
             Place(amounts, 0, Text(
                 showPrice ? $"{qty} x {Money.FormatPlain(line.UnitPrice)}" : $"x {qty}",
                 small, brush: Muted));
@@ -438,6 +643,16 @@ public sealed class ReceiptDocument
     // A4 détaillé - sender and recipient blocks, bordered table, totals, signature
     // =====================================================================================
 
+    /// <summary>True while building the A5 page: same layout, narrower columns.</summary>
+    private bool _a5;
+
+    /// <summary>Mode / Statut moved under "Arrêté le présent…" when the totals split in two blocks.</summary>
+    private StackPanel? _paymentInfoBelow;
+    private StackPanel? _noticeBelow;
+
+    /// <summary>A width on the A4 page, narrowed when the page is narrow (A5 portrait).</summary>
+    private double W(double a4, double a5) => _a5 && !_settings.Landscape ? a5 : a4;
+
     private Border BuildA4()
     {
         var root = new DockPanel { LastChildFill = true };
@@ -466,9 +681,27 @@ public sealed class ReceiptDocument
             references.Add($"{_settings.SellerLabel} : {_data.VendeurNom}");
         if (ShowsServeur) references.Add($"{_settings.ServeurLabel} : {_data.ServeurNom}");
         if (ShowsCashier) references.Add($"Caissier : {_data.CaissierNom}");
-        if (references.Count > 0)
-            body.Children.Add(Text(string.Join("        ", references), ReceiptTypography.Meta(_size), brush: Muted,
-                margin: new Thickness(0, 14, 0, 0)));
+        // The client is a plain line too: a box took a lot of room for "N/A".
+        string? clientLine = null;
+        if (Show(ReceiptSections.Client) && !string.IsNullOrWhiteSpace(_data.ClientNom))
+        {
+            var client = $"Client : {_data.ClientNom.Trim()}";
+            if (!string.IsNullOrWhiteSpace(_data.ClientTelephone)) client += $" · Tél : {_data.ClientTelephone}";
+            if (!string.IsNullOrWhiteSpace(_data.ClientEmail)) client += $" · {_data.ClientEmail}";
+            clientLine = client;
+        }
+        // Client on the left; vendeur / serveur / caissier at the right end.
+        if (references.Count > 0 || clientLine is not null)
+        {
+            var line = new Grid { Margin = new Thickness(0, 14, 0, 0) };
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            if (clientLine is not null) Place(line, 0, Text(clientLine, ReceiptTypography.Meta(_size), brush: Muted));
+            if (references.Count > 0)
+                Place(line, 1, Text(string.Join("        ", references), ReceiptTypography.Meta(_size), brush: Muted,
+                    align: TextAlignment.Right, margin: new Thickness(16, 0, 0, 0)));
+            body.Children.Add(line);
+        }
 
         body.Children.Add(new Border
         {
@@ -476,14 +709,45 @@ public sealed class ReceiptDocument
         });
 
         body.Children.Add(A4ItemTable());
+        _paymentInfoBelow = null;
+        _noticeBelow = null;
         body.Children.Add(A4TotalsZone());
+        // Order under the totals: "Arrêté le présent…", Mode / Statut, then the emballages.
         if (_settings.AmountInWords(_facture)) body.Children.Add(A4AmountInWords());
+        if (_paymentInfoBelow is { } paymentInfo) body.Children.Add(paymentInfo);
+        if (_data.EmballagesTable(_settings) is { } table)
+            body.Children.Add(EmballagesBlock(table.Columns, table.Note));
+        else if (_data.EmballagesLine(_settings) is { } emballages)
+            body.Children.Add(Text(emballages, ReceiptTypography.Meta(_size), FontWeights.SemiBold,
+                align: TextAlignment.Left, margin: new Thickness(0, 6, 0, 0)));
+        // "À régler à la caisse" / avoir notice after the emballages.
+        if (_noticeBelow is { } notice) body.Children.Add(notice);
 
         if (ShowsPaymentHistory) body.Children.Add(A4PaymentHistory());
 
         body.Children.Add(A4Bottom());
 
-        return new Border { Width = 794, MinHeight = 1123, Padding = new Thickness(44), Child = root };
+        var (width, height) = (_a5, _settings.Landscape) switch
+        {
+            (true, false) => (559d, 794d),
+            (true, true) => (794d, 559d),
+            (false, true) => (1123d, 794d),
+            _ => (794d, 1123d),
+        };
+        return new Border
+        {
+            Width = width, MinHeight = height, Padding = new Thickness(_a5 ? 26 : 44), Child = root,
+            Tag = _settings.Landscape ? PageOrientations.Paysage : null,
+        };
+    }
+
+    /// <summary>A5: the very same A4 page drawn at A5 size (A5 is A4 x 1/sqrt 2), so both look alike.</summary>
+    private Border BuildA5()
+    {
+        // Laid out at A5 size with readable text, rather than the A4 page shrunk (tiny print).
+        _a5 = true;
+        try { return BuildA4(); }
+        finally { _a5 = false; }
     }
 
     private Grid A4Header()
@@ -491,14 +755,14 @@ public sealed class ReceiptDocument
         var header = new Grid();
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(W(300, 210)) });
 
         var sender = new StackPanel();
         if (Show(ReceiptSections.Logo) && _logo is not null)
         {
             sender.Children.Add(new Image
             {
-                Source = ImageHelper.FromBytes(_logo), MaxHeight = 80, MaxWidth = 240, Stretch = Stretch.Uniform,
+                Source = ImageHelper.FromBytes(_logo), MaxHeight = W(80, 56), MaxWidth = W(240, 160), Stretch = Stretch.Uniform,
                 HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 8),
             });
         }
@@ -523,45 +787,28 @@ public sealed class ReceiptDocument
             Padding = new Thickness(10, 8, 10, 8), Child = titleBox,
         });
 
-        if (Show(ReceiptSections.Client))
-        {
-            var client = new StackPanel();
-            client.Children.Add(Text("CLIENT", ReceiptTypography.Scale(9, _size), FontWeights.SemiBold, Faint));
-            client.Children.Add(Text(string.IsNullOrWhiteSpace(_data.ClientNom) ? "N/A" : _data.ClientNom,
-                ReceiptTypography.Body(_size), FontWeights.Bold, margin: new Thickness(0, 2, 0, 0)));
-            if (!string.IsNullOrWhiteSpace(_data.ClientTelephone))
-                client.Children.Add(Text($"Tél : {_data.ClientTelephone}", ReceiptTypography.Meta(_size), brush: Muted));
-            if (!string.IsNullOrWhiteSpace(_data.ClientEmail))
-                client.Children.Add(Text(_data.ClientEmail, ReceiptTypography.Meta(_size), brush: Muted));
-
-            right.Children.Add(new Border
-            {
-                BorderBrush = Brushes.Black, BorderThickness = new Thickness(1), Padding = new Thickness(10, 8, 10, 8),
-                Margin = new Thickness(0, 16, 0, 0), Child = client,
-            });
-        }
         Place(header, 2, right);
 
         return header;
     }
 
-    /// <summary>A bordered table with column rules running the full height, like a
-    /// pre-printed invoice form. The minimum height keeps a short sale from producing a
-    /// cramped table floating at the top of the page.</summary>
+    /// <summary>A bordered table with column rules running the full height. Its height
+    /// follows the sale: it grows with each line instead of a fixed empty box.</summary>
     private Border A4ItemTable()
     {
         var showPrice = Show(ReceiptSections.UnitPrice);
-        var table = new Grid { MinHeight = 320 };
+        var table = new Grid();
 
         table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
-        if (showPrice) table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
-        table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
+        // Grows to fit "2 + 1/2 Caisse" on one line; the désignation column gives up the room.
+        table.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = W(90, 64) });
+        if (showPrice) table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(W(120, 84)) });
+        table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(W(130, 96)) });
         var columns = table.ColumnDefinitions.Count;
 
         table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         foreach (var _ in _data.Lines) table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        table.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        table.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });
 
         for (var c = 0; c < columns - 1; c++)
         {
@@ -595,7 +842,7 @@ public sealed class ReceiptDocument
 
             var c = 0;
             Place(table, c++, name, r + 1);
-            var qtyText = line.Unite is null ? line.Quantity.ToString() : $"{line.Quantity} {line.Unite}";
+            var qtyText = line.Unite is null ? line.QuantityLabel : $"{line.QuantityLabel} ({line.Unite})";
             Place(table, c++, Text(qtyText, tableSize, align: TextAlignment.Center, margin: cell), r + 1);
             if (showPrice)
                 Place(table, c++, Text(Money.FormatPlain(line.UnitPrice), tableSize, align: TextAlignment.Right, margin: cell), r + 1);
@@ -610,7 +857,7 @@ public sealed class ReceiptDocument
         var zone = new Grid { Margin = new Thickness(0, 12, 0, 0) };
         zone.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         zone.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
-        zone.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(320) });
+        zone.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(W(320, 240)) });
 
         var left = new StackPanel();
         if (ShowsPaymentInfo)
@@ -619,6 +866,7 @@ public sealed class ReceiptDocument
             left.Children.Add(Text($"Statut : {StatutLabel(_data.StatutPaiement)}", ReceiptTypography.Meta(_size), FontWeights.SemiBold,
                 margin: new Thickness(0, 2, 0, 0)));
         }
+        var noticeAt = left.Children.Count;
         AddNotice(left);
         Place(zone, 0, left);
 
@@ -634,22 +882,78 @@ public sealed class ReceiptDocument
             rows.Add(("TOTAL HT", Money.Format(t.Ht), null, false));
             rows.Add(($"TVA ({TvaRateLabel} %)", Money.Format(t.Tva), null, false));
         }
-        rows.Add((tax is null ? "TOTAL" : "TOTAL TTC", Money.Format(_data.MontantTotal), null, true));
+
+        // With extra charges the total splits in two blocks side by side - the tax block ending
+        // on TOTAL TTC, then the charges ending on NET À PAYER - so the page stays short.
+        var charges = ChargeRows.ToList();
+        var second = rows;
+        if (charges.Count > 0)
+        {
+            rows.Add((tax is null ? "TOTAL" : "TOTAL TTC", Money.Format(_data.MontantTotal - _data.ChargesTotal), null, true));
+            second = [];
+            foreach (var (label, amount) in charges)
+                second.Add((label.ToUpper(French), Money.Format(amount), null, false));
+            second.Add(("NET À PAYER", Money.Format(_data.MontantTotal), null, true));
+        }
+        else
+        {
+            rows.Add((tax is null ? "TOTAL" : "TOTAL TTC", Money.Format(_data.MontantTotal), null, true));
+        }
 
         if (ShowsPaymentInfo)
         {
             // "Acompte" while money is still owed, the way a French invoice names a part-payment.
-            rows.Add((_data.MontantRestant > 0 ? "ACOMPTE VERSÉ" : "MONTANT PAYÉ", Money.Format(_data.MontantPaye), null, false));
-            if (_data.MontantRestant > 0) rows.Add(("RESTE À PAYER", Money.Format(_data.MontantRestant), Warning, true));
+            second.Add((_data.MontantRestant > 0 ? "ACOMPTE VERSÉ" : "MONTANT PAYÉ", Money.Format(_data.MontantPaye), null, false));
+            if (_data.MontantRestant > 0) second.Add(("RESTE À PAYER", Money.Format(_data.MontantRestant), Warning, true));
             if (_data.AvoirAmount > 0)
-                rows.Add(("AVOIR CLIENT", AvoirLabel, Warning, false));
+                second.Add(("AVOIR CLIENT", AvoirLabel, Warning, false));
         }
 
+        if (charges.Count == 0)
+        {
+            Place(zone, 2, TotalsBlock(rows));
+            return zone;
+        }
+
+        // Two blocks: payment info moves above them.
+        var split = new Grid { Margin = new Thickness(0, 12, 0, 0) };
+        split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+        split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        split.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        split.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        // Payment mode and status go under the totals, just before the amount in words.
+        left.Margin = new Thickness(0, 10, 0, 0);
+        zone.Children.Remove(left);
+        Grid.SetColumnSpan(left, 3);
+        var a = TotalsBlock(rows); a.VerticalAlignment = VerticalAlignment.Top;
+        var b = TotalsBlock(second); b.VerticalAlignment = VerticalAlignment.Top;
+        Place(split, 0, a);
+        Place(split, 2, b);
+        // Mode / Statut are added by the page after "Arrêté le présent…", the notice after the emballages.
+        _paymentInfoBelow = left;
+        if (left.Children.Count > noticeAt)
+        {
+            var notice = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
+            while (left.Children.Count > noticeAt)
+            {
+                var child = left.Children[noticeAt];
+                left.Children.RemoveAt(noticeAt);
+                notice.Children.Add(child);
+            }
+            _noticeBelow = notice;
+        }
+        return split;
+    }
+
+    private StackPanel TotalsBlock(List<(string Label, string Value, Brush? Brush, bool Emphasis)> rows)
+    {
         var totals = new StackPanel();
         for (var i = 0; i < rows.Count; i++)
         {
             var (label, value, brush, emphasis) = rows[i];
-            var size = emphasis ? ReceiptTypography.Total(_size) : ReceiptTypography.Meta(_size);
+            // TOTAL TTC / NET À PAYER: the size of the table's QUANTITÉ / P.U / MONTANT headings.
+            var size = emphasis ? ReceiptTypography.Table(_size) : ReceiptTypography.Meta(_size);
             var weight = emphasis ? FontWeights.Bold : FontWeights.Normal;
 
             var grid = new Grid();
@@ -658,18 +962,58 @@ public sealed class ReceiptDocument
             Place(grid, 0, Text(label, size, weight, brush));
             Place(grid, 1, Text(value, size, weight, brush, TextAlignment.Right));
 
+            // Only the totals and what was paid are boxed; the detail lines above stay plain.
+            var boxed = IsBoxed(rows[i]);
+            var previousBoxed = i > 0 && IsBoxed(rows[i - 1]);
             totals.Children.Add(new Border
             {
                 Background = emphasis ? Shade : Brushes.Transparent,
                 BorderBrush = Brushes.Black,
-                BorderThickness = new Thickness(1, i == 0 ? 1 : emphasis ? 2 : 0, 1, 1),
-                Padding = new Thickness(8, 4, 8, 4),
+                BorderThickness = !boxed ? new Thickness(0)
+                    : new Thickness(1, emphasis ? 2 : previousBoxed ? 0 : 1, 1, 1),
+                Padding = boxed ? new Thickness(8, 4, 8, 4) : new Thickness(8, 2, 8, 2),
+                Margin = boxed && !previousBoxed && i > 0 ? new Thickness(0, 4, 0, 0) : new Thickness(0),
                 Child = grid,
             });
         }
-        Place(zone, 2, totals);
+        return totals;
+    }
 
-        return zone;
+    private static bool IsBoxed((string Label, string Value, Brush? Brush, bool Emphasis) row) =>
+        row.Emphasis || row.Label is "MONTANT PAYÉ" or "ACOMPTE VERSÉ" or "RESTE À PAYER" or "AVOIR CLIENT";
+
+    /// <summary>"Emballages de 12 : (1 cs (Cast)) prise" / "... Rendus" - one column per size in
+    /// this sale, then the credit / what is left to bring back.</summary>
+    private StackPanel EmballagesBlock(IReadOnlyList<ReceiptData.EmballageColumn> columns, string? note)
+    {
+        var size = ReceiptTypography.Meta(_size);
+        var block = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
+        var grid = new Grid();
+        for (var i = 0; i < columns.Count; i++)
+        {
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        }
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        for (var i = 0; i < columns.Count; i++)
+        {
+            var c = columns[i];
+            for (var row = 0; row < 2; row++)
+            {
+                var head = Text(c.Header, size, FontWeights.SemiBold, margin: new Thickness(0, 1, 6, 1));
+                var value = Text($"{(row == 0 ? c.Pris : c.Rendus)} {(row == 0 ? "prise" : "Rendus")}", size,
+                    margin: new Thickness(0, 1, 16, 1));
+                Grid.SetRow(head, row); Grid.SetColumn(head, i * 2);
+                Grid.SetRow(value, row); Grid.SetColumn(value, i * 2 + 1);
+                grid.Children.Add(head);
+                grid.Children.Add(value);
+            }
+        }
+        block.Children.Add(grid);
+        if (note is not null)
+            block.Children.Add(Text(note, size, FontWeights.SemiBold, margin: new Thickness(0, 2, 0, 0)));
+        return block;
     }
 
     /// <summary>"Montant en lettres" (receipt settings): the total written out under the figures,
@@ -762,11 +1106,12 @@ public sealed class ReceiptDocument
 
         FrameworkElement SignatureBox(string label, Thickness margin)
         {
-            var stack = new StackPanel { Width = 160, Margin = margin };
+            var stack = new StackPanel { Width = W(160, 120), Margin = margin };
             stack.Children.Add(Text(label, ReceiptTypography.Scale(9, _size), FontWeights.SemiBold, Faint));
             stack.Children.Add(new Border
             {
-                Height = 80, BorderBrush = Brushes.Black, BorderThickness = new Thickness(1), Margin = new Thickness(0, 3, 0, 0),
+                // Blank room to sign/stamp, no line: a line pushed short reçus onto a 2nd page.
+                Height = 30, Margin = new Thickness(0, 3, 0, 0),
             });
             return stack;
         }
@@ -860,6 +1205,11 @@ public sealed class ReceiptDocument
             s.Children.Add(Row("Total HT:", Money.Format(t.Ht), size));
             s.Children.Add(Row($"TVA ({TvaRateLabel} %):", Money.Format(t.Tva), size));
         }
+
+        foreach (var (label, amount) in ChargeRows)
+            s.Children.Add(Row($"{label}:", Money.Format(amount), size));
+        if (_data.EmballagesLine(_settings) is { } emballagesTicket)
+            s.Children.Add(Text(emballagesTicket, size, FontWeights.SemiBold, margin: new Thickness(0, 2, 0, 2)));
 
         var totalSize = ReceiptTypography.Total(_size);
         var grid = new Grid();
@@ -1005,6 +1355,24 @@ public sealed class ReceiptDocument
     private string TvaRateLabel => (TaxBreakdown?.Rate ?? 0).ToString("0.##", French);
 
     /// <summary>
+    /// What the sale added after the TVA, in this order: prélèvement, effort de guerre, consigne,
+    /// livraison. Always printed when charged, whatever the sections say - the total would
+    /// otherwise exceed the lines above it with nothing to explain the difference.
+    /// </summary>
+    private IEnumerable<(string Label, decimal Amount)> ChargeRows
+    {
+        get
+        {
+            if (_data.PrelevementAmount is > 0)
+                yield return ($"{_settings.PrelevementName} ({(_data.PrelevementRate ?? 0).ToString("0.##", French)} %)", _data.PrelevementAmount.Value);
+            if (_data.EffortGuerreAmount is > 0) yield return (_settings.EffortGuerreName, _data.EffortGuerreAmount.Value);
+            if (_data.ConsigneAmount is > 0) yield return ("Consigne emballages", _data.ConsigneAmount.Value);
+            if (_data.LivraisonAmount is > 0) yield return ("Livraison", _data.LivraisonAmount.Value);
+            if (_data.ConsigneRendue is > 0) yield return ("Consigne rendue", -_data.ConsigneRendue.Value);
+        }
+    }
+
+    /// <summary>
     /// A sale the till added TVA to prints exactly what was charged, whatever the settings
     /// say now - even with the section switched off, since otherwise the total would exceed
     /// the lines above it with nothing to explain the difference. Otherwise, when prices
@@ -1022,8 +1390,10 @@ public sealed class ReceiptDocument
 
             if (_settings.TvaMode != TvaModes.Incluse || _settings.TvaRate is not { } rate || rate <= 0) return null;
 
-            var ht = Math.Round(_data.MontantTotal / (1 + rate / 100m), Money.DecimalDigits, MidpointRounding.AwayFromZero);
-            return (ht, _data.MontantTotal - ht, rate);
+            // The charges added after the TVA carry none of it.
+            var ttc = _data.MontantTotal - _data.ChargesTotal;
+            var ht = Math.Round(ttc / (1 + rate / 100m), Money.DecimalDigits, MidpointRounding.AwayFromZero);
+            return (ht, ttc - ht, rate);
         }
     }
 

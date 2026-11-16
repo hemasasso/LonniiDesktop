@@ -100,17 +100,22 @@ public sealed class PhonePrintService(AppSession session)
 
         var vente = await session.Api.GetVenteAsync(job.VenteId);
         var settings = await session.GetReceiptSettingsAsync();
-        if (job.Format == "a4")
+        var data = ReceiptData.FromVente(vente);
+
+        // The phone's "page" choice: the shop's own page size for this document when it picked
+        // A5, otherwise A4.
+        if (job.Format == "a4" && settings.Template(data.IsFacture) != ReceiptTemplates.A5)
             settings = settings with { ReceiptTemplate = ReceiptTemplates.A4, FactureTemplate = ReceiptTemplates.A4 };
 
-        var data = ReceiptData.FromVente(vente);
-        var singlePage = settings.Template(data.IsFacture) == ReceiptTemplates.A4;
+        var template = settings.Template(data.IsFacture);
+        var singlePage = ReceiptTemplates.IsPage(template);
         var jobName = $"{(data.IsFacture ? "Facture" : "Reçu")} {data.Numero}";
         var logo = session.ReceiptLogo;
         var qr = session.ReceiptQrCode;
         var company = session.Groupe?.Nom ?? "Lonnii";
 
         ReceiptDocument.PrintSilently(
-            () => ReceiptDocument.Build(data, settings, logo, qr, company, forPrint: true), singlePage, jobName);
+            () => ReceiptDocument.Build(data, settings, logo, qr, company, forPrint: true), singlePage, jobName,
+            a5: template == ReceiptTemplates.A5);
     }
 }

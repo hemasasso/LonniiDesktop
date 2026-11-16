@@ -77,6 +77,7 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <!-- Name and product type share the first row -->
@@ -201,6 +202,85 @@
                     <TextBlock Text="Laissez vide pour utiliser « unité » par défaut"
                                Style="{StaticResource PageSubtitle}" />
                 </StackPanel>
+
+                <!-- Charges added on top at the till, and fraction prices. -->
+                <Border Grid.Row="12" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,16,0,0" Padding="12,10"
+                        BorderBrush="{DynamicResource Border}" BorderThickness="1" CornerRadius="4">
+                    <StackPanel>
+                        <TextBlock Text="Options de vente" FontWeight="SemiBold" Margin="0,0,0,8" />
+
+                        <!-- Effort de guerre: a fixed amount per unit, printed under the TVA. -->
+                        <Grid x:Name="EffortGuerrePanel">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="180" />
+                            </Grid.ColumnDefinitions>
+                            <CheckBox x:Name="EffortGuerreCheck" VerticalAlignment="Center"
+                                      Content="Effort de guerre (montant fixe par unité)"
+                                      Checked="Extras_Changed" Unchecked="Extras_Changed" />
+                            <TextBox x:Name="EffortGuerreBox" Grid.Column="1" Visibility="Collapsed"
+                                     LostFocus="Regroup_LostFocus" ToolTip="Montant ajouté pour chaque unité vendue" />
+                        </Grid>
+
+                        <!-- Emballage récupérable: a deposit per unit, charged at the till or not. -->
+                        <Grid Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="180" />
+                            </Grid.ColumnDefinitions>
+                            <CheckBox x:Name="EmballageCheck" VerticalAlignment="Center"
+                                      Content="Emballage récupérable (consigne par unité, facultative)"
+                                      Checked="Extras_Changed" Unchecked="Extras_Changed" />
+                            <TextBox x:Name="ConsigneBox" Grid.Column="1" Visibility="Collapsed"
+                                     LostFocus="Regroup_LostFocus" ToolTip="Consigne pour l'emballage d'une unité" />
+                        </Grid>
+                        <StackPanel x:Name="ContenancePanel" Orientation="Horizontal" Margin="20,6,0,0" Visibility="Collapsed">
+                            <TextBlock Text="Emballage de" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <TextBox x:Name="ContenanceBox" Width="70" ToolTip="Nombre d'unités dans un emballage (12, 16, 24…), vide = non précisé" />
+                            <TextBlock Text="unités (ex. 12, 16, 24)" VerticalAlignment="Center" Margin="8,0,0,0"
+                                       Foreground="{DynamicResource TextMuted}" FontSize="11" />
+                        </StackPanel>
+                        <!-- Interchangeable crates: the groups made in Stock > Emballages. Hidden while there are none. -->
+                        <StackPanel x:Name="EmballageTypePanel" Orientation="Horizontal" Margin="20,6,0,0" Visibility="Collapsed">
+                            <TextBlock Text="🔗 Interchangeable avec" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <ComboBox x:Name="EmballageTypeBox" Width="260" DisplayMemberPath="Label"
+                                      ToolTip="Le client peut rapporter n'importe quelle caisse de ce groupe : elles comptent comme une seule (même contenance obligatoire)" />
+                        </StackPanel>
+                        <TextBlock x:Name="ConsigneHint" Margin="20,4,0,0" FontSize="11" Visibility="Collapsed"
+                                   Foreground="{DynamicResource TextMuted}" TextWrapping="Wrap"
+                                   Text="À la vente, la caisse choisit de facturer la consigne ou non (le client rapporte ses emballages)." />
+
+                        <!-- Fractions of a unit: shown only when turned on in Paramètres. -->
+                        <StackPanel x:Name="FractionsPanel" Margin="0,12,0,0" Visibility="Collapsed">
+                            <TextBlock Text="Vente par fraction (prix fixé par vous, souvent un peu plus que le prorata)"
+                                       Foreground="{DynamicResource TextMuted}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6" />
+                            <CheckBox x:Name="FractionAutoCheck" Margin="0,0,0,6"
+                                      Content="Auto : prorata exact du prix de vente (décochez pour saisir vos prix)"
+                                      Checked="FractionAuto_Changed" Unchecked="FractionAuto_Changed" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <CheckBox x:Name="QuartCheck" Content="1/4" Checked="Extras_Changed" Unchecked="Extras_Changed" />
+                                    <TextBox x:Name="QuartBox" Margin="0,4,0,0" IsEnabled="False" LostFocus="Regroup_LostFocus" ToolTip="Prix d'un quart" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <CheckBox x:Name="DemiCheck" Content="1/2" Checked="Extras_Changed" Unchecked="Extras_Changed" />
+                                    <TextBox x:Name="DemiBox" Margin="0,4,0,0" IsEnabled="False" LostFocus="Regroup_LostFocus" ToolTip="Prix d'une moitié" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="4">
+                                    <CheckBox x:Name="TroisQuartsCheck" Content="3/4" Checked="Extras_Changed" Unchecked="Extras_Changed" />
+                                    <TextBox x:Name="TroisQuartsBox" Margin="0,4,0,0" IsEnabled="False" LostFocus="Regroup_LostFocus" ToolTip="Prix de trois quarts" />
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
 
                 <TextBlock x:Name="QuantityHint" Grid.Row="11" Grid.Column="0" Grid.ColumnSpan="3"
                            Margin="0,12,0,0" Style="{StaticResource PageSubtitle}"

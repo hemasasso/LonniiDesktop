@@ -438,6 +438,50 @@ public class LonniiApiClient
     public Task<ProductDto> AdjustStockAsync(string id, AdjustStockRequest request, CancellationToken ct = default) =>
         PostAsync<ProductDto>($"api/stock/products/{id}/adjust", request, ct);
 
+    /// <summary>Stock > Emballages: pleins, vides, chez les clients per returnable product.</summary>
+    public Task<List<EmballageStockDto>> GetEmballagesAsync(CancellationToken ct = default) =>
+        GetAsync<List<EmballageStockDto>>("api/stock/emballages", ct);
+
+    public Task<List<EmballageClientDto>> GetEmballageClientsAsync(CancellationToken ct = default) =>
+        GetAsync<List<EmballageClientDto>>("api/stock/emballages/clients", ct);
+
+    public Task<List<EmballageFournisseurDto>> GetEmballageFournisseursAsync(CancellationToken ct = default) =>
+        GetAsync<List<EmballageFournisseurDto>>("api/stock/emballages/fournisseurs", ct);
+
+    public Task<List<EmballageMouvementDto>> GetEmballageMouvementsAsync(string? productId = null,
+        DateOnly? dateDebut = null, DateOnly? dateFin = null, CancellationToken ct = default) =>
+        GetAsync<List<EmballageMouvementDto>>("api/stock/emballages/mouvements" + EmballagePeriodQuery(productId, dateDebut, dateFin), ct);
+
+    /// <summary>What moved per returnable product during the period (null dates = since the start).</summary>
+    public Task<List<EmballageFluxDto>> GetEmballageFluxAsync(DateOnly? dateDebut, DateOnly? dateFin, CancellationToken ct = default) =>
+        GetAsync<List<EmballageFluxDto>>("api/stock/emballages/flux" + EmballagePeriodQuery(null, dateDebut, dateFin), ct);
+
+    private static string EmballagePeriodQuery(string? productId, DateOnly? dateDebut, DateOnly? dateFin)
+    {
+        var query = new List<string>();
+        if (productId is not null) query.Add($"productId={Uri.EscapeDataString(productId)}");
+        if (dateDebut is { } debut) query.Add($"dateDebut={debut:yyyy-MM-dd}");
+        if (dateFin is { } fin) query.Add($"dateFin={fin:yyyy-MM-dd}");
+        if (dateDebut is not null || dateFin is not null) query.Add($"tzOffsetMinutes={LocalTzOffsetMinutes()}");
+        return query.Count > 0 ? "?" + string.Join("&", query) : string.Empty;
+    }
+
+    public Task<EmballageStockDto> AddEmballageMouvementAsync(EmballageMouvementRequest request, CancellationToken ct = default) =>
+        PostAsync<EmballageStockDto>("api/stock/emballages/mouvements", request, ct);
+
+    /// <summary>Interchangeable packaging: the shared emballage types and their products.</summary>
+    public Task<List<EmballageTypeDto>> GetEmballageTypesAsync(CancellationToken ct = default) =>
+        GetAsync<List<EmballageTypeDto>>("api/stock/emballages/types", ct);
+
+    public Task<EmballageTypeDto> CreateEmballageTypeAsync(SaveEmballageTypeRequest request, CancellationToken ct = default) =>
+        PostAsync<EmballageTypeDto>("api/stock/emballages/types", request, ct);
+
+    public Task<EmballageTypeDto> UpdateEmballageTypeAsync(string id, SaveEmballageTypeRequest request, CancellationToken ct = default) =>
+        SendAsync<EmballageTypeDto>(HttpMethod.Put, $"api/stock/emballages/types/{Uri.EscapeDataString(id)}", request, ct);
+
+    public Task DeleteEmballageTypeAsync(string id, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Delete, $"api/stock/emballages/types/{Uri.EscapeDataString(id)}", null, ct);
+
     public Task<List<StockHistoryDto>> GetProductHistoryAsync(string id, CancellationToken ct = default) =>
         GetAsync<List<StockHistoryDto>>($"api/stock/products/{id}/history", ct);
 
@@ -506,6 +550,18 @@ public class LonniiApiClient
 
     public Task<ClientDto> UpdateClientAsync(string id, SaveClientRequest request, CancellationToken ct = default) =>
         SendAsync<ClientDto>(HttpMethod.Put, $"api/ventes/clients/{id}", request, ct);
+
+    public Task<List<ConsigneSoldeDto>> GetConsignesAsync(string? nom, string? telephone, string? email, CancellationToken ct = default)
+    {
+        var query = new List<string>();
+        if (!string.IsNullOrWhiteSpace(nom)) query.Add($"nom={Uri.EscapeDataString(nom.Trim())}");
+        if (!string.IsNullOrWhiteSpace(telephone)) query.Add($"telephone={Uri.EscapeDataString(telephone.Trim())}");
+        if (!string.IsNullOrWhiteSpace(email)) query.Add($"email={Uri.EscapeDataString(email.Trim())}");
+        return GetAsync<List<ConsigneSoldeDto>>($"api/ventes/clients/consignes?{string.Join('&', query)}", ct);
+    }
+
+    public Task AddEmballageRetourAsync(EmballageRetourRequest request, CancellationToken ct = default) =>
+        SendAsync(HttpMethod.Post, "api/ventes/clients/emballages-retours", request, ct);
 
     // --- Serveurs ---
 
@@ -1151,6 +1207,7 @@ public class LonniiApiClient
         if (_groupSession is not null)
             request.Headers.Add("x-group-session", _groupSession);
         request.Headers.Add("x-device-id", DeviceIdentity.Current);
+        if (DeviceIdentity.Hardware is { } hw) request.Headers.Add("x-device-hw", hw);
 
         HttpResponseMessage response;
         try
@@ -1295,6 +1352,7 @@ public class LonniiApiClient
         if (_groupSession is not null)
             request.Headers.Add("x-group-session", _groupSession);
         request.Headers.Add("x-device-id", DeviceIdentity.Current);
+        if (DeviceIdentity.Hardware is { } hw) request.Headers.Add("x-device-hw", hw);
 
         HttpResponseMessage response;
         try
@@ -1382,6 +1440,7 @@ public class LonniiApiClient
         // recognise the machine, and a request that arrives without it looks exactly like
         // a copied installation trying to stay quiet.
         request.Headers.Add("x-device-id", DeviceIdentity.Current);
+        if (DeviceIdentity.Hardware is { } hw) request.Headers.Add("x-device-hw", hw);
 
         HttpResponseMessage response;
         try

@@ -37,6 +37,12 @@ var databaseOptions = new DatabaseOptions();
 builder.Configuration.GetSection(DatabaseOptions.SectionName).Bind(databaseOptions);
 databaseOptions.Validate();
 
+// A shop's computer runs on its own SQLite file, never PostgreSQL: the licence rules treat a PostgreSQL
+// installation as our own server, so a shop that moved its data into one would never be locked.
+if (Lonnii.Api.Features.Infrastructure.ShippedHost.IsShipped && databaseOptions.IsPostgres)
+    throw new InvalidOperationException(
+        "Cette version de Lonnii est celle des boutiques : elle fonctionne uniquement avec sa base locale.");
+
 builder.Services.AddSingleton(databaseOptions);
 
 // The server's own database. On a shop's host that is its SQLite file; on the licence server it
@@ -123,10 +129,19 @@ builder.Services.AddHttpClient(Lonnii.Api.Features.Remote.RemoteRequestReplayer.
     client.BaseAddress = new Uri($"http://127.0.0.1:{builder.Configuration.GetValue("Lonnii:Port", 5280)}/");
     client.Timeout = TimeSpan.FromMinutes(2);
 });
+// The newest licence issue time and latest moment seen, kept in the registry and a file outside the
+// data folder: shop computers only, decided by the build
+// (not ShippedHost.IsShipped, which the tests flip) so development and tests never write to the
+// registry of the machine they run on.
+if (Lonnii.Api.Features.Infrastructure.ShippedHost.CompiledAsShipped && OperatingSystem.IsWindows())
+    builder.Services.AddSingleton<ILicenceWatermark, HostLicenceWatermark>();
 builder.Services.AddScoped<LicenceGuard>(services =>
     // The key that licences are checked against is built in (LicenceToken.PublicKey), never read
     // from configuration: a key a shop could set is a key a shop could sign its own licence with.
-    new LicenceGuard(services.GetRequiredService<Lonnii.Api.Features.Remote.ControlDb>().Db));
+    new LicenceGuard(
+        services.GetRequiredService<Lonnii.Api.Features.Remote.ControlDb>().Db,
+        watermark: services.GetService<ILicenceWatermark>(),
+        security: services.GetService<HostSecurityLog>()));
 // Signs licences on the licence server; holds no key (and signs nothing) on a shop's host.
 builder.Services.AddSingleton<LicenceSigner>();
 
@@ -150,6 +165,13 @@ builder.Services.AddScoped<EspaceTransferService>();
 // anything depends only on whether the workspace has a licence server to answer to.
 builder.Services.AddSingleton(new BackupTokens(jwtOptions.Secret));
 builder.Services.AddSingleton(new BackupStore(dataDirectory));
+// Attempts to get round the licence: noticed on a shop's computer and queued for the next check-in,
+// and kept per espace on our server for the dashboard and the morning report.
+// Only a shop's computer (SQLite) notes attempts for a check-in: on our server phones are refused a
+// machine check as a normal step before their remote session, and there is nobody to report to.
+if (!databaseOptions.IsPostgres)
+    builder.Services.AddSingleton(new HostSecurityLog(dataDirectory));
+builder.Services.AddSingleton(new SecurityEventStore(dataDirectory));
 builder.Services.AddSingleton(new Lonnii.Api.Features.Remote.RemoteSessionTokens(jwtOptions.Secret));
 builder.Services.AddSingleton(new Lonnii.Api.Features.Remote.RemoteCommandStore(dataDirectory));
 builder.Services.AddSingleton(sp => new Lonnii.Api.Features.Remote.ReplicaStore(
@@ -286,6 +308,7 @@ app.MapPrivilegeEndpoints();
 Lonnii.Api.Features.Remote.RemoteEndpoints.MapRemoteEndpoints(app);
 Lonnii.Api.Features.Live.LiveEndpoints.MapLiveEndpoints(app);
 app.MapStockEndpoints();
+app.MapEmballagesEndpoints();
 app.MapVentesEndpoints();
 app.MapGroupePaymentEndpoints();
 app.MapClientsEndpoints();
@@ -329,10 +352,11 @@ app.MapGet("/api/health", () => Results.Ok(new
 })).WithTags("Health");
 
 app.Logger.LogInformation(
-    "Lonnii Desktop API listening on port {Port}; provider {Provider}; {Location}",
+    "Lonnii Desktop API listening on port {Port}; provider {Provider}; {Location}; shipped host: {Shipped}",
     port,
     databaseOptions.IsPostgres ? DatabaseOptions.Postgres : DatabaseOptions.Sqlite,
-    databaseOptions.IsPostgres ? "base distante" : databasePath);
+    databaseOptions.IsPostgres ? "base distante" : databasePath,
+    Lonnii.Api.Features.Infrastructure.ShippedHost.IsShipped);
 
 try
 {

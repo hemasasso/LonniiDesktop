@@ -419,9 +419,27 @@ public sealed record ProductDto(
     bool VenteMixte = false,
     string? UniteVente = null,
     int? FacteurConversion = null,
-    decimal? PrixVenteDetail = null)
+    decimal? PrixVenteDetail = null,
+    decimal? EffortGuerre = null,
+    bool EmballageRecuperable = false,
+    decimal? ConsigneMontant = null,
+    decimal? PrixQuart = null,
+    decimal? PrixDemi = null,
+    decimal? PrixTroisQuarts = null,
+    int FractionOuverte = 0,
+    int? EmballageContenance = null,
+    string? EmballageTypeId = null)
 {
     public string TypeProduitDisplay => ProductTypes.DisplayName(TypeProduit);
+
+    /// <summary>True when at least one fraction (¼, ½, ¾) has a price.</summary>
+    public bool SellsFractions => !VenteMixte && (PrixQuart is not null || PrixDemi is not null || PrixTroisQuarts is not null);
+
+    /// <summary>The price of that many quarters, or null when the product does not sell it.</summary>
+    public decimal? FractionPrice(int quarts) => SaleCharges.FractionPrice(PrixQuart, PrixDemi, PrixTroisQuarts, quarts);
+
+    /// <summary>Stock in quarters: whole units plus what is left of an opened one.</summary>
+    public int QuartsInStock => Quantity * 4 + FractionOuverte;
 
     /// <summary>True when stock has fallen to or below the alert threshold. A product sold
     /// without stock tracking or with unlimited stock is never low.</summary>
@@ -452,7 +470,8 @@ public sealed record ProductDto(
                 return gros == 0 ? restePart : reste == 0 ? grosPart : $"{grosPart} & {restePart}";
             }
 
-            return string.IsNullOrEmpty(UniteAffichage) ? Quantity.ToString() : $"{Quantity} {UniteAffichage}";
+            var count = SaleCharges.QuantityLabel(Quantity, FractionOuverte);
+            return string.IsNullOrEmpty(UniteAffichage) ? count : $"{count} {UniteAffichage}";
         }
     }
 }
@@ -480,10 +499,26 @@ public sealed record SaveProductRequest(
     bool VenteMixte = false,
     string? UniteVente = null,
     int? FacteurConversion = null,
-    decimal? PrixVenteDetail = null);
+    decimal? PrixVenteDetail = null,
+    // Effort de guerre, consigne and fraction prices. Null on an update leaves them as they
+    // were, so a client that does not know these fields (the phone, an older desktop) cannot
+    // wipe them. Send 0 / false to clear one.
+    decimal? EffortGuerre = null,
+    bool? EmballageRecuperable = null,
+    decimal? ConsigneMontant = null,
+    decimal? PrixQuart = null,
+    decimal? PrixDemi = null,
+    decimal? PrixTroisQuarts = null,
+    // "Emballage de N": null leaves it, 0 clears it.
+    int? EmballageContenance = null,
+    // The interchangeable-emballage group (Stock > Emballages) the crate belongs to:
+    // null leaves it, "" takes it out, an id puts it in.
+    string? EmballageTypeId = null);
 
-/// <summary>Adjusts stock by a signed amount, recording why.</summary>
-public sealed record AdjustStockRequest(int QuantityChanged, string MovementType, string? Reason = null);
+/// <summary>Adjusts stock by a signed amount, recording why.
+/// <paramref name="SupplierId"/>: on a stock entry ("ajout") of a product with a returnable emballage,
+/// the supplier who delivered it - also recorded as full crates received from them (Stock > Emballages).</summary>
+public sealed record AdjustStockRequest(int QuantityChanged, string MovementType, string? Reason = null, string? SupplierId = null);
 
 /// <summary>One stock movement, as shown in the product history.</summary>
 public sealed record StockHistoryDto(
@@ -556,7 +591,10 @@ public sealed record SupplierDto(
     string? Notes,
     int? Rating,
     bool IsActive,
-    decimal MontantDu = 0);
+    decimal MontantDu = 0,
+    // Emballages owed to this supplier: full crates received minus empties sent back (Stock > Emballages).
+    // Null when none were ever recorded with them.
+    decimal? EmballagesARendre = null);
 
 /// <summary>Creates or updates a supplier.</summary>
 public sealed record SaveSupplierRequest(
@@ -595,7 +633,8 @@ public sealed record CartItemRequest(
     decimal? UnitPrice = null,
     decimal Discount = 0,
     string DiscountType = DiscountTypes.Amount,
-    bool VenteEnGros = false);
+    bool VenteEnGros = false,
+    int Quarts = 0);
 
 /// <summary>Creates a sale from a cart. <paramref name="MontantPaye"/> may be less than the
 /// computed total (partial payment) or zero (unpaid). <paramref name="RemiseGlobale"/> is a
@@ -621,7 +660,11 @@ public sealed record CreateVenteRequest(
     string? IdempotencyKey = null,
     bool MonnaieEnAvoir = false,
     IReadOnlyList<PaiementPartRequest>? Paiements = null,
-    string? ServeurId = null);
+    string? ServeurId = null,
+    bool AvecConsigne = false,
+    decimal Livraison = 0,
+    decimal EmballagesRendus = 0,
+    IReadOnlyList<EmballageRetourLigne>? Retours = null);
 
 /// <summary>One part of a split payment at checkout. <paramref name="Reference"/> is the
 /// operator's transaction id for a mobile money part, kept for reconciling statements.</summary>
@@ -639,7 +682,16 @@ public sealed record VenteItemDto(
     decimal PrixTotal,
     decimal Discount,
     string DiscountType,
-    string? Unite = null);
+    string? Unite = null,
+    int? Quarts = null,
+    decimal? PrixFraction = null,
+    decimal? EmballagesPris = null,
+    int? EmballageContenance = null,
+    decimal? EmballagesCredit = null)
+{
+    /// <summary>"3", "1 + 1/2" or "1/2".</summary>
+    public string QuantiteDisplay => SaleCharges.QuantityLabel(Quantite, Quarts ?? 0);
+}
 
 /// <summary>One payment recorded against a sale - the detail view's payment history
 /// (Lonnii Business's <c>payment_tranches</c>), distinct from the receipt's single summed
@@ -680,7 +732,170 @@ public sealed record VenteDto(
     decimal? TvaAmount = null,
     string? AvoirCreatedByName = null,
     string? ServeurNom = null,
-    string? ServeurId = null);
+    string? ServeurId = null,
+    decimal? PrelevementRate = null,
+    decimal? PrelevementAmount = null,
+    decimal? EffortGuerreAmount = null,
+    decimal? ConsigneAmount = null,
+    decimal? LivraisonAmount = null,
+    decimal? EmballagesPris = null,
+    decimal? EmballagesRendus = null,
+    decimal? ConsigneRendue = null,
+    IReadOnlyList<EmballageRenduDto>? Rendus = null,
+    decimal? EmballagesCredit = null,
+    decimal? EmballagesCreditRestant = null,
+    decimal? EmballagesDusAvant = null);
+
+/// <summary>Empties of one product handed back during a sale, for the receipt's detail.</summary>
+public sealed record EmballageRenduDto(string? ProductId, string NomProduit, decimal Quantite, int? Contenance);
+
+/// <summary>
+/// Prélèvement, effort de guerre, consigne, fractions: the arithmetic the till (to show the
+/// total) and the server (to charge it) must agree on. Every amount is in whole currency
+/// units, like <see cref="TvaModes.Added"/>.
+/// </summary>
+public static class SaleCharges
+{
+    /// <summary>The product's unit for a printed line ("Caisse"), or null when none was set -
+    /// a generic "unité(s)" adds nothing, so "2" is printed rather than "2 unités".</summary>
+    public static string? RealUnit(string? unite)
+    {
+        var u = unite?.Trim();
+        if (string.IsNullOrEmpty(u)) return null;
+        var key = u.ToLowerInvariant();
+        return key is "unité" or "unités" or "unite" or "unites" or "u" or "pcs" or "pièce" or "pièces" ? null : u;
+    }
+
+    /// <summary>The one display unit these products share ("caisse"), or null when they differ or none
+    /// is set - so a total over Brakina and Castel, both "caisse", reads "2 caisses", and a mix reads
+    /// "emballages".</summary>
+    public static string? SharedUnit(IEnumerable<string?> units)
+    {
+        var distinct = units.Select(RealUnit).Where(u => u is not null)
+            .Select(u => u!.ToLowerInvariant()).Distinct().ToList();
+        return distinct.Count == 1 ? distinct[0] : null;
+    }
+
+    private static decimal Whole(decimal v) => Math.Round(v, 0, MidpointRounding.AwayFromZero);
+
+    /// <summary>The HT amount of a net total: the total itself when TVA is added on top or
+    /// there is none, otherwise the total with its included TVA taken out.</summary>
+    public static decimal Ht(decimal net, decimal? tvaRate, string? tvaMode) =>
+        TvaModes.Normalise(tvaMode) == TvaModes.Incluse && tvaRate is > 0
+            ? net / (1 + tvaRate.Value / 100m)
+            : net;
+
+    /// <summary>Prélèvement: <paramref name="rate"/> % of the HT amount (before TVA), or of the
+    /// TTC amount when <paramref name="afterTva"/> (Paramètres "Le prélèvement est calculé").</summary>
+    public static decimal Prelevement(decimal net, decimal rate, decimal? tvaRate, string? tvaMode, bool afterTva = false) =>
+        rate > 0 ? Whole((afterTva ? Ttc(net, tvaRate, tvaMode) : Ht(net, tvaRate, tvaMode)) * rate / 100m) : 0;
+
+    /// <summary>The TTC amount of a net total: the total itself when TVA is included or there is
+    /// none, otherwise the total plus the TVA added on top.</summary>
+    public static decimal Ttc(decimal net, decimal? tvaRate, string? tvaMode) =>
+        TvaModes.Normalise(tvaMode) == TvaModes.Ajoutee && tvaRate is > 0
+            ? net + TvaModes.Added(net, tvaRate.Value)
+            : net;
+
+    /// <summary>An amount per unit (effort de guerre, consigne) for a whole quantity plus quarters.</summary>
+    public static decimal PerUnit(decimal? perUnit, int quantity, int quarts) =>
+        perUnit is > 0 ? Whole(perUnit.Value * (quantity + quarts / 4m)) : 0;
+
+    public static decimal? FractionPrice(decimal? quart, decimal? demi, decimal? troisQuarts, int quarts) => quarts switch
+    {
+        1 => quart,
+        2 => demi,
+        3 => troisQuarts,
+        _ => null,
+    };
+
+    public static string FractionLabel(int quarts) => quarts switch
+    {
+        1 => "1/4",
+        2 => "1/2",
+        3 => "3/4",
+        _ => "",
+    };
+
+    /// <summary>"3", "1 + 1/2", "1/2".</summary>
+    /// <summary>A count in quarters as printed: 1.5 -> "1 + 1/2", 0.25 -> "1/4", 3 -> "3".</summary>
+    public static string CountLabel(decimal count)
+    {
+        var whole = (int)Math.Floor(count);
+        return QuantityLabel(whole, (int)Math.Round((count - whole) * 4, MidpointRounding.AwayFromZero) % 4);
+    }
+
+    /// <summary>Reads a typed count of emballages: "2", "1,5", "1.5", "1 + 1/2", "1 1/2", "3/4".
+    /// Quarters only (0.25 steps); false for anything else or a negative number.</summary>
+    public static bool TryParseCount(string? text, out decimal count)
+    {
+        count = 0;
+        var t = (text ?? string.Empty).Trim().Replace('+', ' ');
+        if (t.Length == 0) return false;
+        var parts = t.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var part in parts)
+        {
+            if (part.Split('/') is [var n, var d] && int.TryParse(n, out var num) && int.TryParse(d, out var den) && den > 0)
+                count += (decimal)num / den;
+            else if (decimal.TryParse(part.Replace(',', '.'), System.Globalization.NumberStyles.Number,
+                         System.Globalization.CultureInfo.InvariantCulture, out var v))
+                count += v;
+            else return false;
+        }
+        return count >= 0 && IsQuarterStep(count);
+    }
+
+    /// <summary>True for a count in steps of a quarter (1, 1.25, 1.5…).</summary>
+    public static bool IsQuarterStep(decimal count) => count * 4 == Math.Floor(count * 4);
+
+    public static string QuantityLabel(int quantity, int quarts) =>
+        quarts is < 1 or > 3 ? quantity.ToString()
+        : quantity == 0 ? FractionLabel(quarts)
+        : $"{quantity} + {FractionLabel(quarts)}";
+
+    /// <summary>
+    /// Reads what a cashier typed: "2", "1.5", "1,5", "1 1/2", "1+1/2", "3/4", "0.25". Only
+    /// quarters are accepted. False for anything else, or for nothing at all.
+    /// </summary>
+    public static bool TryParseQuantity(string? text, out int quantity, out int quarts)
+    {
+        quantity = 0;
+        quarts = 0;
+        var t = (text ?? "").Trim().Replace(' ', ' ').Replace(' ', ' ');
+        // "1 1/2": the space before a fraction means "plus"; any other space is grouping ("1 000").
+        t = System.Text.RegularExpressions.Regex.Replace(t, @"^(\d+)\s+(\d+\s*/)", "$1+$2");
+        t = t.Replace(" ", "").Replace(',', '.');
+        if (t.Length == 0) return false;
+
+        decimal value;
+        var slash = t.IndexOf('/');
+        if (slash > 0)
+        {
+            var plus = t.IndexOf('+');
+            var wholePart = plus > 0 ? t[..plus] : "0";
+            var fraction = plus > 0 ? t[(plus + 1)..] : t;
+            var parts = fraction.Split('/');
+            if (parts.Length != 2
+                || !int.TryParse(wholePart, out var w) || w < 0
+                || !int.TryParse(parts[0], out var num) || !int.TryParse(parts[1], out var den)
+                || den <= 0 || num < 0)
+                return false;
+            value = w + (decimal)num / den;
+        }
+        else if (!decimal.TryParse(t, System.Globalization.NumberStyles.Number,
+                     System.Globalization.CultureInfo.InvariantCulture, out value))
+        {
+            return false;
+        }
+
+        if (value <= 0) return false;
+        var totalQuarts = value * 4;
+        if (totalQuarts != Math.Floor(totalQuarts) || totalQuarts > int.MaxValue) return false;
+        quantity = (int)(totalQuarts / 4);
+        quarts = (int)(totalQuarts % 4);
+        return true;
+    }
+}
 
 /// <summary>
 /// A customer and what they have bought. Sales carry the customer's name and phone as text,
@@ -702,9 +917,43 @@ public sealed record ClientDto(
     decimal TotalAchats,
     decimal ResteDu,
     int FacturesImpayees,
-    DateTime? DernierAchat)
+    DateTime? DernierAchat,
+    decimal EmballagesDus = 0,
+    // Consigne the client paid on emballages and has not had back yet.
+    decimal ConsigneVersee = 0)
 {
     public bool IsRegistered => Id is not null;
+}
+
+/// <summary>Empty packaging a client brings back without buying anything. With
+/// <paramref name="Lignes"/> the count is per product and the consigne paid on them is
+/// refunded in <paramref name="ModePaiement"/> out of the caller's open caisse.</summary>
+public sealed record EmballageRetourRequest(
+    string? ClientNom, string? ClientTelephone, string? ClientEmail, decimal Quantite,
+    IReadOnlyList<EmballageRetourLigne>? Lignes = null,
+    string? ModePaiement = null,
+    // ModePaiement "mixte": this part in mobile money, the rest in espèces.
+    decimal? MontantMobile = null);
+
+/// <summary>Empties of one product brought back.</summary>
+public sealed record EmballageRetourLigne(string ProductId, decimal Quantite);
+
+/// <summary>What a client still holds of one product's packaging, and the consigne they paid
+/// on it that can still be refunded. <paramref name="ParUnite"/> is the refund for one empty.</summary>
+public sealed record ConsigneSoldeDto(
+    string ProductId, string NomProduit, string? Unite, decimal Dus, decimal ConsigneRestante, decimal ParUnite,
+    int? Contenance = null,
+    // Interchangeable crates: ProductId is then the shared type's id, NomProduit its name, ProductIds
+    // every product it groups (any of their crates comes back on this line) and Produits their names.
+    IReadOnlyList<string>? ProductIds = null,
+    string? Produits = null)
+{
+    /// <summary>True when <paramref name="productId"/>'s crates are counted on this line.</summary>
+    public bool Covers(string productId) => ProductId == productId || (ProductIds?.Contains(productId) ?? false);
+
+    /// <summary>Refund for <paramref name="quantite"/> empties: only those owed, never more than paid.</summary>
+    public decimal Remboursement(decimal quantite) =>
+        Math.Min(ConsigneRestante, Math.Round(Math.Min(Math.Max(quantite, 0), Dus) * ParUnite, 0, MidpointRounding.AwayFromZero));
 }
 
 /// <summary>Creates or updates a saved client.</summary>
@@ -883,7 +1132,17 @@ public sealed record VentesStatsResponse(
     IReadOnlyList<VenteStatsPointDto> Serie,
     IReadOnlyList<ServeurSalesDto>? ServeurSales = null,
     IReadOnlyList<StatsPersonDto>? Vendeurs = null,
-    IReadOnlyList<StatsPersonDto>? Caissiers = null);
+    IReadOnlyList<StatsPersonDto>? Caissiers = null,
+    decimal ConsigneEncaissee = 0,
+    decimal ConsigneRemboursee = 0,
+    IReadOnlyList<ConsigneClientStatsDto>? ConsigneClients = null);
+
+/// <summary>
+/// One client's consigne in the period: charged on their sales, given back (at the till or from
+/// Clients), and the difference the shop still holds for them from that period. Consigne is a deposit,
+/// not revenue, so it is kept out of the chiffre d'affaires and shown apart.
+/// </summary>
+public sealed record ConsigneClientStatsDto(string Client, decimal Encaissee, decimal Remboursee, decimal Nette);
 
 /// <summary>A choice for the Statistiques Vendeur / Caissier filters: someone who rang up a sale
 /// or recorded a payment in the period.</summary>
@@ -926,6 +1185,8 @@ public sealed record CaisseDto(
     decimal? MontantFinalCarte = null,
     CaisseOrigineDto? Origine = null,
     decimal AvoirsSoldes = 0,
+    decimal ConsigneEncaissee = 0,
+    decimal ConsigneRemboursee = 0,
     decimal ResteAPayer = 0,
     IReadOnlyList<ServeurSalesDto>? ServeurSales = null)
 {
@@ -1131,12 +1392,19 @@ public static class ReceiptTemplates
     /// tax and down-payment lines, signature and legal footer.</summary>
     public const string A4 = "a4";
 
-    public static readonly IReadOnlyList<string> All = [Ticket, Compact, A4];
+    /// <summary>The A4 layout drawn on a half-size page (148 x 210 mm).</summary>
+    public const string A5 = "a5";
+
+    public static readonly IReadOnlyList<string> All = [Ticket, Compact, A4, A5];
+
+    /// <summary>A full-page layout (A4 or A5): printed on one page, scaled to fit its height.</summary>
+    public static bool IsPage(string? template) => template is A4 or A5;
 
     public static string Label(string template) => template switch
     {
         Compact => "Ticket compact (58 mm)",
         A4 => "A4 détaillé",
+        A5 => "A5 détaillé",
         _ => "Ticket (80 mm)",
     };
 
@@ -1300,8 +1568,59 @@ public sealed record ReceiptSettingsDto(
     bool FactureAmountInWords = false,
     bool ServeurEnabled = false,
     string ServeurLabel = ReceiptSettingsDefaults.ServeurLabel,
-    string ServeurLabelPlural = ReceiptSettingsDefaults.ServeurLabelPlural)
+    string ServeurLabelPlural = ReceiptSettingsDefaults.ServeurLabelPlural,
+    decimal? PrelevementRate = null,
+    bool LivraisonEnabled = false,
+    bool FractionsEnabled = false,
+    bool EmballagesSuivi = false,
+    string? EmballagesUnite = null,
+    string PageOrientation = PageOrientations.Portrait,
+    bool PrelevementApresTva = false,
+    // The shop's own names for the two charges ("Autres taxes", "Taxe communale"…).
+    string? PrelevementLabel = null,
+    string? EffortGuerreLabel = null,
+    // "Taxe fixe par unité" switched on: only then does the product form offer it.
+    bool EffortGuerreEnabled = false,
+    // Emballages brought back in advance (beyond what is owed) kept as a client credit and
+    // used on the next purchase. Off: a client can only bring back what they owe.
+    bool EmballagesCreditAccepte = false)
 {
+    /// <summary>"Prélèvement" unless the shop renamed it.</summary>
+    public string PrelevementName => string.IsNullOrWhiteSpace(PrelevementLabel) ? "Prélèvement" : PrelevementLabel.Trim();
+
+    /// <summary>"Effort de guerre" unless the shop renamed it.</summary>
+    public string EffortGuerreName => string.IsNullOrWhiteSpace(EffortGuerreLabel) ? "Effort de guerre" : EffortGuerreLabel.Trim();
+
+    /// <summary>"2 caisses de 12" - the count with one product's emballage size and its own unit
+    /// (each product's "Unité d'affichage" from Stock; "emballage" when it has none).</summary>
+    public string Emballages(decimal count, int? contenance, string? unit = null) =>
+        contenance is > 0 ? $"{Emballages(count, unit)} de {contenance}" : Emballages(count, unit);
+
+    /// <summary>Per product: "1 + 1/2 caisse de 16 (Brafaso), 1 + 1/4 casier de 24 (Castel)" - each named
+    /// product printed with its own display unit.</summary>
+    public string EmballagesDetail(IEnumerable<(decimal Count, int? Contenance, string? Name, string? Unit)> parts)
+    {
+        var all = parts.Where(p => p.Count > 0).GroupBy(p => (p.Contenance, Name: p.Name?.Trim() ?? string.Empty, p.Unit))
+            .Select(g =>
+            {
+                var label = Emballages(g.Sum(p => p.Count), g.Key.Contenance, g.Key.Unit);
+                return g.Key.Name.Length > 0 ? $"{label} ({g.Key.Name})" : label;
+            }).ToList();
+        return all.Count == 0 ? Emballages(0) : string.Join(", ", all);
+    }
+
+    /// <summary>"8 caisses", "1 casier", "1 + 1/2 caisse", "3 emballages". The word is the product's own
+    /// display unit (from Stock); "emballage" when none is given - a sale may mix units, so there is no
+    /// single shop-wide word.</summary>
+    public string Emballages(decimal count, string? unit = null)
+    {
+        var word = SaleCharges.RealUnit(unit) ?? "emballage";
+        var plural = count >= 2 && !word.EndsWith('s') && !word.EndsWith('x') ? word + "s" : word;
+        return $"{SaleCharges.CountLabel(count)} {plural.ToLower(System.Globalization.CultureInfo.CurrentCulture)}";
+    }
+
+    public bool Landscape => PageOrientations.Normalise(PageOrientation) == PageOrientations.Paysage;
+
     public IReadOnlyList<string> HiddenSections(bool facture) =>
         (facture ? FactureHiddenSections : ReceiptHiddenSections) ?? ReceiptSettingsDefaults.DefaultHiddenSections;
 
@@ -1355,7 +1674,30 @@ public sealed record UpdateReceiptSettingsRequest(
     bool? FactureAmountInWords = null,
     bool? ServeurEnabled = null,
     string? ServeurLabel = null,
-    string? ServeurLabelPlural = null);
+    string? ServeurLabelPlural = null,
+    // Null leaves the stored value (older clients). Prélèvement: send 0 to turn it off.
+    decimal? PrelevementRate = null,
+    bool? LivraisonEnabled = null,
+    bool? FractionsEnabled = null,
+    bool? EmballagesSuivi = null,
+    string? EmballagesUnite = null,
+    string? PageOrientation = null,
+    bool? PrelevementApresTva = null,
+    // Null leaves the stored name; "" goes back to the default.
+    string? PrelevementLabel = null,
+    string? EffortGuerreLabel = null,
+    bool? EffortGuerreEnabled = null,
+    bool? EmballagesCreditAccepte = null);
+
+/// <summary>How A4 / A5 pages are laid on the sheet.</summary>
+public static class PageOrientations
+{
+    public const string Portrait = "portrait";
+    public const string Paysage = "paysage";
+
+    public static string Normalise(string? value) =>
+        string.Equals(value?.Trim(), Paysage, StringComparison.OrdinalIgnoreCase) ? Paysage : Portrait;
+}
 
 /// <summary>"Activer remise" in Configuration - saved on its own, without the receipt wording.</summary>
 public sealed record SaveRemiseSettingRequest(bool Enabled);
@@ -1391,7 +1733,8 @@ public sealed record ActivationRequest(
     string DeviceId,
     string? DeviceName = null,
     string Platform = "windows",
-    string? AppVersion = null);
+    string? AppVersion = null,
+    string? HardwareSignature = null);
 
 /// <summary>
 /// The settings an installation runs on, and the authority for all of them. Stored locally
@@ -1453,7 +1796,21 @@ public sealed record DeviceListResponse(int MaxDevices, int Used, IReadOnlyList<
 /// Asks the licence server for this workspace's current settings. Sent periodically, and
 /// whenever a shop reconnects after we have changed something for them.
 /// </summary>
-public sealed record LicenceRefreshRequest(string GroupId, string DeviceId, string? AppVersion = null);
+/// <param name="Events">Attempts to get round the licence this computer noticed since its last
+/// check-in (see SecurityEventKinds). Null from versions that do not report them.</param>
+/// <param name="HardwareSignature">This computer's second fingerprint (see Device.HardwareSignature),
+/// so our server can tell a copied MachineGuid from the real machine. Null from older versions.</param>
+/// <param name="BuildHash">A hash of the host's own program files, so our server can tell when they
+/// were changed without the version changing - a program patched to dodge the licence. Null from older versions.</param>
+public sealed record LicenceRefreshRequest(
+    string GroupId, string DeviceId, string? AppVersion = null, IReadOnlyList<SecurityEventDto>? Events = null,
+    string? HardwareSignature = null, string? BuildHash = null);
+
+/// <summary>One attempt to get round the licence, as the shop's computer noticed it.</summary>
+/// <param name="Kind">One of SecurityEventKinds.</param>
+/// <param name="At">When the computer noticed it, by its own clock (which may be the thing being cheated).</param>
+/// <param name="Detail">A short note: the old value, how far the clock went back...</param>
+public sealed record SecurityEventDto(string Kind, DateTime At, string? Detail = null);
 
 /// <summary>
 /// The workspace's settings as the licence server sees them now - always the authority,
@@ -2366,3 +2723,130 @@ public sealed record NotificationsResponse(IReadOnlyList<NotificationDto> Items)
 /// <summary>Body of <c>POST/DELETE /api/push-token</c>, as the phone app sends it. Its userId is
 /// ignored: the server takes the user from the sign-in token.</summary>
 public sealed record PushTokenRequest(string? UserId, string? PushToken, string? Platform);
+
+/// <summary>Kinds of <c>emballages_mouvements</c> rows.</summary>
+public static class EmballageMouvementTypes
+{
+    public const string Inventaire = "inventaire";
+    public const string RetourFournisseur = "retour_fournisseur";
+    public const string Casse = "casse";
+    /// <summary>Full crates delivered by a supplier. Tracks what the shop owes that supplier in
+    /// emballages (reçus - rendus); it does not change the Vides, and the product's stock is still
+    /// added the usual way.</summary>
+    public const string RecuFournisseur = "recu_fournisseur";
+
+    public static string Label(string? type) => type switch
+    {
+        Inventaire => "Inventaire",
+        RetourFournisseur => "Retour fournisseur",
+        RecuFournisseur => "Reçus du fournisseur",
+        Casse => "Casse / perte",
+        "retour_client" => "Rapportés par le client",
+        _ => type ?? "",
+    };
+}
+
+/// <summary>
+/// One returnable product in Stock > Emballages. Pleins = the product's stock (null when stock is
+/// not counted), Vides = empties in the shop, ChezClients = still owed by identified clients.
+/// Total = everything the shop owns. Counts are in the product's unit, by quarters.
+/// </summary>
+public sealed record EmballageStockDto(
+    string ProductId,
+    string NomProduit,
+    string? Unite,
+    decimal? Pleins,
+    decimal Vides,
+    decimal ChezClients,
+    decimal Total,
+    decimal? ConsigneMontant,
+    decimal ConsigneDetenue,
+    int? Contenance = null,
+    // Set when the row is a shared emballage type (interchangeable crates): ProductId and TypeId
+    // are then the type's id, NomProduit its name, and Produits the products it groups.
+    string? TypeId = null,
+    List<EmballageProduitDto>? Produits = null);
+
+/// <summary>One product of a shared emballage type, with its own full stock.</summary>
+public sealed record EmballageProduitDto(string ProductId, string NomProduit, decimal? Pleins, decimal? ConsigneMontant, int? Contenance);
+
+/// <summary>Interchangeable packaging: the products whose crates are the same.</summary>
+public sealed record EmballageTypeDto(string Id, string Nom, List<string> ProductIds);
+
+public sealed record SaveEmballageTypeRequest(string Nom, List<string> ProductIds);
+
+/// <summary>A client holding empties: one line per product. Dus below 0 = brought back in advance.</summary>
+public sealed record EmballageClientDto(
+    string ClientNom,
+    string? Telephone,
+    string? Email,
+    decimal TotalDus,
+    decimal ConsigneVersee,
+    DateTime? DernierAchat,
+    List<EmballageClientLigne> Lignes);
+
+/// <summary>What moved for one returnable product during a period (Stock > Emballages, date filter).
+/// All positive except Inventaire (the net correction counts made, signed).</summary>
+public sealed record EmballageFluxDto(
+    string ProductId,
+    string NomProduit,
+    string? Unite,
+    decimal PrisClients,
+    decimal RapportesClients,
+    decimal RetourFournisseur,
+    decimal Casse,
+    decimal Inventaire,
+    decimal ConsigneFournisseur,
+    decimal RecusFournisseur = 0);
+
+/// <summary>A supplier's emballages: full crates received from them, empties sent back, and what
+/// is still to give back (ARendre below 0 = sent back more than recorded as received).</summary>
+public sealed record EmballageFournisseurDto(
+    string SupplierId,
+    string Nom,
+    decimal Recus,
+    decimal Rendus,
+    decimal ARendre,
+    DateTime? Dernier,
+    List<EmballageFournisseurLigne> Lignes);
+
+public sealed record EmballageFournisseurLigne(string ProductId, string NomProduit, string? Unite, decimal Recus, decimal Rendus, decimal ARendre);
+
+public sealed record EmballageClientLigne(
+    string ProductId,
+    string NomProduit,
+    string? Unite,
+    decimal Dus,
+    decimal ConsigneVersee,
+    int? Contenance);
+
+public sealed record EmballageMouvementDto(
+    string Id,
+    string? ProductId,
+    string? NomProduit,
+    string Type,
+    decimal Quantite,
+    decimal? Montant,
+    string? ModePaiement,
+    string? SupplierName,
+    string? Note,
+    string? CreatedByName,
+    DateTime CreatedAt,
+    // retour_client only: who brought the empties back (Note also carries the name for older clients).
+    string? ClientNom = null,
+    string? ClientTelephone = null);
+
+/// <summary>
+/// Inventaire: Quantite = the empties counted now (the server stores the difference).
+/// Retour fournisseur / casse: Quantite = how many leave (positive). Montant = consigne the
+/// supplier paid back, put into the caller's open caisse in ModePaiement.
+/// </summary>
+public sealed record EmballageMouvementRequest(
+    string ProductId,
+    string Type,
+    decimal Quantite,
+    decimal? Montant = null,
+    string? ModePaiement = null,
+    string? SupplierId = null,
+    string? Note = null);
+

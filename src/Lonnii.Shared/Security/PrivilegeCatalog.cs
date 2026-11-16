@@ -154,6 +154,7 @@ public static class PrivilegeCatalog
         yield return new(Priv.Gestion.ManageCategories, "Gérer Catégories", "Permet de créer et gérer les catégories de produits", stock, false);
         yield return new(Priv.Gestion.AdjustStock, "Ajuster Stock", "Permet d'ajuster manuellement les quantités en stock", stock, false);
         yield return new(Priv.Gestion.ViewStockHistory, "Consulter Historique", "Permet de consulter l'historique des mouvements de stock", stock, false);
+        yield return new(Priv.Gestion.ViewEmballages, "Consulter Emballages", "Permet d'ouvrir l'onglet Emballages : pleins, vides, emballages chez les clients et leur historique", stock, false);
         yield return new(Priv.Gestion.ExportStockData, "Exporter Données", "Permet d'exporter les données de stock vers des fichiers", stock, false);
 
         yield return new(Priv.Gestion.ViewSales, "Consulter Ventes", "Permet de consulter les données et rapports de vente", sales, false);

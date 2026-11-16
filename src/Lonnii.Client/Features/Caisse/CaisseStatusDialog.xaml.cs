@@ -96,7 +96,15 @@ public partial class CaisseStatusDialog : Window
         if (_caisse.Origine is { } origine)
             OrigineText.Text = OrigineLine(origine);
 
-        AvoirsPanel.Visibility = _caisse.TotalAvoir > 0 || _caisse.AvoirsSoldes > 0 ? Visibility.Visible : Visibility.Collapsed;
+        var anyConsigne = _caisse.ConsigneEncaissee > 0 || _caisse.ConsigneRemboursee > 0;
+        AvoirsPanel.Visibility = _caisse.TotalAvoir > 0 || _caisse.AvoirsSoldes > 0 || anyConsigne
+            ? Visibility.Visible : Visibility.Collapsed;
+        // Both consigne lines together, so the cashier sees what came in against what went back.
+        var consigne = anyConsigne ? Visibility.Visible : Visibility.Collapsed;
+        ConsigneInLabel.Visibility = ConsigneInText.Visibility = consigne;
+        ConsigneLabel.Visibility = ConsigneText.Visibility = consigne;
+        ConsigneInText.Text = Money.Format(_caisse.ConsigneEncaissee);
+        ConsigneText.Text = Money.Format(_caisse.ConsigneRemboursee);
         AvoirsText.Text = Money.Format(_caisse.TotalAvoir);
         AvoirsSoldesText.Text = Money.Format(_caisse.AvoirsSoldes);
 
@@ -199,11 +207,13 @@ public partial class CaisseStatusDialog : Window
     private async void Withdraw_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new WithdrawCaisseDialog(ExpectedCash, ExpectedMobile) { Owner = this };
-        if (dialog.ShowDialog() != true || dialog.Result is not { } request) return;
+        if (dialog.ShowDialog() != true || dialog.Results.Count == 0) return;
 
         try
         {
-            _caisse = await _session.Api.WithdrawCaisseAsync(request);
+            // Mixte sends two withdrawals, espèces then mobile money.
+            foreach (var request in dialog.Results)
+                _caisse = await _session.Api.WithdrawCaisseAsync(request);
             Populate();
             if (_canClose) UpdateExpectedPreview();
             ErrorText.Text = string.Empty;

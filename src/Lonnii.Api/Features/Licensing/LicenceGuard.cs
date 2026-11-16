@@ -1,3 +1,4 @@
+using Lonnii.Api.Features.Infrastructure;
 using Lonnii.Data;
 using Lonnii.Data.Entities;
 using Lonnii.Shared.Contracts;
@@ -31,8 +32,15 @@ namespace Lonnii.Api.Features.Licensing;
 /// </para>
 /// <param name="publicKey">The key licences are checked against; tests only. Production always
 /// uses the built-in <see cref="LicenceToken.PublicKey"/>.</param>
-public class LicenceGuard(LonniiDbContext db, string? publicKey = null)
+/// <param name="watermark">The newest licence issue time kept outside the database; on a shipped
+/// host only (see <see cref="ILicenceWatermark"/>). Without it an older licence is not detected.</param>
+/// <param name="security">Where attempts to get round the licence are noted for the next check-in.</param>
+public class LicenceGuard(
+    LonniiDbContext db, string? publicKey = null, ILicenceWatermark? watermark = null, HostSecurityLog? security = null)
 {
+    /// <summary>The log attempts are noted in, for the check-in that carries them (null in some tests).</summary>
+    public HostSecurityLog? Security => security;
+
     public const string ExpiredMessage =
         "La licence de cet espace a expiré : l'ordinateur n'a pas pu joindre le serveur Lonnii " +
         "depuis trop longtemps. Connectez-le à Internet puis cliquez sur « Réessayer ».";
@@ -83,12 +91,21 @@ public class LicenceGuard(LonniiDbContext db, string? publicKey = null)
         return claims?.GroupId == groupId ? claims : null;
     }
 
+    /// <summary>Slack when comparing a licence's issue time with the recorded newest, for rounding
+    /// between the JSON and registry forms.</summary>
+    private static readonly TimeSpan IssueTolerance = TimeSpan.FromSeconds(1);
+
+    /// <summary>Whether <paramref name="status"/> is a lock that connecting once lifts by itself: no
+    /// current signed licence on this computer. Session opening then tries to renew straight away.</summary>
+    public static bool NeedsSignedLicence(LicenceStatusDto status) =>
+        status.Expired && status.Message == UnsignedMessage;
+
     /// <summary>How often the clock high-water mark is written, so a busy till does not
     /// write to the database on every request.</summary>
     private static readonly TimeSpan MarkInterval = TimeSpan.FromMinutes(5);
 
     public static bool IsEnforced(Groupe groupe) =>
-        !string.IsNullOrWhiteSpace(groupe.LicenceServerUrl) &&
+        !string.IsNullOrWhiteSpace(ShippedHost.LicenceServerUrlFor(groupe)) &&
         DeploymentModes.RequiresSubscription(groupe.Mode);
 
     /// <summary>Evaluates the deadline, starting it the first time it is needed.</summary>
@@ -161,16 +178,38 @@ public class LicenceGuard(LonniiDbContext db, string? publicKey = null)
     /// </summary>
     private async Task<LicenceStatusDto> CheckSignedAsync(Groupe groupe, CancellationToken ct)
     {
-        var claims = await SignedClaimsAsync(groupe.Id, ct);
+        var token = await db.HostLicences.AsNoTracking()
+            .Where(h => h.GroupId == groupe.Id).Select(h => h.Token).FirstOrDefaultAsync(ct);
+        var claims = Verified(token, groupe.Id);
+        var newest = watermark?.NewestIssuedAt(groupe.Id);
+
+        ReportTampering(groupe, token, claims, newest);
 
         var now = DateTime.UtcNow;
         if (groupe.LicenceClockMark is { } mark && mark > now) now = mark;
         if (claims is not null && claims.IssuedAt > now) now = claims.IssuedAt;
+        if (newest is { } seenAt && seenAt > now) now = seenAt;
+        // Kept outside the database and carried forward by uptime: a clock set back at every start
+        // still runs out.
+        if (watermark?.ClockFloor() is { } floor && floor > now) now = floor;
+
+        // Windows' clock well behind a moment this computer is known to have reached.
+        var behind = now - DateTime.UtcNow;
+        if (behind > ClockBackThreshold)
+            security?.Record(groupe.Id, SecurityEventKinds.ClockBack, $"Horloge en retard de {FormatDelay(behind)}");
+
         if (groupe.LicenceClockMark is null || now - groupe.LicenceClockMark > MarkInterval)
         {
             groupe.LicenceClockMark = now;
             await db.SaveChangesAsync(ct);
         }
+        watermark?.MarkClock(now);
+
+        // This computer has held a newer licence than the one stored (an older copy of lonnii.db put
+        // back), or held one that is gone (the row deleted): neither may run on what it has. Connecting
+        // once fetches the current licence; session opening tries that by itself.
+        if (newest is { } newestSeen && (claims is null || claims.IssuedAt < newestSeen - IssueTolerance))
+            return Locked(UnsignedMessage, claims?.MustReconnectBy);
 
         if (claims is not null)
         {
@@ -194,6 +233,39 @@ public class LicenceGuard(LonniiDbContext db, string? publicKey = null)
         var deadline = state.UnsignedSince.Value.AddDays(UnsignedDays);
         if (BuildDate is { } built && built + UnsignedBuildCap < deadline) deadline = built + UnsignedBuildCap;
         return Status(deadline, now, UnsignedMessage);
+    }
+
+    /// <summary>How far behind the latest moment seen Windows' clock must be to count as set back, not
+    /// as ordinary drift or a slow time sync.</summary>
+    private static readonly TimeSpan ClockBackThreshold = TimeSpan.FromHours(2);
+
+    private static string FormatDelay(TimeSpan delay) =>
+        delay.TotalDays >= 1 ? $"{(int)delay.TotalDays} jour(s)" : $"{(int)delay.TotalHours} h";
+
+    /// <summary>
+    /// What the stored state says about someone editing it, for the dashboard (see SecurityEventKinds).
+    /// Recorded only - what to enforce is decided by the checks themselves.
+    /// </summary>
+    private void ReportTampering(Groupe groupe, string? token, LicenceClaims? claims, DateTime? newest)
+    {
+        if (security is null) return;
+
+        // A licence that does not verify: edited by hand, or copied from another espace.
+        if (claims is null && !string.IsNullOrWhiteSpace(token))
+            security.Record(groupe.Id, SecurityEventKinds.LicenceInvalid);
+        else if (claims is null && newest is not null)
+            security.Record(groupe.Id, SecurityEventKinds.LicenceMissing);
+        else if (claims is not null && newest is { } seen && claims.IssuedAt < seen - IssueTolerance)
+            security.Record(groupe.Id, SecurityEventKinds.LicenceOlder,
+                $"Licence du {claims.IssuedAt:dd/MM/yyyy}, la dernière reçue date du {seen:dd/MM/yyyy}");
+
+        // Every check-in sets the row's mode from our answer, so a difference means an edit.
+        if (claims is not null && !string.Equals(claims.Mode, groupe.Mode, StringComparison.OrdinalIgnoreCase))
+            security.Record(groupe.Id, SecurityEventKinds.ModeEdited, $"{claims.Mode} remplacé par {groupe.Mode}");
+
+        // A shop's computer never hosts a phone-only shop.
+        if (ShippedHost.IsShipped && groupe.PhoneOnly)
+            security.Record(groupe.Id, SecurityEventKinds.PhoneOnlySet);
     }
 
     private static LicenceStatusDto Status(DateTime deadline, DateTime now, string expiredMessage)
@@ -226,10 +298,14 @@ public class LicenceGuard(LonniiDbContext db, string? publicKey = null)
     /// came from the shop), and reading that as "I am this shop's host" crashed session opening
     /// with 'relation "host_licence" does not exist' - and would have started an unsigned countdown.
     /// </summary>
-    private bool IsOurServer => db.Database.IsNpgsql();
+    /// <para>Never on a shipped host, whatever its database provider: a shop that moved its data into
+    /// a PostgreSQL of its own would otherwise be treated as our server and never locked.</para>
+    private bool IsOurServer => !ShippedHost.IsShipped && db.Database.IsNpgsql();
 
-    /// <summary>A shop's own computer, answering to its signed licence - never our server.</summary>
-    private bool IsShopHost(Groupe groupe) => !IsOurServer && !string.IsNullOrWhiteSpace(groupe.LicenceServerUrl);
+    /// <summary>A shop's own computer, answering to its signed licence - never our server. On a shipped
+    /// host every espace is, whatever its <c>licence_server_url</c> says.</summary>
+    public bool IsShopHost(Groupe groupe) =>
+        !IsOurServer && !string.IsNullOrWhiteSpace(ShippedHost.LicenceServerUrlFor(groupe));
 
     /// <summary>The status that puts the lock screen up with <paramref name="message"/>.</summary>
     public static LicenceStatusDto Locked(string message, DateTime? deadline) =>
@@ -288,23 +364,57 @@ public class LicenceGuard(LonniiDbContext db, string? publicKey = null)
         groupe.LicenceDeadline = response.MustReconnectBy;
 
         // The signed licence is what this host enforces from now on; only one that verifies, for
-        // this espace, replaces the stored one (an unsigned answer leaves it as it was).
+        // this espace, replaces the stored one (an unsigned answer leaves it as it was) - and only
+        // when it is at least as new as any this computer has held. An older one is a replay: a
+        // licence captured earlier and served back by something posing as our server.
+        DateTime? stored = null;
+        var newer = false;
         if (Verified(response.LicenceToken, groupe.Id) is { } signed)
         {
-            // Gestion granted or withdrawn from the dashboard.
-            groupe.GestionAccess = signed.GestionAccess;
             var state = await db.HostLicences.FirstOrDefaultAsync(h => h.GroupId == groupe.Id, ct);
-            if (state is null) db.HostLicences.Add(state = new HostLicence { GroupId = groupe.Id });
-            state.Token = response.LicenceToken;
-            state.UpdatedAt = DateTime.UtcNow;
+            // Read what is stored NOW, not a copy this request loaded earlier: another check-in may have
+            // saved a newer licence meanwhile, and comparing against a stale one let an older licence win.
+            if (state is not null) await db.Entry(state).ReloadAsync(ct);
+            var held = Verified(state?.Token, groupe.Id)?.IssuedAt;
+            var newest = new[] { held, watermark?.NewestIssuedAt(groupe.Id) }.Max();
+
+            if (newest is null || signed.IssuedAt >= newest.Value - IssueTolerance)
+            {
+                // Gestion granted or withdrawn from the dashboard.
+                groupe.GestionAccess = signed.GestionAccess;
+                if (state is null) db.HostLicences.Add(state = new HostLicence { GroupId = groupe.Id });
+                state.Token = response.LicenceToken;
+                state.UpdatedAt = DateTime.UtcNow;
+                stored = signed.IssuedAt;
+
+                // Strictly newer than anything held: a fresh signature from our server, not the
+                // current licence served again (which anyone who captured it could do).
+                newer = newest is null || signed.IssuedAt > newest.Value + IssueTolerance;
+            }
+            else
+            {
+                security?.Record(groupe.Id, SecurityEventKinds.LicenceReplay,
+                    $"Licence du {signed.IssuedAt:dd/MM/yyyy HH:mm} reçue, plus ancienne que celle du {newest!.Value:dd/MM/yyyy HH:mm}");
+            }
         }
 
-        groupe.LicenceClockMark = new[]
-        {
-            DateTime.UtcNow, response.ServerTime, groupe.LicenceClockMark ?? DateTime.MinValue,
-        }.Max();
+        // A fresh signed licence states the real time, so the latest moment seen restarts from it -
+        // lower than before if the computer's clock once ran ahead, which would otherwise lock it for
+        // good. Anything else (an unsigned answer, the same licence again) can only raise it: the
+        // server time in the answer is not signed.
+        groupe.LicenceClockMark = newer
+            ? stored!.Value
+            : new[] { DateTime.UtcNow, response.ServerTime, groupe.LicenceClockMark ?? DateTime.MinValue }.Max();
 
         await db.SaveChangesAsync(ct);
+
+        // After the licence is saved, never before: a recorded time with no licence to match would
+        // lock the espace until its next refresh.
+        if (stored is { } issuedAt)
+        {
+            watermark?.Raise(groupe.Id, issuedAt);
+            if (newer) watermark?.ResetClock(issuedAt);
+        }
     }
 
     /// <summary>Keeps the key to the cloud backup the server just issued, with the machine id it

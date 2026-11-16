@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:Lonnii.Client.Common.Controls"
         Title="Lonnii — Créer mon espace"
-        Height="630" Width="520"
+        MinHeight="630" SizeToContent="Height" Width="520"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         ShowInTaskbar="False"

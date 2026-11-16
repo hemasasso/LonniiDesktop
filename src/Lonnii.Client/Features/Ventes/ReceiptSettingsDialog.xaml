@@ -13,14 +13,14 @@
                 BorderBrush="{DynamicResource Border}" BorderThickness="0,0,0,1">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Left">
-                    <TextBlock Text="Paramètre Reçu et Facture" Style="{StaticResource PageTitle}" />
-                    <TextBlock Style="{StaticResource PageSubtitle}"
+                    <TextBlock x:Name="HeaderTitle" Text="Paramètre Reçu et Facture" Style="{StaticResource PageTitle}" />
+                    <TextBlock x:Name="HeaderSubtitle" Style="{StaticResource PageSubtitle}"
                                Text="Logo, QR Code, nom de l'entreprise, titres et notes imprimés sur vos documents." />
                 </StackPanel>
 
                 <!-- Which document the form and the preview are showing. The two share most
                      fields, so switching here changes only the document-specific card. -->
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <StackPanel x:Name="DocumentTabs" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="Document :" VerticalAlignment="Center" Margin="0,0,8,0"
                                Foreground="{DynamicResource TextSecondary}" />
                     <Button x:Name="RecuTabButton" Content="Reçu" Margin="0,0,6,0"
@@ -47,7 +47,7 @@
             </DockPanel>
         </Border>
 
-        <Grid>
+        <Grid x:Name="BodyGrid">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" MinWidth="420" />
                 <ColumnDefinition Width="Auto" />
@@ -56,7 +56,128 @@
 
             <!-- ============ Left: the form ============ -->
             <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" Padding="18,16">
-                <StackPanel>
+                <StackPanel x:Name="FormPanel">
+                    <!-- Paramètres de stock: shop-wide switches about stock (opened caisses, empties). -->
+                    <StackPanel x:Name="StockCard">
+                        <TextBlock Text="STOCK" Style="{StaticResource SectionHeader}" Margin="0,4,0,6" />
+                        <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                                BorderThickness="1" CornerRadius="3" Padding="16,12">
+                            <StackPanel>
+                                <CheckBox x:Name="FractionsCheck"
+                                          Content="Vente par fraction (1/4, 1/2, 3/4 de caisse ou de paquet)" />
+                                <TextBlock Text="Le prix de chaque fraction se règle dans la fiche du produit (Ajouter / Modifier produit)."
+                                           Style="{StaticResource PageSubtitle}" Margin="20,3,0,0" TextWrapping="Wrap" />
+                                <CheckBox x:Name="EmballagesSuiviCheck" Margin="0,6,0,0"
+                                          Content="Suivi des emballages (caisses prises / rapportées par client)" />
+                                <TextBlock Text="Chaque produit utilise son « Unité d'affichage » (fiche produit) : une caisse s'imprime « caisse », un casier « casier ». À la vente, la caisse saisit les emballages vides rapportés ; le reste à rapporter s'affiche dans Clients."
+                                           Style="{StaticResource PageSubtitle}" Margin="20,3,0,0" TextWrapping="Wrap" />
+                                <CheckBox x:Name="EmballagesCreditCheck" Margin="20,8,0,0"
+                                          Content="Accepter les emballages rapportés en avance (crédit client)" />
+                                <TextBlock Text="Coché : ce qu'un client rapporte en plus de ce qu'il doit est gardé en crédit et déduit à son prochain achat (sans consigne). Décoché : il ne peut rapporter que ce qu'il doit."
+                                           Style="{StaticResource PageSubtitle}" Margin="40,3,0,0" TextWrapping="Wrap" />
+
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Paramètres de vente: how sales are charged and tracked. Shown alone when the
+                         dialog opens as "Paramètres de vente"; hidden in "Paramètre Reçu et Facture". -->
+                    <StackPanel x:Name="SalesCard">
+                        <TextBlock Text="TAXES" Style="{StaticResource SectionHeader}" Margin="0,4,0,6" />
+                        <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                                BorderThickness="1" CornerRadius="3" Padding="16,12">
+                            <StackPanel>
+                                <TextBlock Text="Taux de TVA (%)" Style="{StaticResource FieldLabel}" />
+                                <TextBox x:Name="TvaRateBox" Width="120" HorizontalAlignment="Left" />
+                                <TextBlock Text="Laissé vide, aucune TVA n'est appliquée ni imprimée."
+                                           Style="{StaticResource PageSubtitle}" Margin="0,3,0,0" TextWrapping="Wrap" />
+
+                                <TextBlock Text="La TVA est-elle déjà comprise dans vos prix ?" Style="{StaticResource FieldLabel}"
+                                           Margin="0,12,0,4" />
+                                <RadioButton x:Name="TvaIncluseRadio" GroupName="TvaMode" IsChecked="True"
+                                             Content="Oui - prix TTC : le montant ne change pas, la TVA est seulement détaillée" />
+                                <RadioButton x:Name="TvaAjouteeRadio" GroupName="TvaMode" Margin="0,4,0,0"
+                                             Content="Non - prix HT : la TVA est ajoutée au montant payé à la caisse" />
+
+                                <!-- Prélèvement: like the TVA, a rate - always added on top, on the HT amount. -->
+                                <CheckBox x:Name="PrelevementCheck" Margin="0,14,0,0"
+                                          Content="Appliquer un prélèvement (%)" />
+                                <TextBox x:Name="PrelevementRateBox" Width="120" HorizontalAlignment="Left" Margin="20,6,0,0" />
+                                <StackPanel Orientation="Horizontal" Margin="20,8,0,0">
+                                    <TextBlock Text="Nom imprimé :" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBox x:Name="PrelevementLabelBox" Width="200" MaxLength="60"
+                                             ToolTip="Ex. Prélèvement, Autres taxes, Taxe communale (vide = Prélèvement)" />
+                                </StackPanel>
+                                <TextBlock Text="Le prélèvement est calculé :" Margin="20,8,0,2" FontSize="12" />
+                                <RadioButton x:Name="PrelevementHtRadio" GroupName="PrelevementBase" IsChecked="True" Margin="20,0,0,0"
+                                             Content="Avant TVA - sur le montant HT" />
+                                <RadioButton x:Name="PrelevementTtcRadio" GroupName="PrelevementBase" Margin="20,4,0,0"
+                                             Content="Après TVA - sur le montant TTC" />
+                                <TextBlock Text="Ajouté au total et imprimé après la TVA."
+                                           Style="{StaticResource PageSubtitle}" Margin="20,3,0,0" TextWrapping="Wrap" />
+
+                                <CheckBox x:Name="EffortGuerreEnabledCheck" Margin="0,14,0,0"
+                                          Content="Activer une taxe fixe par unité (ex. effort de guerre)" />
+                                <TextBlock Text="Le montant se règle dans la fiche de chaque produit."
+                                           Style="{StaticResource PageSubtitle}" Margin="20,3,0,0" TextWrapping="Wrap" />
+                                <StackPanel x:Name="EffortGuerreLabelPanel" Orientation="Horizontal" Margin="20,6,0,0">
+                                    <TextBlock Text="Nom imprimé :" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBox x:Name="EffortGuerreLabelBox" Width="200" MaxLength="60"
+                                             ToolTip="Ex. Effort de guerre, Taxe de solidarité (vide = Effort de guerre)" />
+                                </StackPanel>
+
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Text="OPTIONS DE VENTE" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                        <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                                BorderThickness="1" CornerRadius="3" Padding="16,12">
+                            <StackPanel>
+                                <CheckBox x:Name="ServeurEnabledCheck" Margin="0,0,0,0"
+                                          Content="Activer le champ Serveur sur chaque vente" />
+                                <TextBlock Text="Pour un maquis, un restaurant… : la caisse choisit qui a servi, c'est imprimé sur le reçu et la facture, et les statistiques montrent qui a vendu combien."
+                                           Style="{StaticResource PageSubtitle}" Margin="0,3,0,0" TextWrapping="Wrap" />
+                                <Grid x:Name="ServeurLabelPanel" Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="12" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="Nom du champ" Style="{StaticResource FieldLabel}" />
+                                        <TextBox x:Name="ServeurLabelBox" MaxLength="100"
+                                                 ToolTip="Serveur, Serveuse, Vendeur, Agent…" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Text="Au pluriel" Style="{StaticResource FieldLabel}" />
+                                        <TextBox x:Name="ServeurLabelPluralBox" MaxLength="100"
+                                                 ToolTip="Nom de la liste et des statistiques" />
+                                    </StackPanel>
+                                </Grid>
+
+                                <TextBlock Text="Autres options" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
+                                <CheckBox x:Name="LivraisonCheck"
+                                          Content="Livraison : demander les frais de livraison à chaque vente" />
+                            </StackPanel>
+                        </Border>
+                        <!-- Moved here from Configuration: how the till itself looks. Saved as soon as ticked. -->
+                        <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                                BorderThickness="1" CornerRadius="3" Padding="16,12" Margin="0,8,0,0">
+                            <StackPanel>
+                                <CheckBox x:Name="RemiseEnabledCheck" Content="Activer remise"
+                                          Checked="RemiseEnabled_Changed" Unchecked="RemiseEnabled_Changed" />
+                                <TextBlock Style="{StaticResource PageSubtitle}" Margin="20,4,0,0" TextWrapping="Wrap"
+                                           Text="Coché : les champs Remise (par article et remise globale) apparaissent à la caisse, sur l'ordinateur et le téléphone." />
+                                <TextBlock Text="Produits dans Nouvelle Vente" FontWeight="SemiBold" Margin="0,12,0,6" />
+                                <CheckBox x:Name="TileShowQuantityCheck" Content="Afficher la quantité (Qté)" IsChecked="True"
+                                          Checked="TileDisplay_Changed" Unchecked="TileDisplay_Changed" />
+                                <CheckBox x:Name="TileShowPriceCheck" Content="Afficher le prix" IsChecked="True" Margin="0,6,0,0"
+                                          Checked="TileDisplay_Changed" Unchecked="TileDisplay_Changed" />
+                                <TextBlock Style="{StaticResource PageSubtitle}" Margin="20,4,0,0" TextWrapping="Wrap"
+                                           Text="Ce que montre chaque produit à la caisse, sur l'ordinateur et le téléphone. Coché par défaut." />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
 
                     <!-- Logo -->
                     <TextBlock Text="LOGO" Style="{StaticResource SectionHeader}" Margin="0,0,0,6" />
@@ -102,28 +223,6 @@
                             <TextBlock Text="Affiché devant le nom de la personne qui a enregistré la vente."
                                        Style="{StaticResource PageSubtitle}" Margin="0,3,0,0" />
 
-                            <CheckBox x:Name="ServeurEnabledCheck" Margin="0,14,0,0"
-                                      Content="Activer le champ Serveur sur chaque vente" />
-                            <TextBlock Text="Pour un maquis, un restaurant… : la caisse choisit qui a servi, c'est imprimé sur le reçu et la facture, et les statistiques montrent qui a vendu combien."
-                                       Style="{StaticResource PageSubtitle}" Margin="0,3,0,0" TextWrapping="Wrap" />
-                            <Grid x:Name="ServeurLabelPanel" Margin="0,8,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="12" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel>
-                                    <TextBlock Text="Nom du champ" Style="{StaticResource FieldLabel}" />
-                                    <TextBox x:Name="ServeurLabelBox" MaxLength="100"
-                                             ToolTip="Serveur, Serveuse, Vendeur, Agent…" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="2">
-                                    <TextBlock Text="Au pluriel" Style="{StaticResource FieldLabel}" />
-                                    <TextBox x:Name="ServeurLabelPluralBox" MaxLength="100"
-                                             ToolTip="Nom de la liste et des statistiques" />
-                                </StackPanel>
-                            </Grid>
-
                             <TextBlock Text="Police" Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
                             <ComboBox x:Name="FontFamilyBox" Width="220" HorizontalAlignment="Left" />
 
@@ -168,17 +267,11 @@
                             <TextBlock Text="Une information par ligne, ex. « RCCM : … », « NIU : … », « Capital : … »."
                                        Style="{StaticResource PageSubtitle}" Margin="0,3,0,0" TextWrapping="Wrap" />
 
-                            <TextBlock Text="Taux de TVA (%)" Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
-                            <TextBox x:Name="TvaRateBox" Width="120" HorizontalAlignment="Left" />
-                            <TextBlock Text="Laissé vide, aucune TVA n'est appliquée ni imprimée."
-                                       Style="{StaticResource PageSubtitle}" Margin="0,3,0,0" TextWrapping="Wrap" />
-
-                            <TextBlock Text="La TVA est-elle déjà comprise dans vos prix ?" Style="{StaticResource FieldLabel}"
-                                       Margin="0,12,0,4" />
-                            <RadioButton x:Name="TvaIncluseRadio" GroupName="TvaMode" IsChecked="True"
-                                         Content="Oui - prix TTC : le montant ne change pas, la TVA est seulement détaillée" />
-                            <RadioButton x:Name="TvaAjouteeRadio" GroupName="TvaMode" Margin="0,4,0,0"
-                                         Content="Non - prix HT : la TVA est ajoutée au montant payé à la caisse" />
+                            <TextBlock Text="Orientation des pages A4 / A5" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
+                            <ComboBox x:Name="OrientationBox" Width="240" HorizontalAlignment="Left">
+                                <ComboBoxItem Content="Portrait (vertical)" Tag="portrait" IsSelected="True" />
+                                <ComboBoxItem Content="Paysage (horizontal)" Tag="paysage" />
+                            </ComboBox>
 
                             <TextBlock Text="Texte de bas de page" Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
                             <TextBox x:Name="LegalFooterBox" MaxLength="1000" Height="62"
@@ -198,7 +291,7 @@
                                 <CheckBox x:Name="ReceiptPrintAfterSaleCheck" Margin="0,0,0,12"
                                           Content="Ouvrir le reçu pour impression juste après la vente" />
                                 <CheckBox x:Name="ReceiptAmountInWordsCheck" Margin="0,0,0,12"
-                                          Content="Montant en lettres (modèle A4)"
+                                          Content="Montant en lettres (modèle A4 / A5)"
                                           ToolTip="Sous les totaux : « Arrêté le présent reçu à la somme de : … »" />
 
                                 <TextBlock Text="Modèle" Style="{StaticResource FieldLabel}" />
@@ -254,7 +347,7 @@
                                 <CheckBox x:Name="FacturePrintAfterSaleCheck" Margin="0,0,0,12"
                                           Content="Ouvrir la facture pour impression juste après la vente" />
                                 <CheckBox x:Name="FactureAmountInWordsCheck" Margin="0,0,0,12"
-                                          Content="Montant en lettres (modèle A4)"
+                                          Content="Montant en lettres (modèle A4 / A5)"
                                           ToolTip="Sous les totaux : « Arrêtée la présente facture à la somme de : … »" />
 
                                 <TextBlock Text="Modèle" Style="{StaticResource FieldLabel}" />

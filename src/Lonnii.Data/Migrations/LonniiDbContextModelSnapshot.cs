@@ -846,6 +846,10 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("app_version");
 
+                    b.Property<string>("BuildHash")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("build_hash");
+
                     b.Property<string>("DeviceId")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -859,6 +863,10 @@ namespace Lonnii.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("group_id");
+
+                    b.Property<string>("HardwareSignature")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("hardware_signature");
 
                     b.Property<string>("LastIpAddress")
                         .HasColumnType("TEXT")
@@ -893,6 +901,172 @@ namespace Lonnii.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("devices");
+                });
+
+            modelBuilder.Entity("Lonnii.Data.Entities.EmballageMouvement", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("GroupId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("group_id");
+
+                    b.Property<string>("ModePaiement")
+                        .HasMaxLength(30)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("mode_paiement");
+
+                    b.Property<long?>("Montant")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("montant");
+
+                    b.Property<string>("NomProduit")
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("nom_produit");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("note");
+
+                    b.Property<string>("ProductId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("product_id");
+
+                    b.Property<long>("Quantite")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("quantite");
+
+                    b.Property<string>("SupplierId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("supplier_id");
+
+                    b.Property<string>("SupplierName")
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("supplier_name");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("type");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GroupId", "ProductId");
+
+                    b.ToTable("emballages_mouvements");
+                });
+
+            modelBuilder.Entity("Lonnii.Data.Entities.EmballageRetour", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ClientEmail")
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("client_email");
+
+                    b.Property<string>("ClientNom")
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("client_nom");
+
+                    b.Property<string>("ClientTelephone")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("client_telephone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("GroupId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("group_id");
+
+                    b.Property<string>("ModePaiement")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("mode_paiement");
+
+                    b.Property<long?>("Montant")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("montant");
+
+                    b.Property<string>("NomProduit")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("nom_produit");
+
+                    b.Property<string>("ProductId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("product_id");
+
+                    b.Property<long>("Quantite")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("quantite");
+
+                    b.Property<string>("VenteId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("vente_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GroupId");
+
+                    b.ToTable("emballages_retours");
+                });
+
+            modelBuilder.Entity("Lonnii.Data.Entities.EmballageType", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("GroupId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("group_id");
+
+                    b.Property<string>("Nom")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("nom");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GroupId");
+
+                    b.ToTable("emballage_types");
                 });
 
             modelBuilder.Entity("Lonnii.Data.Entities.GestionPrivilege", b =>
@@ -1924,6 +2098,10 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("category_id");
 
+                    b.Property<long?>("ConsigneMontant")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("consigne_montant");
+
                     b.Property<long?>("CostPrice")
                         .HasColumnType("INTEGER")
                         .HasColumnName("cost_price");
@@ -1960,6 +2138,22 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("dimensions_width");
 
+                    b.Property<long?>("EffortGuerre")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("effort_guerre");
+
+                    b.Property<int?>("EmballageContenance")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("emballage_contenance");
+
+                    b.Property<bool>("EmballageRecuperable")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("emballage_recuperable");
+
+                    b.Property<string>("EmballageTypeId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("emballage_type_id");
+
                     b.Property<DateTime?>("ExpiryDate")
                         .HasColumnType("TEXT")
                         .HasColumnName("expiry_date");
@@ -1967,6 +2161,10 @@ namespace Lonnii.Data.Migrations
                     b.Property<int?>("FacteurConversion")
                         .HasColumnType("INTEGER")
                         .HasColumnName("conversion_factor");
+
+                    b.Property<int>("FractionOuverte")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("fraction_ouverte");
 
                     b.Property<string>("GroupId")
                         .IsRequired()
@@ -2018,9 +2216,21 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("price");
 
+                    b.Property<long?>("PrixDemi")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("prix_demi");
+
                     b.Property<bool>("PrixFixe")
                         .HasColumnType("INTEGER")
                         .HasColumnName("prix_fixe");
+
+                    b.Property<long?>("PrixQuart")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("prix_quart");
+
+                    b.Property<long?>("PrixTroisQuarts")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("prix_trois_quarts");
 
                     b.Property<long?>("PrixVenteDetail")
                         .HasColumnType("INTEGER")
@@ -3008,6 +3218,14 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("customer_phone");
 
+                    b.Property<long?>("ConsigneAmount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("consigne_amount");
+
+                    b.Property<long?>("ConsigneRendue")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("consigne_rendue");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at");
@@ -3019,6 +3237,30 @@ namespace Lonnii.Data.Migrations
                     b.Property<DateTime>("DateVente")
                         .HasColumnType("TEXT")
                         .HasColumnName("date");
+
+                    b.Property<long?>("EffortGuerreAmount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("effort_guerre_amount");
+
+                    b.Property<long?>("EmballagesCredit")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("emballages_credit");
+
+                    b.Property<long?>("EmballagesCreditRestant")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("emballages_credit_restant");
+
+                    b.Property<long?>("EmballagesDusAvant")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("emballages_dus_avant");
+
+                    b.Property<long?>("EmballagesPris")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("emballages_pris");
+
+                    b.Property<long?>("EmballagesRendus")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("emballages_rendus");
 
                     b.Property<string>("GroupId")
                         .IsRequired()
@@ -3037,6 +3279,10 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("is_avoir_solded");
 
+                    b.Property<long?>("LivraisonAmount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("livraison_amount");
+
                     b.Property<string>("ModePaiement")
                         .HasColumnType("TEXT")
                         .HasColumnName("payment_method");
@@ -3053,6 +3299,14 @@ namespace Lonnii.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("sale_number");
+
+                    b.Property<long?>("PrelevementAmount")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("prelevement_amount");
+
+                    b.Property<long?>("PrelevementRate")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("prelevement_rate");
 
                     b.Property<string>("ServeurId")
                         .HasColumnType("TEXT")
@@ -3105,6 +3359,10 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("id");
 
+                    b.Property<long?>("Consigne")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("consigne");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at");
@@ -3118,10 +3376,26 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("discount_type");
 
+                    b.Property<int?>("EmballageContenance")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("emballage_contenance");
+
+                    b.Property<long?>("EmballagesCredit")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("emballages_credit");
+
+                    b.Property<long?>("EmballagesPris")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("emballages_pris");
+
                     b.Property<string>("NomProduit")
                         .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("nom_produit");
+
+                    b.Property<long?>("PrixFraction")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("prix_fraction");
 
                     b.Property<long>("PrixTotal")
                         .HasColumnType("INTEGER")
@@ -3138,6 +3412,10 @@ namespace Lonnii.Data.Migrations
                     b.Property<int>("Quantite")
                         .HasColumnType("INTEGER")
                         .HasColumnName("quantite");
+
+                    b.Property<int?>("Quarts")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("quarts");
 
                     b.Property<string>("Unite")
                         .HasColumnType("TEXT")
@@ -3191,6 +3469,26 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("company_phone");
 
+                    b.Property<bool?>("EffortGuerreEnabled")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("effort_guerre_enabled");
+
+                    b.Property<string>("EffortGuerreLabel")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("effort_guerre_label");
+
+                    b.Property<bool?>("EmballagesCreditAccepte")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("emballages_credit_accepte");
+
+                    b.Property<bool?>("EmballagesSuivi")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("emballages_suivi");
+
+                    b.Property<string>("EmballagesUnite")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("emballages_unite");
+
                     b.Property<bool?>("FactureAmountInWords")
                         .HasColumnType("INTEGER")
                         .HasColumnName("facture_amount_in_words");
@@ -3227,9 +3525,17 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("facture_title_font_size");
 
+                    b.Property<bool?>("FractionsEnabled")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("fractions_enabled");
+
                     b.Property<string>("LegalFooterText")
                         .HasColumnType("TEXT")
                         .HasColumnName("legal_footer_text");
+
+                    b.Property<bool?>("LivraisonEnabled")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("livraison_enabled");
 
                     b.Property<string>("LogoPath")
                         .HasColumnType("TEXT")
@@ -3238,6 +3544,22 @@ namespace Lonnii.Data.Migrations
                     b.Property<string>("NoteUnderQr")
                         .HasColumnType("TEXT")
                         .HasColumnName("note_under_qr");
+
+                    b.Property<string>("PageOrientation")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("page_orientation");
+
+                    b.Property<bool?>("PrelevementApresTva")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("prelevement_apres_tva");
+
+                    b.Property<string>("PrelevementLabel")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("prelevement_label");
+
+                    b.Property<long?>("PrelevementRate")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("prelevement_rate");
 
                     b.Property<string>("QrCodePath")
                         .HasColumnType("TEXT")

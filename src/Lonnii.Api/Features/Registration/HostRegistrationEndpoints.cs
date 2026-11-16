@@ -179,7 +179,8 @@ public static class HostRegistrationEndpoints
         return null;
     }
 
-    private static string ServerUrl(IConfiguration config) => config["Lonnii:LicenceServerUrl"]?.Trim() ?? string.Empty;
+    private static string ServerUrl(IConfiguration config) =>
+        Lonnii.Api.Features.Infrastructure.ShippedHost.ConfiguredLicenceServerUrl(config);
 
     private static async Task<IResult> StartAsync(
         RegistrationStartRequest request, LonniiDbContext db, ILicenceServer licences,

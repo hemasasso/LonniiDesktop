@@ -144,11 +144,11 @@ public partial class VenteDetailDialog : Window
     private static FrameworkElement BuildItemsSection(IReadOnlyList<VenteItemDto> items)
     {
         var headers = new[] { "Produit", "Qté", "Prix unitaire", "Total" };
-        var widths = new[] { 1.0, 40, 110, 110 };
+        var widths = new[] { 1.0, 60, 110, 110 };
         var rows = items.Select(i => new[]
         {
             i.NomProduit,
-            i.Quantite.ToString(),
+            i.QuantiteDisplay,
             Money.Format(i.PrixUnitaire),
             Money.Format(i.PrixTotal),
         });

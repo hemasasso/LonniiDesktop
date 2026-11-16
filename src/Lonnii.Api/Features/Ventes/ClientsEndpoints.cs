@@ -28,6 +28,10 @@ public static class ClientsEndpoints
                 Priv.Gestion.CreateVente, Priv.Gestion.ViewVentes, Priv.Gestion.ManageClients);
         clients.MapPost("/", CreateAsync)
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageClients);
+        clients.MapGet("/consignes", ConsignesAsync)
+            .RequireGroupScope().RequireAnyPrivilege(Priv.Gestion.CreateVente, Priv.Gestion.ManageClients);
+        clients.MapPost("/emballages-retours", EmballageRetourAsync)
+            .RequireGroupScope().RequireAnyPrivilege(Priv.Gestion.CreateVente, Priv.Gestion.ManageClients);
         clients.MapPut("/{id}", UpdateAsync)
             .RequireGroupScope().RequirePrivilege(Priv.Gestion.ManageClients);
     }
@@ -42,6 +46,8 @@ public static class ClientsEndpoints
         public decimal Reste;
         public int Impayees;
         public DateTime? Dernier;
+        public decimal Emballages;
+        public decimal Consigne;
     }
 
     private static async Task<IResult> ListAsync(GroupScope scope, LonniiDbContext db, CancellationToken ct)
@@ -54,7 +60,7 @@ public static class ClientsEndpoints
 
         var ventes = await db.Ventes.AsNoTracking()
             .Where(v => v.GroupId == groupId && (v.ClientNom != null || v.ClientTelephone != null || v.ClientEmail != null))
-            .Select(v => new { v.Id, v.ClientNom, v.ClientTelephone, v.ClientEmail, v.MontantTotal, v.StatutPaiement, v.DateVente })
+            .Select(v => new { v.Id, v.ClientNom, v.ClientTelephone, v.ClientEmail, v.MontantTotal, v.StatutPaiement, v.DateVente, v.EmballagesPris, v.EmballagesRendus, v.ConsigneAmount, v.ConsigneRendue })
             .ToListAsync(ct);
 
         // Summed in C#, the way BilanEndpoints does it: under SQLite the amount goes through
@@ -83,6 +89,31 @@ public static class ClientsEndpoints
         var savedTotals = saved.ToDictionary(c => c.Id, c => new Totals { Nom = c.Nom, Telephone = c.Telephone, Email = c.Email });
         var unsaved = new Dictionary<string, Totals>();
 
+        var retours = await db.EmballagesRetours.AsNoTracking()
+            .Where(r => r.GroupId == groupId && r.VenteId == null)
+            .Select(r => new { r.ClientNom, r.ClientTelephone, r.ClientEmail, r.Quantite, r.Montant })
+            .ToListAsync(ct);
+        foreach (var r in retours)
+        {
+            var client = (PhoneKey(r.ClientTelephone) is { } phone ? byPhone.GetValueOrDefault(phone) : null)
+                         ?? (EmailKey(r.ClientEmail) is { } email ? byEmail.GetValueOrDefault(email) : null)
+                         ?? (string.IsNullOrWhiteSpace(r.ClientNom) ? null
+                             : byName.GetValueOrDefault(NameKey(r.ClientNom)) is { Count: 1 } group ? group[0] : null);
+            if (client is not null)
+            {
+                savedTotals[client.Id].Emballages -= r.Quantite;
+                savedTotals[client.Id].Consigne -= r.Montant ?? 0;
+                continue;
+            }
+            if (string.IsNullOrWhiteSpace(r.ClientNom)) continue;
+            var key = PhoneKey(r.ClientTelephone) is { } p ? $"p:{p}"
+                : EmailKey(r.ClientEmail) is { } e ? $"e:{e}"
+                : $"n:{NameKey(r.ClientNom)}";
+            if (!unsaved.TryGetValue(key, out var t)) unsaved[key] = t = new Totals { Nom = r.ClientNom.Trim() };
+            t.Emballages -= r.Quantite;
+            t.Consigne -= r.Montant ?? 0;
+        }
+
         foreach (var v in ventes.Where(v => StatutPaiement.Normalise(v.StatutPaiement) != StatutPaiement.Annule))
         {
             var client = (PhoneKey(v.ClientTelephone) is { } phone ? byPhone.GetValueOrDefault(phone) : null)
@@ -110,6 +141,8 @@ public static class ClientsEndpoints
 
             var reste = Math.Max(v.MontantTotal - paye.GetValueOrDefault(v.Id), 0m);
             totals.Achats++;
+            totals.Emballages += (v.EmballagesPris ?? 0) - (v.EmballagesRendus ?? 0);
+            totals.Consigne += (v.ConsigneAmount ?? 0) - (v.ConsigneRendue ?? 0);
             totals.Total += v.MontantTotal;
             totals.Reste += reste;
             if (reste > 0) totals.Impayees++;
@@ -126,14 +159,78 @@ public static class ClientsEndpoints
 
         var list = saved
             .Select(c => ToDto(c, savedTotals[c.Id]))
-            .Concat(unsaved.Values.Select(t => new ClientDto(
+            .Concat(unsaved.Values.Where(t => t.Achats > 0).Select(t => new ClientDto(
                 null, t.Nom, t.Telephone, t.Email, null, null, null, true,
-                t.Achats, t.Total, t.Reste, t.Impayees, t.Dernier)))
+                t.Achats, t.Total, t.Reste, t.Impayees, t.Dernier, t.Emballages, Math.Max(t.Consigne, 0))))
             .OrderByDescending(c => c.TotalAchats)
             .ThenBy(c => c.Nom, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
 
         return Results.Ok(list);
+    }
+
+    private static async Task<IResult> EmballageRetourAsync(
+        EmballageRetourRequest request, GroupScope scope, LonniiDbContext db, CancellationToken ct)
+    {
+        if (request.Quantite <= 0)
+            return Results.BadRequest(new ApiError("Indiquez le nombre d'emballages rapportés"));
+        if (!SaleCharges.IsQuarterStep(request.Quantite))
+            return Results.BadRequest(new ApiError("Le nombre d'emballages se compte par quart (1, 1,5, 1 + 1/4…)"));
+        if (string.IsNullOrWhiteSpace(request.ClientNom) && string.IsNullOrWhiteSpace(request.ClientTelephone)
+            && string.IsNullOrWhiteSpace(request.ClientEmail))
+            return Results.BadRequest(new ApiError("Le client est requis"));
+
+        var nom = request.ClientNom?.Trim();
+        var tel = string.IsNullOrWhiteSpace(request.ClientTelephone) ? null : request.ClientTelephone.Trim();
+        var email = string.IsNullOrWhiteSpace(request.ClientEmail) ? null : request.ClientEmail.Trim();
+
+        if (request.Lignes is not { Count: > 0 } lignes)
+        {
+            db.EmballagesRetours.Add(new EmballageRetour
+            {
+                GroupId = scope.GroupId, ClientNom = nom, ClientTelephone = tel, ClientEmail = email,
+                Quantite = request.Quantite, CreatedBy = scope.UserId,
+            });
+            await db.SaveChangesAsync(ct);
+            return Results.NoContent();
+        }
+
+        var creditAccepte = await db.VentesParametres.AsNoTracking()
+            .Where(p => p.GroupeId == scope.GroupId).Select(p => p.EmballagesCreditAccepte).FirstOrDefaultAsync(ct) == true;
+        var (retours, error) = await ConsigneRetours.BuildAsync(db, scope.GroupId, nom, tel, email, lignes, null, scope.UserId, ct,
+            creditAccepte: creditAccepte);
+        if (error is not null) return Results.BadRequest(new ApiError(error));
+
+        var montant = retours.Sum(r => r.Montant ?? 0);
+        if (montant > 0)
+        {
+            var mode = string.IsNullOrWhiteSpace(request.ModePaiement) ? ModePaiement.Cash : request.ModePaiement;
+            foreach (var r in retours) r.ModePaiement = mode;
+            // Mixte: part in mobile money, the rest in espèces - each out of its own pool.
+            var mobile = Math.Clamp(request.MontantMobile ?? 0, 0, montant);
+            var parts = mode == "mixte"
+                ? new[] { (Mode: ModePaiement.Cash, Montant: montant - mobile), (Mode: ModePaiement.MobileMoney, Montant: mobile) }
+                : new[] { (Mode: mode, Montant: montant) };
+            foreach (var part in parts.Where(p => p.Montant > 0))
+            {
+                var refused = await Lonnii.Api.Features.Caisse.CaisseEndpoints.AddAvoirRefundAsync(
+                    db, scope.GroupId, scope.UserId, part.Montant, part.Mode,
+                    $"Remboursement consigne - {nom ?? tel ?? email}", ct, ConsigneRetours.CaisseCategory);
+                if (refused is not null) return Results.BadRequest(new ApiError(refused));
+            }
+        }
+
+        db.EmballagesRetours.AddRange(retours);
+        await db.SaveChangesAsync(ct);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> ConsignesAsync(
+        string? nom, string? telephone, string? email, GroupScope scope, LonniiDbContext db, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(nom) && string.IsNullOrWhiteSpace(telephone) && string.IsNullOrWhiteSpace(email))
+            return Results.Ok(Array.Empty<ConsigneSoldeDto>());
+        return Results.Ok(await ConsigneRetours.SoldesAsync(db, scope.GroupId, nom, telephone, email, ct));
     }
 
     private static async Task<IResult> CreateAsync(
@@ -192,7 +289,7 @@ public static class ClientsEndpoints
 
     private static ClientDto ToDto(Client c, Totals t) => new(
         c.Id, c.Nom, c.Telephone, c.Email, c.Adresse, c.Ville, c.Notes, c.IsActive,
-        t.Achats, t.Total, t.Reste, t.Impayees, t.Dernier);
+        t.Achats, t.Total, t.Reste, t.Impayees, t.Dernier, t.Emballages, Math.Max(t.Consigne, 0));
 
     /// <summary>"  Jean   DUPONT " and "jean dupont" are the same customer typed twice.</summary>
     public static string NameKey(string name) =>

@@ -64,7 +64,7 @@ public static class MargesEndpoints
         var raw = await query
             .Join(db.VenteItems, v => v.Id, i => i.VenteId, (v, i) => new
             {
-                v.Id, v.DateVente, v.StatutPaiement, i.ProductId, i.NomProduit, i.Quantite, i.PrixTotal,
+                v.Id, v.DateVente, v.StatutPaiement, i.ProductId, i.NomProduit, i.Quantite, i.Quarts, i.PrixTotal,
             })
             .ToListAsync(ct);
 
@@ -97,7 +97,7 @@ public static class MargesEndpoints
                 decimal? unitCostAtSale = r.ProductId is not null && costAtSale.TryGetValue((r.Id, r.ProductId), out var c) ? c : null;
                 var (cost, source) = product is null && unitCostAtSale is null
                     ? Estimate(r.PrixTotal)
-                    : LineCost(unitCostAtSale ?? product?.CostPrice, r.PrixTotal, product?.VenteLibre ?? false, r.Quantite);
+                    : LineCost(unitCostAtSale ?? product?.CostPrice, r.PrixTotal, product?.VenteLibre ?? false, r.Quantite + (r.Quarts ?? 0) / 4m);
 
                 return new Line(r.Id, r.DateVente, product is not null ? r.ProductId : null, r.NomProduit,
                     r.Quantite, r.PrixTotal, cost, source, product?.CategoryId);
@@ -316,7 +316,7 @@ public static class MargesEndpoints
     /// <param name="unitCost">The purchase price at the time of the sale when recorded,
     /// otherwise the product's current one.</param>
     /// <param name="prixTotal">What the line was actually sold for, after discounts.</param>
-    public static (decimal Cost, string Source) LineCost(decimal? unitCost, decimal prixTotal, bool venteLibre, int quantite)
+    public static (decimal Cost, string Source) LineCost(decimal? unitCost, decimal prixTotal, bool venteLibre, decimal quantite)
     {
         if (venteLibre) return (0m, MargeCostSources.Aucun);
         if (unitCost is { } cost && cost > 0) return (quantite * cost, MargeCostSources.Reel);

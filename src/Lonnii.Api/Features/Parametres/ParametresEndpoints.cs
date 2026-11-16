@@ -135,6 +135,23 @@ public static class ParametresEndpoints
         if (request.ServeurLabelPlural is not null)
             row.ServeurLabelPlural = OrDefault(request.ServeurLabelPlural, ReceiptSettingsDefaults.ServeurLabelPlural);
 
+        if (request.PrelevementRate is { } prelevement)
+            row.PrelevementRate = prelevement > 0 ? Math.Round(prelevement, 2) : null;
+        row.LivraisonEnabled = request.LivraisonEnabled ?? row.LivraisonEnabled;
+        row.FractionsEnabled = request.FractionsEnabled ?? row.FractionsEnabled;
+        row.EmballagesSuivi = request.EmballagesSuivi ?? row.EmballagesSuivi;
+        if (request.EmballagesUnite is not null)
+            row.EmballagesUnite = string.IsNullOrWhiteSpace(request.EmballagesUnite) ? null : request.EmballagesUnite.Trim()[..Math.Min(request.EmballagesUnite.Trim().Length, 50)];
+        row.PrelevementApresTva = request.PrelevementApresTva ?? row.PrelevementApresTva;
+        static string? Label(string? sent, string? stored) =>
+            sent is null ? stored : string.IsNullOrWhiteSpace(sent) ? null : sent.Trim()[..Math.Min(sent.Trim().Length, 60)];
+        row.PrelevementLabel = Label(request.PrelevementLabel, row.PrelevementLabel);
+        row.EffortGuerreLabel = Label(request.EffortGuerreLabel, row.EffortGuerreLabel);
+        row.EffortGuerreEnabled = request.EffortGuerreEnabled ?? row.EffortGuerreEnabled;
+        row.EmballagesCreditAccepte = request.EmballagesCreditAccepte ?? row.EmballagesCreditAccepte;
+        if (request.PageOrientation is not null)
+            row.PageOrientation = PageOrientations.Normalise(request.PageOrientation);
+
         row.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
 
@@ -292,6 +309,8 @@ public static class ParametresEndpoints
         // a plausible-looking but wrong tax line on every invoice.
         if (r.TvaRate is { } rate && (rate < 0 || rate > 100))
             return Results.BadRequest(new ApiError("Le taux de TVA doit être compris entre 0 et 100 %."));
+        if (r.PrelevementRate is { } prel && (prel < 0 || prel > 100))
+            return Results.BadRequest(new ApiError("Le taux de prélèvement doit être compris entre 0 et 100 %."));
 
         return null;
     }
@@ -359,7 +378,18 @@ public static class ParametresEndpoints
         FactureAmountInWords: p?.FactureAmountInWords ?? false,
         ServeurEnabled: p?.ServeurEnabled ?? false,
         ServeurLabel: OrDefault(p?.ServeurLabel, ReceiptSettingsDefaults.ServeurLabel),
-        ServeurLabelPlural: OrDefault(p?.ServeurLabelPlural, ReceiptSettingsDefaults.ServeurLabelPlural));
+        ServeurLabelPlural: OrDefault(p?.ServeurLabelPlural, ReceiptSettingsDefaults.ServeurLabelPlural),
+        PrelevementRate: p?.PrelevementRate is > 0 ? p.PrelevementRate : null,
+        LivraisonEnabled: p?.LivraisonEnabled ?? false,
+        FractionsEnabled: p?.FractionsEnabled ?? false,
+        EmballagesSuivi: p?.EmballagesSuivi ?? false,
+        EmballagesUnite: p?.EmballagesUnite,
+        PageOrientation: PageOrientations.Normalise(p?.PageOrientation),
+        PrelevementApresTva: p?.PrelevementApresTva ?? false,
+        PrelevementLabel: p?.PrelevementLabel,
+        EffortGuerreLabel: p?.EffortGuerreLabel,
+        EffortGuerreEnabled: p?.EffortGuerreEnabled ?? false,
+        EmballagesCreditAccepte: p?.EmballagesCreditAccepte ?? false);
 
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 

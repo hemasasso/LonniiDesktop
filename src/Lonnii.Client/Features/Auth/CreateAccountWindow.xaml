@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:Lonnii.Client.Common.Controls"
         Title="Lonnii — Créer le compte administrateur"
-        Height="560" Width="540"
+        MinHeight="560" SizeToContent="Height" Width="540"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         ShowInTaskbar="False"

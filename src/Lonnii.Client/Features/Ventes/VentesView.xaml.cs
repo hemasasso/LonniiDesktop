@@ -176,8 +176,18 @@ public partial class VentesView : UserControl
 
     private sealed record CartLine(
         ProductDto Product, int Quantity, decimal UnitPrice,
-        decimal Discount = 0, string DiscountType = DiscountTypes.Amount, bool VenteEnGros = false)
+        decimal Discount = 0, string DiscountType = DiscountTypes.Amount, bool VenteEnGros = false,
+        int Quarts = 0)
     {
+        /// <summary>The shop's own price for the fraction on top of the whole units (1/4, 1/2, 3/4).</summary>
+        public decimal FractionPrice => Quarts > 0 ? Product.FractionPrice(Quarts) ?? 0 : 0;
+
+        /// <summary>Before any discount: whole units plus the fraction.</summary>
+        public decimal Gross => UnitPrice * Quantity + FractionPrice;
+
+        /// <summary>"3", "1 + 1/2", "1/2".</summary>
+        public string QuantityLabel => SaleCharges.QuantityLabel(Quantity, Quarts);
+
         /// <summary>Identifies this line for lookups/updates - not just the product id, since
         /// a Vente Mixte product can have two lines at once (one per unit). Stable across
         /// <c>with</c> copies because it is not one of the primary constructor's parameters.</summary>
@@ -191,7 +201,7 @@ public partial class VentesView : UserControl
         {
             get
             {
-                var raw = UnitPrice * Quantity;
+                var raw = Gross;
                 var discounted = DiscountType == DiscountTypes.Amount
                     ? raw - Discount
                     : raw * (1 - Discount / 100m);
@@ -211,7 +221,7 @@ public partial class VentesView : UserControl
 
         /// <summary>Nothing left to sell - the phone app's rule: a product whose stock is not
         /// counted (vente libre, stock illimité) is never out.</summary>
-        public bool IsOutOfStock => !Product.VenteLibre && !Product.StockIllimite && Product.Quantity <= 0;
+        public bool IsOutOfStock => !Product.VenteLibre && !Product.StockIllimite && Product.QuartsInStock <= 0;
 
         /// <summary>Product.Price doubles as an optional négociable minimum: shown as a "from"
         /// price when the product has one set, "À Définir" only when it truly has none - so the
@@ -354,6 +364,14 @@ public partial class VentesView : UserControl
 
         // The preview shows the client too, so it redraws as they are typed in.
         ClientNomBox.TextChanged += (_, _) => SchedulePreview();
+        // "Saisissez d'abord le client…" goes away as soon as a client is typed.
+        foreach (var box in new[] { ClientNomBox, ClientTelephoneBox, ClientEmailBox })
+            box.TextChanged += (_, _) =>
+            {
+                if (MessagePanel.Visibility == Visibility.Visible && MessageText.Text.StartsWith("Saisissez d'abord le client")
+                    && !string.IsNullOrWhiteSpace(box.Text))
+                    HideMessage();
+            };
         ClientTelephoneBox.TextChanged += (_, _) => SchedulePreview();
         ClientEmailBox.TextChanged += (_, _) => SchedulePreview();
         _previewDebounce.Tick += async (_, _) =>
@@ -932,16 +950,34 @@ public partial class VentesView : UserControl
 
         if (tracked && product.Quantity < 1)
         {
-            ShowMessage($"« {product.Name} » n'est plus en stock.");
+            // No whole unit left, but an opened one (1/2 caisse...): sell that fraction when the shop
+            // sells fractions and the product has a price for it - the largest priced one that fits.
+            var open = product.QuartsInStock;
+            var quarts = FractionsEnabled && product.SellsFractions
+                ? new[] { 3, 2, 1 }.FirstOrDefault(q => q <= open && product.FractionPrice(q) is not null) : 0;
+            if (quarts == 0)
+            {
+                ShowMessage(open > 0
+                    ? $"« {product.Name} » : il ne reste que {SaleCharges.QuantityLabel(0, open)}, et aucun prix n'est fixé pour cette fraction."
+                    : $"« {product.Name} » n'est plus en stock.");
+                return;
+            }
+            var wasEmptyFraction = _cart.Count == 0;
+            _cart.Add(new CartLine(product, 0, product.Price, Quarts: quarts));
+            HideMessage();
+            RenderCart();
+            AskLivraisonIfFirstItem(wasEmptyFraction);
             return;
         }
 
         // A fixed-price product takes its catalogue price outright. A négociable one is priced
         // right in the cart row instead - Product.Price there doubles as an optional minimum,
         // so it pre-fills the row when set (0 when the product has none, i.e. free negotiation).
+        var wasEmpty = _cart.Count == 0;
         _cart.Add(new CartLine(product, 1, product.Price));
         HideMessage();
         RenderCart();
+        AskLivraisonIfFirstItem(wasEmpty);
     }
 
     /// <summary>Asks how many of the bulk unit and how many of the base unit to add, then adds
@@ -950,12 +986,14 @@ public partial class VentesView : UserControl
     {
         var dialog = new MixteQuantityDialog(product) { Owner = Window.GetWindow(this) };
         if (dialog.ShowDialog() != true) return;
+        var wasEmpty = _cart.Count == 0;
 
         if (dialog.QuantiteGros > 0) AddMixteLine(product, dialog.QuantiteGros, venteEnGros: true);
         if (dialog.QuantiteDetail > 0) AddMixteLine(product, dialog.QuantiteDetail, venteEnGros: false);
 
         HideMessage();
         RenderCart();
+        AskLivraisonIfFirstItem(wasEmpty);
     }
 
     private void AddMixteLine(ProductDto product, int addQuantity, bool venteEnGros)
@@ -988,7 +1026,8 @@ public partial class VentesView : UserControl
         var line = _cart[index];
         var newQuantity = line.Quantity + delta;
 
-        if (newQuantity <= 0)
+        // A line can be a fraction alone (1/2 caisse): it goes only once nothing is left.
+        if (newQuantity < 0 || (newQuantity == 0 && line.Quarts == 0))
         {
             _cart.RemoveAt(index);
             RenderCart();
@@ -996,7 +1035,7 @@ public partial class VentesView : UserControl
         }
 
         var tracked = !(line.Product.VenteLibre || line.Product.StockIllimite);
-        if (tracked && newQuantity * line.StockFactor > line.Product.Quantity)
+        if (tracked && (newQuantity * line.StockFactor * 4 + line.Quarts) > line.Product.QuartsInStock)
         {
             ShowMessage($"Stock insuffisant pour « {line.Product.Name} ».");
             return;
@@ -1078,18 +1117,37 @@ public partial class VentesView : UserControl
         CartTitleText.Text = $"PANIER ({_cart.Count})";
         CartTitleText.ToolTip = $"{_cart.Count} produit(s), {_cart.Sum(c => c.Quantity)} article(s)";
 
-        var rawSubtotal = _cart.Sum(c => c.UnitPrice * c.Quantity);
+        var rawSubtotal = _cart.Sum(c => c.Gross);
         var afterItemDiscounts = _cart.Sum(c => c.LineTotal);
         var itemDiscountTotal = rawSubtotal - afterItemDiscounts;
 
         var remise = GlobalDiscountAmount(afterItemDiscounts);
 
         var (tva, total) = WithTva(afterItemDiscounts - remise);
+        var charges = Charges(afterItemDiscounts - remise);
+        total += charges.Total;
+        ShowCharges(charges);
 
         SubtotalText.Text = Money.Format(rawSubtotal);
-        TvaRow.Visibility = tva > 0 ? Visibility.Visible : Visibility.Collapsed;
-        TvaLabelText.Text = $"TVA ({_receiptSettings?.AddedTvaRate:0.##} %)";
-        TvaText.Text = $"+ {Money.Format(tva)}";
+        if (tva > 0)
+        {
+            TvaRow.Visibility = Visibility.Visible;
+            TvaLabelText.Text = $"TVA ({_receiptSettings?.AddedTvaRate:0.##} %)";
+            TvaText.Text = $"+ {Money.Format(tva)}";
+        }
+        else if (_receiptSettings is { TvaRate: > 0 } s && TvaModes.Normalise(s.TvaMode) == TvaModes.Incluse && _cart.Count > 0)
+        {
+            // Prices already include it: shown for information, not added.
+            var net = afterItemDiscounts - remise;
+            var included = Math.Round(net - net / (1 + s.TvaRate.Value / 100m), 0, MidpointRounding.AwayFromZero);
+            TvaRow.Visibility = Visibility.Visible;
+            TvaLabelText.Text = $"DONT TVA INCLUSE ({s.TvaRate:0.##} %)";
+            TvaText.Text = Money.Format(included);
+        }
+        else
+        {
+            TvaRow.Visibility = Visibility.Collapsed;
+        }
         ItemDiscountRow.Visibility = itemDiscountTotal > 0 ? Visibility.Visible : Visibility.Collapsed;
         ItemDiscountText.Text = $"- {Money.Format(itemDiscountTotal)}";
         RemiseSummaryRow.Visibility = remise > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -1118,6 +1176,342 @@ public partial class VentesView : UserControl
     private decimal _displaySubtotal;
     private decimal _displayDiscount;
     private decimal _displayTva;
+    private SaleChargesView _displayCharges = new(0, 0, 0, 0);
+
+    // --- Prélèvement, effort de guerre, consigne, livraison ---
+
+    /// <summary>What the till adds after the TVA - the same arithmetic the server applies.</summary>
+    private sealed record SaleChargesView(decimal Prelevement, decimal EffortGuerre, decimal Consigne, decimal Livraison,
+        decimal ConsigneRendue = 0)
+    {
+        public decimal Total => Prelevement + EffortGuerre + Consigne + Livraison - ConsigneRendue;
+    }
+
+    /// <summary>The delivery fee typed for this sale; null until asked (Paramètres "Livraison").</summary>
+    private decimal? _livraison;
+
+    private bool LivraisonEnabled => _receiptSettings?.LivraisonEnabled == true;
+
+    private bool FractionsEnabled => _receiptSettings?.FractionsEnabled == true;
+
+    private bool EmballagesSuivi => _receiptSettings?.EmballagesSuivi == true;
+
+    /// <summary>Returnable packaging this cart hands over: whole units of emballage products.</summary>
+    private decimal EmballagesPris => _cart.Where(c => c.Product.EmballageRecuperable).Sum(CartEmballages);
+
+    /// <summary>Emballages a cart line hands over, as sold: 1 caisse and a half is 1.5.</summary>
+    private static decimal CartEmballages(CartLine c) => c.Quantity + c.Quarts / 4m;
+
+    /// <summary>Empties brought back now, per product (typed in <see cref="EmballagesRetourDialog"/>).</summary>
+    private List<EmballageRetourLigne> _retours = [];
+
+    /// <summary>What the client owed when the returns were typed - prices the refund preview.</summary>
+    private List<ConsigneSoldeDto> _retourSoldes = [];
+
+    /// <summary>The client the returns belong to; typing another client drops them.</summary>
+    private string? _retourClientKey;
+
+    /// <summary>The display units of the products the current client owes empties for, looked up once
+    /// per client so "déjà dus : 1 caisse" can name the unit (the client total alone does not).</summary>
+    private List<string?> _owedUnits = [];
+    private string? _owedUnitKey;      // client whose balances below are loaded
+    private string? _owedRequestKey;   // client a request was started for
+
+    /// <summary>The client's empties owed, per product as the returns window counts them (the client
+    /// total is matched by phone or name and can differ; an unsaved client has none). Null until loaded.</summary>
+    private decimal? _owedTotal;
+
+    /// <summary>Consigne the client paid on the empties they still owe, not yet given back.</summary>
+    private decimal _owedConsigne;
+
+    private async Task LoadOwedUnitsAsync()
+    {
+        var key = ClientKey();
+        if (_owedRequestKey == key) return; // one request per client, even while it runs
+        _owedRequestKey = key;
+        await Task.Delay(400); // typing a name: only the last keystroke asks
+        if (key != ClientKey()) { _owedRequestKey = null; return; }
+        static string? Trimmed(string text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+        try
+        {
+            var soldes = await _session.Api.GetConsignesAsync(Trimmed(ClientNomBox.Text), Trimmed(ClientTelephoneBox.Text), Trimmed(ClientEmailBox.Text));
+            if (key != ClientKey()) return; // the cashier moved on to another client
+            _owedUnits = soldes.Select(x => x.Unite).ToList();
+            _owedTotal = soldes.Sum(x => x.Dus);
+            _owedConsigne = soldes.Where(x => x.Dus > 0).Sum(x => x.ConsigneRestante);
+            _owedUnitKey = key;
+            ShowEmballages();
+        }
+        catch (ApiException) { _owedUnits = []; _owedTotal = null; _owedConsigne = 0; }
+    }
+
+    /// <summary>Empties the client owes before this sale: the per-product balances when loaded for this
+    /// client, else the client total.</summary>
+    private decimal OwedBefore() =>
+        _owedUnitKey == ClientKey() && _owedTotal is { } t ? t : CurrentClient()?.EmballagesDus ?? 0;
+
+    private decimal EmballagesRendus => _retours.Sum(r => r.Quantite);
+
+    /// <summary>Consigne given back for the empties typed, at what the client paid for each product.</summary>
+    private decimal ConsigneRendue => _retours.Sum(r =>
+        _retourSoldes.FirstOrDefault(s => s.ProductId == r.ProductId)?.Remboursement(r.Quantite) ?? 0);
+
+    private string ClientKey() =>
+        $"{ClientNomBox.Text.Trim().ToLowerInvariant()}|{new string(ClientTelephoneBox.Text.Where(char.IsDigit).ToArray())}|{ClientEmailBox.Text.Trim().ToLowerInvariant()}";
+
+    private async void EmballagesRendus_Click(object sender, RoutedEventArgs e)
+    {
+        static string? Trimmed(string text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+        var nom = Trimmed(ClientNomBox.Text);
+        var tel = Trimmed(ClientTelephoneBox.Text);
+        var email = Trimmed(ClientEmailBox.Text);
+        if (nom is null && tel is null && email is null)
+        {
+            ShowMessage("Saisissez d'abord le client (nom ou téléphone) qui rapporte les emballages.");
+            return;
+        }
+        List<ConsigneSoldeDto> soldes;
+        try { soldes = await _session.Api.GetConsignesAsync(nom, tel, email); }
+        catch (ApiException ex) { ShowMessage(ex.Message); return; }
+        // Empties for what is in the cart can come back right away, even on a first purchase -
+        // with the consigne this sale charges for them, when it does.
+        // Interchangeable crates: a cart product joins the client's line for its shared type (Covers).
+        foreach (var g in _cart.Where(c => c.Product.EmballageRecuperable && CartEmballages(c) > 0)
+                     .GroupBy(c => soldes.FirstOrDefault(s => s.Covers(c.Product.Id))?.ProductId ?? c.Product.Id))
+        {
+            var taken = g.Sum(CartEmballages);
+            var versee = ConsigneCheck.IsChecked == true
+                ? g.Sum(c => SaleCharges.PerUnit(c.Product.ConsigneMontant, c.Quantity * c.StockFactor, c.Quarts)) : 0;
+            var i = soldes.FindIndex(s => s.ProductId == g.Key);
+            var (dus, restante) = i >= 0 ? (soldes[i].Dus + taken, soldes[i].ConsigneRestante + versee) : (taken, versee);
+            var solde = i >= 0
+                ? soldes[i] with { Dus = dus, ConsigneRestante = restante, ParUnite = dus > 0 ? restante / dus : 0, Unite = soldes[i].Unite ?? g.First().Product.UniteAffichage }
+                : new ConsigneSoldeDto(g.Key, g.First().Product.Name, g.First().Product.UniteAffichage, dus, restante,
+                    dus > 0 ? restante / dus : 0, g.First().Product.EmballageContenance);
+            if (i >= 0) soldes[i] = solde; else soldes.Add(solde);
+        }
+        soldes = soldes.Where(s => s.Dus > 0).ToList(); // a credit alone has nothing to bring back
+        if (soldes.Count == 0)
+        {
+            ShowMessage("Ce client ne doit aucun emballage et le panier n'a aucun produit « Emballage récupérable ».");
+            return;
+        }
+        var dialog = new EmballagesRetourDialog(Window.GetWindow(this), nom ?? tel ?? email!, soldes, _retours, _receiptSettings, askMode: false);
+        if (dialog.ShowDialog() != true) return;
+        _retours = dialog.Result.ToList();
+        _retourSoldes = soldes;
+        _retourClientKey = ClientKey();
+        UpdateTotals();
+    }
+
+    /// <summary>"Pris 10 - rapportes 2 = 8 a rapporter", plus what the client already owed.</summary>
+    private void ShowEmballages()
+    {
+        if (EmballagesRow is null || EmballagesText is null) return; // still loading the XAML
+        var owed = OwedBefore();
+        var pris = EmballagesPris;
+        if (!EmballagesSuivi || (_cart.Count == 0 && owed == 0))
+        {
+            EmballagesRow.Visibility = Visibility.Collapsed;
+            RefreshClientDueText();
+            return;
+        }
+        EmballagesRow.Visibility = Visibility.Visible;
+        if (_retours.Count > 0 && _retourClientKey != ClientKey())
+        {
+            // Another client now: the empties typed were someone else's.
+            _retours = [];
+            _retourSoldes = [];
+            UpdateTotals();
+            return;
+        }
+        EmballagesRendusButton.Content = EmballagesRendus > 0 ? $"{SaleCharges.CountLabel(EmballagesRendus)} ✎" : "Saisir…";
+        var reste = owed + pris - EmballagesRendus;
+        var covered = CreditCovered;
+        var s = _receiptSettings!;
+        // The products' own display unit ("caisse") when they all share one, else "emballage":
+        // the cart's returnable products, the ones typed as returned, and the ones the client owes.
+        var unit = SaleCharges.SharedUnit(
+            _cart.Where(c => c.Product.EmballageRecuperable).Select(c => c.Product.UniteAffichage)
+                .Concat(_retourSoldes.Select(r => r.Unite))
+                .Concat(owed != 0 && _owedUnitKey == ClientKey() ? _owedUnits : []));
+        var prisLabel = s.EmballagesDetail(_cart.Where(c => c.Product.EmballageRecuperable).Select(c => (CartEmballages(c), c.Product.EmballageContenance, (string?)c.Product.Name, (string?)c.Product.UniteAffichage)));
+        var text = $"Pris : {prisLabel} · rapportés : {s.Emballages(EmballagesRendus, unit)}";
+        if (covered > 0) text += $"\nDéduit du crédit : {s.Emballages(covered, unit)} (sans consigne)";
+        if (ConsigneRendue > 0) text += $"\nConsigne rendue : − {Money.Format(ConsigneRendue)}";
+        if (owed > 0) text += $" · déjà dus : {s.Emballages(owed, unit)}";
+        text += reste > 0 ? $"\n→ {s.Emballages(reste, unit)} à rapporter"
+            : reste < 0 ? $"\n→ crédit client : {s.Emballages(-reste, unit)} (déduit la prochaine fois)"
+            : "\n→ rien à rapporter";
+        // Same layout as the A4 reçu: one line per emballage size, then the credit / what is left.
+        if (pris > 0 && PreviewData(false).EmballagesTable(s) is { } table)
+        {
+            text = string.Join("\n", table.Columns.Select(c => $"{c.Header} {c.Pris} prise · {c.Rendus} Rendus"));
+            if (ConsigneRendue > 0) text += $"\nConsigne rendue : − {Money.Format(ConsigneRendue)}";
+            text += table.Note is { } note ? $"\n→ {note}" : "\n→ rien à rapporter";
+        }
+        if (pris == 0 && _cart.Count > 0)
+            text += "\n(aucun produit du panier n'est marqué « Emballage récupérable »)";
+        EmballagesText.Text = text;
+        RefreshClientDueText();
+    }
+
+    /// <summary>The consigne the cart would carry if charged, whatever the checkbox says.</summary>
+    private decimal ConsigneDue
+    {
+        get
+        {
+            var covered = CartCredits();
+            return _cart.Where(c => c.Product.EmballageRecuperable).Sum(c =>
+            {
+                var full = SaleCharges.PerUnit(c.Product.ConsigneMontant, c.Quantity * c.StockFactor, c.Quarts);
+                var n = CartEmballages(c);
+                var cov = covered.GetValueOrDefault(c);
+                return cov > 0 && n > 0 ? Math.Round(full * (n - cov) / n, 0, MidpointRounding.AwayFromZero) : full;
+            });
+        }
+    }
+
+    // --- Emballage credit (empties the client left beyond what they owed), per product ---
+
+    /// <summary>The typed client's credit per product, loaded when the client changes.</summary>
+    private Dictionary<string, decimal> _clientCredits = [];
+    private string? _creditsKey;
+
+    /// <summary>How much of each cart line the credit covers - used first, in cart order, as the server does.</summary>
+    private Dictionary<CartLine, decimal> CartCredits()
+    {
+        var left = new Dictionary<string, decimal>(_clientCredits);
+        var result = new Dictionary<CartLine, decimal>(ReferenceEqualityComparer.Instance); // two equal lines stay two
+        foreach (var c in _cart.Where(c => c.Product.EmballageRecuperable))
+        {
+            // Interchangeable crates share their type's credit.
+            var key = _creditKeys.GetValueOrDefault(c.Product.Id, c.Product.Id);
+            if (!left.TryGetValue(key, out var credit) || credit <= 0) continue;
+            var cov = Math.Min(credit, CartEmballages(c));
+            if (cov <= 0) continue;
+            result[c] = cov;
+            left[key] = credit - cov;
+        }
+        return result;
+    }
+
+    /// <summary>Product id -> its shared type's id, for the client's credit lines that are types.</summary>
+    private Dictionary<string, string> _creditKeys = [];
+
+    private decimal CreditCovered => CartCredits().Values.Sum();
+
+    /// <summary>Re-reads the client's credit per product when another client is typed.</summary>
+    private async void RefreshClientCredits()
+    {
+        if (!EmballagesSuivi || _receiptSettings?.EmballagesCreditAccepte != true)
+        {
+            if (_clientCredits.Count > 0) { _clientCredits = []; UpdateTotals(); }
+            return;
+        }
+        var key = ClientKey();
+        if (key == _creditsKey) return;
+        _creditsKey = key;
+        static string? Trimmed(string text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+        var nom = Trimmed(ClientNomBox.Text);
+        var tel = Trimmed(ClientTelephoneBox.Text);
+        var email = Trimmed(ClientEmailBox.Text);
+        Dictionary<string, decimal> credits = [];
+        Dictionary<string, string> creditKeys = [];
+        if (nom is not null || tel is not null || email is not null)
+        {
+            try
+            {
+                await Task.Delay(350); // typing: wait for a pause
+                if (key != ClientKey()) return;
+                var enAvance = (await _session.Api.GetConsignesAsync(nom, tel, email)).Where(s => s.Dus < 0).ToList();
+                credits = enAvance.ToDictionary(s => s.ProductId, s => -s.Dus);
+                foreach (var s in enAvance)
+                    foreach (var id in s.ProductIds ?? []) creditKeys[id] = s.ProductId;
+            }
+            catch (ApiException) { }
+            if (key != ClientKey()) return;
+        }
+        _clientCredits = credits;
+        _creditKeys = creditKeys;
+        UpdateTotals();
+    }
+
+    private bool ChargeConsigne => ConsigneCheck.IsChecked == true && ConsigneDue > 0;
+
+    private SaleChargesView Charges(decimal net)
+    {
+        var settings = _receiptSettings;
+        var prelevement = settings?.PrelevementRate is { } rate && rate > 0 && _cart.Count > 0
+            ? SaleCharges.Prelevement(net, rate, settings.TvaRate, settings.TvaMode, settings.PrelevementApresTva) : 0;
+        var effortGuerre = settings?.EffortGuerreEnabled != true ? 0 : _cart.Sum(c => SaleCharges.PerUnit(c.Product.EffortGuerre, c.Quantity * c.StockFactor, c.Quarts));
+        var consigne = ConsigneCheck.IsChecked == true ? ConsigneDue : 0;
+        var livraison = LivraisonEnabled && _cart.Count > 0 ? _livraison ?? 0 : 0;
+        return new SaleChargesView(prelevement, effortGuerre, consigne, livraison, _cart.Count > 0 ? ConsigneRendue : 0);
+    }
+
+    private void ShowCharges(SaleChargesView c)
+    {
+        PrelevementRow.Visibility = c.Prelevement > 0 ? Visibility.Visible : Visibility.Collapsed;
+        PrelevementLabelText.Text = $"{(_receiptSettings?.PrelevementName ?? "Prélèvement").ToUpper(System.Globalization.CultureInfo.CurrentCulture)} ({_receiptSettings?.PrelevementRate:0.##} %)";
+        EffortGuerreLabelText.Text = (_receiptSettings?.EffortGuerreName ?? "Effort de guerre").ToUpper(System.Globalization.CultureInfo.CurrentCulture);
+        PrelevementText.Text = $"+ {Money.Format(c.Prelevement)}";
+
+        EffortGuerreRow.Visibility = c.EffortGuerre > 0 ? Visibility.Visible : Visibility.Collapsed;
+        EffortGuerreText.Text = $"+ {Money.Format(c.EffortGuerre)}";
+
+        var consigneDue = ConsigneDue;
+        ConsigneRow.Visibility = consigneDue > 0 ? Visibility.Visible : Visibility.Collapsed;
+        ConsigneText.Text = c.Consigne > 0 ? $"+ {Money.Format(c.Consigne)}" : $"({Money.Format(consigneDue)})";
+
+        ShowEmballages();
+
+        LivraisonRow.Visibility = LivraisonEnabled && _cart.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        LivraisonText.Text = c.Livraison > 0 ? $"+ {Money.Format(c.Livraison)}" : "aucune";
+
+        _displayCharges = c;
+    }
+
+    private void Consigne_Changed(object sender, RoutedEventArgs e)
+    {
+        if (ConsigneText is null) return; // still loading the XAML
+        UpdateTotals();
+    }
+
+    private void Livraison_Click(object sender, RoutedEventArgs e) => AskLivraison();
+
+    /// <summary>Asks for the delivery fee. Empty or 0 means no delivery; Annuler keeps the
+    /// current amount. Asked once per sale, when the first product goes in the cart.</summary>
+    private void AskLivraison()
+    {
+        var current = _livraison is > 0 ? Money.FormatPlain(_livraison.Value) : string.Empty;
+        var typed = Lonnii.Client.Common.PromptDialog.Show(Window.GetWindow(this),
+            "Livraison", "Frais de livraison (laisser vide si pas de livraison) :", current, money: true);
+        if (typed is null)
+        {
+            _livraison ??= 0;
+        }
+        else if (string.IsNullOrWhiteSpace(typed))
+        {
+            _livraison = 0;
+        }
+        else if (Money.TryParse(typed, out decimal amount) && amount >= 0)
+        {
+            _livraison = Math.Round(amount, 0, MidpointRounding.AwayFromZero);
+        }
+        else
+        {
+            ShowMessage("Montant de livraison invalide.");
+            _livraison ??= 0;
+        }
+        UpdateTotals();
+    }
+
+    /// <summary>The first product of a sale opens the delivery pop-up when the shop uses it.</summary>
+    private void AskLivraisonIfFirstItem(bool wasEmpty)
+    {
+        // No automatic pop-up: the fee is typed only from the 🚚 LIVRAISON button, when there is one.
+    }
 
     /// <summary>Tells the customer-facing display what is in the cart and what is due - and, once
     /// the cashier has typed what the customer handed over, the change. Called after every
@@ -1374,10 +1768,49 @@ public partial class VentesView : UserControl
 
     private void UpdateClientDue()
     {
-        if (CurrentClient() is { ResteDu: > 0 } client)
+        RefreshClientCredits();
+        ShowEmballages(); // ends by refreshing the yellow line
+    }
+
+    /// <summary>
+    /// The yellow line: what the client still owes. Once empties are typed for this client, the emballage
+    /// part is what remains AFTER this sale (old dues + taken now - brought back) - a client who brings
+    /// everything back no longer reads "2 caisses à rapporter".
+    /// </summary>
+    private void RefreshClientDueText()
+    {
+        if (ClientDuePanel is null || ClientDueText is null) return; // still loading the XAML
+        var current = CurrentClient();
+        var key = ClientKey();
+        var anyClient = key.Replace("|", "").Length > 0;
+        // The per-product balances, the same the returns window shows (works for an unsaved client too).
+        if (EmballagesSuivi && anyClient && _owedRequestKey != key) _ = LoadOwedUnitsAsync();
+
+        var owedUnit = SaleCharges.SharedUnit(
+            (_owedUnitKey == key ? _owedUnits : [])
+                .Concat(_retourSoldes.Select(r => r.Unite))
+                .Concat(_cart.Where(c => c.Product.EmballageRecuperable).Select(c => c.Product.UniteAffichage)));
+        var typedHere = _retours.Count > 0 && _retourClientKey == key;
+        var before = OwedBefore();
+        var dus = typedHere ? before + EmballagesPris - EmballagesRendus : before;
+        // Consigne still held for the client: before, then after this sale's charge and refund.
+        var consigne = _owedUnitKey == key ? _owedConsigne : 0;
+        if (typedHere) consigne = Math.Max(0, consigne + (ConsigneCheck.IsChecked == true ? ConsigneDue : 0) - ConsigneRendue);
+        var consigneText = dus > 0 && consigne > 0 ? $" (consigne versée : {Money.Format(consigne)})" : "";
+        var emballages = !EmballagesSuivi || !anyClient ? null
+            : dus > 0 ? $"{_receiptSettings!.Emballages(dus, owedUnit)} à rapporter{(typedHere ? " après cette vente" : "")}{consigneText}"
+            : dus < 0 && !typedHere ? $"crédit de {_receiptSettings!.Emballages(-dus, owedUnit)}" : null;
+        var nom = current?.Nom ?? (string.IsNullOrWhiteSpace(ClientNomBox.Text) ? "Ce client" : ClientNomBox.Text.Trim());
+        if (current is { ResteDu: > 0 } client)
         {
             ClientDueText.Text = $"⚠ {client.Nom} doit encore {Money.Format(client.ResteDu)} "
-                                 + $"({client.FacturesImpayees} vente(s) non soldée(s)).";
+                                 + $"({client.FacturesImpayees} vente(s) non soldée(s))"
+                                 + (emballages is null ? "." : $" et {emballages}.");
+            ClientDuePanel.Visibility = Visibility.Visible;
+        }
+        else if (emballages is not null)
+        {
+            ClientDueText.Text = $"⚠ {nom} a {emballages}.";
             ClientDuePanel.Visibility = Visibility.Visible;
         }
         else
@@ -1567,7 +2000,7 @@ public partial class VentesView : UserControl
     {
         var state = UiState.For(_session);
         state.Cart = _cart
-            .Select(c => new SavedCartLine(c.Product.Id, c.Quantity, c.UnitPrice, c.Discount, c.DiscountType, c.VenteEnGros))
+            .Select(c => new SavedCartLine(c.Product.Id, c.Quantity, c.UnitPrice, c.Discount, c.DiscountType, c.VenteEnGros, c.Quarts))
             .ToList();
         state.RemiseGlobale = RemiseGlobaleBox.Text;
         state.RemiseGlobalePercent = _remiseIsPercent;
@@ -1590,14 +2023,15 @@ public partial class VentesView : UserControl
 
             var tracked = !(product.VenteLibre || product.StockIllimite);
             var quantity = tracked ? Math.Min(saved.Quantity, product.Quantity / factor) : saved.Quantity;
-            if (quantity <= 0) continue;
+            if (quantity <= 0 && saved.Quarts == 0) continue;
 
             var defaultPrice = enGros ? product.Price : product.VenteMixte ? product.PrixVenteDetail ?? product.Price : product.Price;
             // Clamped up to Product.Price (the négociable minimum, 0 when none is set): the
             // saved cart could predate the product gaining a minimum, or predate it being
             // raised, and a restored line should never reopen below what is now the floor.
             var price = product.PrixFixe ? defaultPrice : Math.Max(saved.UnitPrice, product.Price);
-            _cart.Add(new CartLine(product, quantity, price, ShowRemise ? saved.Discount : 0, saved.DiscountType, enGros));
+            var quarts = FractionsEnabled && product.FractionPrice(saved.Quarts) is not null ? saved.Quarts : 0;
+            _cart.Add(new CartLine(product, quantity, price, ShowRemise ? saved.Discount : 0, saved.DiscountType, enGros, quarts));
         }
 
         // Not restored without the privilege: the box would stay hidden while still quietly
@@ -1746,21 +2180,45 @@ public partial class VentesView : UserControl
         // should not need 100 clicks. TextChanged updates the total live without rebuilding
         // the row (which would drop focus mid-keystroke, same reason priceBox behaves this
         // way); LostFocus is what clamps to stock and normalises the display.
+        // Fractions (Paramètres + the product's own prices): "1.5", "1 1/2" or "1/2" are read as
+        // whole units plus quarters, and shown back as "1 + 1/2".
+        var fractions = FractionsEnabled && line.Product.SellsFractions;
         var qtyBox = new TextBox
         {
-            Text = line.Quantity.ToString(), Width = 34, TextAlignment = TextAlignment.Center,
+            Text = line.QuantityLabel, Width = fractions ? 54 : 34, TextAlignment = TextAlignment.Center,
             FontSize = 12, Padding = new Thickness(2, 1, 2, 1), VerticalContentAlignment = VerticalAlignment.Center,
+            ToolTip = fractions ? "Quantité : 2, 1.5, 1 1/2, 1/4…" : null,
         };
         Services.TouchKeypad.SetLayout(qtyBox, Services.KeypadLayout.Numeric);
+
+        // Whole units and quarters from what was typed, or null when it is not a quantity this
+        // product can be sold in.
+        (int Quantity, int Quarts)? ReadQuantity()
+        {
+            if (!fractions)
+                return int.TryParse(qtyBox.Text, out var whole) && whole > 0 ? (whole, 0) : null;
+            if (!SaleCharges.TryParseQuantity(qtyBox.Text, out var q, out var quarts)) return null;
+            if (quarts > 0 && line.Product.FractionPrice(quarts) is null) return null;
+            return (q, quarts);
+        }
+
+        (int Quantity, int Quarts) CapToStock((int Quantity, int Quarts) wanted)
+        {
+            var tracked = !(line.Product.VenteLibre || line.Product.StockIllimite);
+            if (!tracked) return wanted;
+            var needed = wanted.Quantity * line.StockFactor * 4 + wanted.Quarts;
+            if (needed <= line.Product.QuartsInStock) return wanted;
+            return (line.Product.QuartsInStock / 4 / line.StockFactor, 0);
+        }
+
         qtyBox.TextChanged += (_, _) =>
         {
             var index = _cart.FindIndex(c => c.LineId == line.LineId);
-            if (index < 0 || !int.TryParse(qtyBox.Text, out var typed) || typed <= 0) return;
+            if (index < 0 || ReadQuantity() is not { } typed) return;
 
-            var tracked = !(line.Product.VenteLibre || line.Product.StockIllimite);
-            var quantity = tracked ? Math.Min(typed, line.Product.Quantity / line.StockFactor) : typed;
-
-            _cart[index] = _cart[index] with { Quantity = quantity };
+            var (quantity, quarts) = CapToStock(typed);
+            if (quantity == 0 && quarts == 0) return;
+            _cart[index] = _cart[index] with { Quantity = quantity, Quarts = quarts };
             RefreshLineTotal();
         };
         qtyBox.LostFocus += (_, _) =>
@@ -1768,18 +2226,20 @@ public partial class VentesView : UserControl
             var index = _cart.FindIndex(c => c.LineId == line.LineId);
             if (index < 0) return;
 
-            if (!int.TryParse(qtyBox.Text, out var typed) || typed <= 0) typed = 1;
-
-            var tracked = !(line.Product.VenteLibre || line.Product.StockIllimite);
-            var maxQuantity = line.Product.Quantity / line.StockFactor;
-            if (tracked && typed > maxQuantity)
+            if (ReadQuantity() is not { } typed)
             {
-                ShowMessage($"Stock insuffisant pour « {line.Product.Name} ».");
-                typed = maxQuantity;
+                if (fractions && !string.IsNullOrWhiteSpace(qtyBox.Text))
+                    ShowMessage($"« {line.Product.Name} » se vend par unité ou par les fractions dont le prix est fixé.");
+                typed = (_cart[index].Quantity, _cart[index].Quarts);
+                if (typed.Quantity == 0 && typed.Quarts == 0) typed = (1, 0);
             }
 
-            _cart[index] = _cart[index] with { Quantity = typed };
-            qtyBox.Text = typed.ToString();
+            var capped = CapToStock(typed);
+            if (capped != typed) ShowMessage($"Stock insuffisant pour « {line.Product.Name} ».");
+            if (capped.Quantity == 0 && capped.Quarts == 0) capped = typed;
+
+            _cart[index] = _cart[index] with { Quantity = capped.Quantity, Quarts = capped.Quarts };
+            qtyBox.Text = _cart[index].QuantityLabel;
             RefreshLineTotal();
         };
 
@@ -1975,7 +2435,13 @@ public partial class VentesView : UserControl
 
         var lines = _cart.Select(c => new ReceiptLine(
             c.Product.Name, c.Quantity, c.UnitPrice, c.LineTotal,
-            c.Product.VenteMixte ? (c.VenteEnGros ? c.Product.UniteVente : c.Product.UniteAffichage) : null)).ToList();
+            c.Product.VenteMixte ? (c.VenteEnGros ? c.Product.UniteVente : c.Product.UniteAffichage)
+                : SaleCharges.RealUnit(c.Product.UniteAffichage),
+            c.Quarts, c.Quarts > 0 ? c.FractionPrice : null,
+            c.Product.EmballageRecuperable ? CartEmballages(c) : 0, c.Product.EmballageContenance,
+            CartCredits().GetValueOrDefault(c))).ToList();
+        var ch = _displayCharges;
+        static decimal? Pos(decimal v) => v > 0 ? v : null;
 
         static string? Blank(string text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
         var now = DateTime.Now;
@@ -1985,11 +2451,49 @@ public partial class VentesView : UserControl
         return facture
             ? new ReceiptData("Aperçu", now, Blank(ClientNomBox.Text), Blank(ClientTelephoneBox.Text), Blank(ClientEmailBox.Text),
                 me, null, lines, _currentTotal, 0m, _currentTotal, "en_attente", null, 0m, false, [], tvaRate, tva,
-                ServeurNom: SelectedServeurNom)
+                ServeurNom: SelectedServeurNom,
+                PrelevementRate: ch.Prelevement > 0 ? _receiptSettings?.PrelevementRate : null, PrelevementAmount: Pos(ch.Prelevement),
+                EffortGuerreAmount: Pos(ch.EffortGuerre), ConsigneAmount: Pos(ch.Consigne), LivraisonAmount: Pos(ch.Livraison),
+                EmballagesPris: PreviewEmballages(true), EmballagesRendus: PreviewEmballages(false), ConsigneRendue: Pos(ch.ConsigneRendue), Rendus: PreviewRendus(),
+                EmballagesCredit: EmballagesSuivi && CreditCovered > 0 ? CreditCovered : null, EmballagesCreditRestant: PreviewCreditRestant(), EmballagesDusAvant: PreviewDusAvant())
             : new ReceiptData("Aperçu", now, Blank(ClientNomBox.Text), Blank(ClientTelephoneBox.Text), Blank(ClientEmailBox.Text),
                 me, me, lines, _currentTotal, _currentTotal - PreviewReste(), PreviewReste(),
                 PreviewReste() > 0 ? "partiel" : "paye", _modePaiement, 0m, false,
-                PreviewPayments(now, me), tvaRate, tva, ServeurNom: SelectedServeurNom);
+                PreviewPayments(now, me), tvaRate, tva, ServeurNom: SelectedServeurNom,
+                PrelevementRate: ch.Prelevement > 0 ? _receiptSettings?.PrelevementRate : null, PrelevementAmount: Pos(ch.Prelevement),
+                EffortGuerreAmount: Pos(ch.EffortGuerre), ConsigneAmount: Pos(ch.Consigne), LivraisonAmount: Pos(ch.Livraison),
+                EmballagesPris: PreviewEmballages(true), EmballagesRendus: PreviewEmballages(false), ConsigneRendue: Pos(ch.ConsigneRendue), Rendus: PreviewRendus(),
+                EmballagesCredit: EmballagesSuivi && CreditCovered > 0 ? CreditCovered : null, EmballagesCreditRestant: PreviewCreditRestant(), EmballagesDusAvant: PreviewDusAvant());
+    }
+
+    /// <summary>What the client owed before this sale, as the server will record it (for the total line).</summary>
+    private decimal? PreviewDusAvant() =>
+        EmballagesSuivi && OwedBefore() is var d && d != 0 ? d : null;
+
+    /// <summary>The client's credit left after this sale, as the server will record it.</summary>
+    private decimal? PreviewCreditRestant()
+    {
+        if (!EmballagesSuivi) return null;
+        var covered = CreditCovered;
+        // Empties beyond this sale first pay off what the client already owed; only the rest is credit.
+        // The client total is net of their credits, so add those back to get the dues alone.
+        var anciens = Math.Max(0, OwedBefore() + _clientCredits.Values.Sum());
+        var exces = Math.Max(0, Math.Max(0, EmballagesRendus - (EmballagesPris - covered)) - anciens);
+        var restant = _clientCredits.Values.Sum() - covered + exces;
+        return restant > 0 ? restant : null;
+    }
+
+    /// <summary>The empties typed per product, named as the receipt prints them.</summary>
+    private List<EmballageRenduDto> PreviewRendus() => _retours
+        .Select(r => _retourSoldes.FirstOrDefault(s => s.ProductId == r.ProductId) is { } so
+            ? new EmballageRenduDto(r.ProductId, so.NomProduit, r.Quantite, so.Contenance) : null)
+        .OfType<EmballageRenduDto>().ToList();
+
+    /// <summary>Emballages for the preview, as the server will record them (null when not tracked).</summary>
+    private decimal? PreviewEmballages(bool pris)
+    {
+        if (!EmballagesSuivi || (EmballagesPris == 0 && EmballagesRendus == 0)) return null;
+        return pris ? EmballagesPris : EmballagesRendus;
     }
 
     /// <summary>What a short cash payment leaves owed (0 when paid in full or not cash).</summary>
@@ -2215,12 +2719,21 @@ public partial class VentesView : UserControl
         // Same settings the server will apply, re-read so a vente rapide pays the exact TTC.
         await RefreshReceiptSettingsAsync();
 
+        // Fraction lines need the option still on (it may have been turned off meanwhile).
+        if (!FractionsEnabled && _cart.FirstOrDefault(c => c.Quarts > 0) is { } fractionLine)
+        {
+            ShowMessage($"La vente par fraction est désactivée : corrigez la quantité de « {fractionLine.Product.Name} ».");
+            return;
+        }
+
         var subtotal = _cart.Sum(c => c.LineTotal);
         var remise = GlobalDiscountAmount(subtotal);
         var (_, total) = WithTva(subtotal - remise);
+        var charges = Charges(subtotal - remise);
+        total += charges.Total;
 
         var items = _cart.Select(c =>
-            new CartItemRequest(c.Product.Id, c.Quantity, c.UnitPrice, c.Discount, c.DiscountType, c.VenteEnGros)).ToList();
+            new CartItemRequest(c.Product.Id, c.Quantity, c.UnitPrice, c.Discount, c.DiscountType, c.VenteEnGros, c.Quarts)).ToList();
         var clientNom = string.IsNullOrWhiteSpace(ClientNomBox.Text) ? null : ClientNomBox.Text.Trim();
 
         // A facture is exactly a sale recorded with nothing paid: it is what leaves it an
@@ -2308,7 +2821,10 @@ public partial class VentesView : UserControl
 
         var request = new CreateVenteRequest(
             items, _modePaiement, montantPaye, remise, clientNom, clientTelephone, clientEmail,
-            MonnaieEnAvoir: monnaieEnAvoir, Paiements: parts, ServeurId: SelectedServeurId);
+            MonnaieEnAvoir: monnaieEnAvoir, Paiements: parts, ServeurId: SelectedServeurId,
+            AvecConsigne: ChargeConsigne, Livraison: charges.Livraison,
+            EmballagesRendus: EmballagesSuivi ? EmballagesRendus : 0,
+            Retours: _retours.Count > 0 ? _retours : null);
 
         SetBusy(true);
         try
@@ -2364,6 +2880,11 @@ public partial class VentesView : UserControl
         _mixteMobileEdited = false;
         SetMixteMobileText(string.Empty);
         _cart.Clear();
+        _livraison = null;
+        ConsigneCheck.IsChecked = true;
+        _retours = [];
+        _retourSoldes = [];
+        _retourClientKey = null;
         RenderCart();
         RemiseGlobaleBox.Text = "0";
         _remiseIsPercent = false;
@@ -3360,6 +3881,16 @@ public partial class VentesView : UserControl
         StatsTilesPanel.Children.Add(BuildStatTile("Montant Encaissé", Money.Format(stats.MontantEncaisse), "Accent"));
         StatsTilesPanel.Children.Add(BuildStatTile("Montant Restant", Money.Format(stats.MontantRestant), "Danger"));
         StatsTilesPanel.Children.Add(BuildStatTile("Total Avoir Client", Money.Format(stats.TotalAvoir), "Warning"));
+        // Consigne next to the money tiles, where it is seen: a deposit, outside the chiffre d'affaires
+        // (the per-client detail is in the "Consignes" card further down).
+        // Only while the shop tracks emballages (Paramètres de stock "Suivi des emballages").
+        if (EmballagesSuivi && (stats.ConsigneEncaissee != 0 || stats.ConsigneRemboursee != 0))
+        {
+            StatsTilesPanel.Children.Add(BuildStatTile("Consigne Encaissée", Money.Format(stats.ConsigneEncaissee), "Success"));
+            StatsTilesPanel.Children.Add(BuildStatTile("Consigne Remboursée", Money.Format(stats.ConsigneRemboursee), "Danger"));
+            StatsTilesPanel.Children.Add(BuildStatTile("Consigne Détenue",
+                Money.Format(stats.ConsigneEncaissee - stats.ConsigneRemboursee), "Accent"));
+        }
         StatsTilesPanel.Children.Add(BuildStatTile("Vente Moyenne", Money.Format(stats.VenteMoyenne), "TextPrimary"));
         StatsTilesPanel.Children.Add(BuildStatTile("Ventes Payées", stats.VentesPayees.ToString(), "Success"));
         StatsTilesPanel.Children.Add(BuildStatTile("Paiements Partiels", stats.VentesPartielles.ToString(), "Warning"));
@@ -3498,9 +4029,35 @@ public partial class VentesView : UserControl
         ];
 
         RenderServeurStats(stats);
+        RenderConsigneStats(stats);
     }
 
     /// <summary>One row of the "Par serveur" table, ranked by total sold.</summary>
+    /// <summary>"Consignes": the deposits of the period, apart from the chiffre d'affaires - collected,
+    /// given back, still held, and which clients they belong to. Hidden when none moved.</summary>
+    private void RenderConsigneStats(VentesStatsResponse stats)
+    {
+        var clients = stats.ConsigneClients ?? [];
+        // Hidden when "Suivi des emballages" is off (Paramètres de stock), whatever older sales carry.
+        var any = EmballagesSuivi && (stats.ConsigneEncaissee != 0 || stats.ConsigneRemboursee != 0);
+        ConsigneStatsPanel.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
+        if (!any) return;
+
+        ConsigneTilesPanel.Children.Clear();
+        ConsigneTilesPanel.Children.Add(BuildStatTile("Consigne encaissée", Money.Format(stats.ConsigneEncaissee), "Success"));
+        ConsigneTilesPanel.Children.Add(BuildStatTile("Consigne remboursée", Money.Format(stats.ConsigneRemboursee), "Danger"));
+        ConsigneTilesPanel.Children.Add(BuildStatTile("Consigne détenue (période)",
+            Money.Format(stats.ConsigneEncaissee - stats.ConsigneRemboursee), "Accent"));
+        ConsigneStatsGrid.ItemsSource = clients.Select(c => new ConsigneStatsRow(c.Client, c.Encaissee, c.Remboursee, c.Nette)).ToList();
+    }
+
+    private sealed record ConsigneStatsRow(string Client, decimal Encaissee, decimal Remboursee, decimal Nette)
+    {
+        public string EncaisseeDisplay => Money.Format(Encaissee);
+        public string RembourseeDisplay => Remboursee > 0 ? Money.Format(Remboursee) : "—";
+        public string NetteDisplay => Money.Format(Nette);
+    }
+
     private sealed record ServeurStatsRow(int Rang, string Nom, int NombreVentes, decimal MontantTotal,
         decimal VenteMoyenne, decimal MontantEncaisse, decimal MontantRestant, decimal Part)
     {

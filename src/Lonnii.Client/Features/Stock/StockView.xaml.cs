@@ -31,6 +31,8 @@ public partial class StockView : UserControl
     private List<ProductDto> _pageItems = [];
     private bool _iconView = true;
     private bool _analyseTab;
+    private bool _emballagesTab;
+    private EmballagesPanel? _emballagesPanel;
     private string _sortField = "Nom";
     private bool _sortDescending;
 
@@ -203,6 +205,7 @@ public partial class StockView : UserControl
             _searchDebounce.Stop();
             await LoadAsync();
         };
+        Unloaded += (_, _) => _session.Changed -= OnSessionChanged;
         Loaded += async (_, _) =>
         {
             if (UiState.For(_session).StockPageSize is { } savedPageSize
@@ -219,6 +222,13 @@ public partial class StockView : UserControl
             if (_canViewStockAnalytics && UiState.For(_session).Tabs.GetValueOrDefault(ModuleKey) == "analyse")
                 SetActiveTab(analyse: true);
             await LoadAsync();
+            await LoadEmballagesSettingAsync();
+            _session.Changed += OnSessionChanged;
+            if (_emballagesEnabled && UiState.For(_session).Tabs.GetValueOrDefault(ModuleKey) == "emballages")
+            {
+                await ShowEmballagesAsync();
+                return;
+            }
 
             // The server already matches a scanned barcode against Name/SKU/Barcode (see
             // StockEndpoints.ListProductsAsync) - starting focused here means a barcode
@@ -575,12 +585,51 @@ public partial class StockView : UserControl
         await LoadAnalyseAsync();
     }
 
+    private async void EmballagesTab_Click(object sender, RoutedEventArgs e) => await ShowEmballagesAsync();
+
+    private bool _emballagesEnabled;
+
+    /// <summary>The Emballages tab exists only while "Suivi des emballages" is on (Paramètres de stock).</summary>
+    private async Task LoadEmballagesSettingAsync()
+    {
+        try { ApplyEmballagesSetting(await _session.GetReceiptSettingsAsync()); }
+        catch (ApiException) { ApplyEmballagesSetting(null); }
+    }
+
+    /// <summary>Paramètres saved on this machine: show or hide the tab at once, and leave it if it is open.</summary>
+    private void OnSessionChanged(object? sender, EventArgs e) =>
+        Dispatcher.BeginInvoke(() => ApplyEmballagesSetting(_session.CachedReceiptSettings));
+
+    private void ApplyEmballagesSetting(ReceiptSettingsDto? settings)
+    {
+        // Needs both: the shop tracks emballages, and this member may see them.
+        _emballagesEnabled = settings?.EmballagesSuivi == true && _session.Can(Priv.Gestion.ViewEmballages);
+        EmballagesTabButton.Visibility = _emballagesEnabled ? Visibility.Visible : Visibility.Collapsed;
+        if (!_emballagesEnabled && _emballagesTab) SetActiveTab(analyse: false);
+    }
+
+    private async Task ShowEmballagesAsync()
+    {
+        _emballagesPanel ??= new EmballagesPanel(_session);
+        EmballagesHost.Content ??= _emballagesPanel;
+        if (!_emballagesTab)
+        {
+            _emballagesTab = true;
+            _analyseTab = false;
+            ApplyTabVisuals();
+            UiState.For(_session).Tabs[ModuleKey] = "emballages";
+            UiState.Save();
+        }
+        await _emballagesPanel.LoadAsync();
+    }
+
     private const string ModuleKey = "gestion-de-stock";
 
     private void SetActiveTab(bool analyse)
     {
-        if (_analyseTab == analyse) return;
+        if (_analyseTab == analyse && !_emballagesTab) return;
         _analyseTab = analyse;
+        _emballagesTab = false;
         ApplyTabVisuals();
 
         UiState.For(_session).Tabs[ModuleKey] = analyse ? "analyse" : "stock";
@@ -760,18 +809,23 @@ public partial class StockView : UserControl
         var onAccentBrush = (Brush)FindResource("TextOnAccent");
         var transparent = Brushes.Transparent;
 
-        StockTabButton.Background = _analyseTab ? transparent : accentBrush;
-        StockTabButton.Foreground = _analyseTab ? mutedBrush : onAccentBrush;
-        StockTabButton.FontWeight = _analyseTab ? FontWeights.Normal : FontWeights.SemiBold;
-        AnalyseTabButton.Background = _analyseTab ? accentBrush : transparent;
-        AnalyseTabButton.Foreground = _analyseTab ? onAccentBrush : mutedBrush;
-        AnalyseTabButton.FontWeight = _analyseTab ? FontWeights.SemiBold : FontWeights.Normal;
+        var stockTab = !_analyseTab && !_emballagesTab;
+        void Style(Button b, bool active)
+        {
+            b.Background = active ? accentBrush : transparent;
+            b.Foreground = active ? onAccentBrush : mutedBrush;
+            b.FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal;
+        }
+        Style(StockTabButton, stockTab);
+        Style(AnalyseTabButton, _analyseTab);
+        Style(EmballagesTabButton, _emballagesTab);
 
-        StockToolsPanel.Visibility = _analyseTab ? Visibility.Collapsed : Visibility.Visible;
+        StockToolsPanel.Visibility = stockTab ? Visibility.Visible : Visibility.Collapsed;
         AnalyseToolsPanel.Visibility = _analyseTab ? Visibility.Visible : Visibility.Collapsed;
-        PaginationPanel.Visibility = _analyseTab ? Visibility.Collapsed : Visibility.Visible;
-        StockContentGrid.Visibility = _analyseTab ? Visibility.Collapsed : Visibility.Visible;
+        PaginationPanel.Visibility = stockTab ? Visibility.Visible : Visibility.Collapsed;
+        StockContentGrid.Visibility = stockTab ? Visibility.Visible : Visibility.Collapsed;
         AnalysePanel.Visibility = _analyseTab ? Visibility.Visible : Visibility.Collapsed;
+        EmballagesHost.Visibility = _emballagesTab ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>Recomputes the Analyse tab's stat cards from <see cref="_allProducts"/>,
@@ -1190,7 +1244,14 @@ public partial class StockView : UserControl
     {
         if (Selected is not { } product) return;
 
-        var dialog = new StockAdjustDialog(product) { Owner = Window.GetWindow(this) };
+        // A returnable product asks which supplier delivered (the crates are owed back to them).
+        List<SupplierDto>? suppliers = null;
+        if (product.EmballageRecuperable)
+        {
+            try { suppliers = await _session.Api.GetSuppliersAsync(); }
+            catch (ApiException) { /* optional: the stock entry still works without it */ }
+        }
+        var dialog = new StockAdjustDialog(product, suppliers) { Owner = Window.GetWindow(this) };
         if (dialog.ShowDialog() != true) return;
 
         try

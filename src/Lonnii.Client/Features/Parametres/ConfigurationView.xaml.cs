@@ -108,7 +108,6 @@ public partial class ConfigurationView : UserControl
         (groupe?.CurrencyBefore == true ? CurrencyBeforeRadio : CurrencyAfterRadio).IsChecked = true;
         UpdateCurrencyPreview();
         if (_session.Can(Priv.Gestion.ManageBilanAutomatique)) _ = LoadCalculAutomatiqueAsync();
-        if (_session.Can(Priv.Gestion.ManageRecuFacture)) _ = LoadRemiseEnabledAsync();
     }
 
     // --- Connexion ---
@@ -285,6 +284,14 @@ public partial class ConfigurationView : UserControl
     private void OpenReceiptSettings_Click(object sender, RoutedEventArgs e) =>
         new ReceiptSettingsDialog(_session) { Owner = Window.GetWindow(this) }.ShowDialog();
 
+    /// <summary>Opens the sales settings (TVA, prélèvement, serveur, livraison, fractions, emballages).</summary>
+    private void OpenSalesSettings_Click(object sender, RoutedEventArgs e) =>
+        new ReceiptSettingsDialog(_session, salesOnly: true) { Owner = Window.GetWindow(this) }.ShowDialog();
+
+    /// <summary>Opens the stock settings (vente par fraction, suivi des emballages).</summary>
+    private void OpenStockSettings_Click(object sender, RoutedEventArgs e) =>
+        new ReceiptSettingsDialog(_session, stockOnly: true) { Owner = Window.GetWindow(this) }.ShowDialog();
+
     // --- Écran client ---
 
     private void OpenCustomerDisplay_Click(object sender, RoutedEventArgs e) =>
@@ -326,64 +333,6 @@ public partial class ConfigurationView : UserControl
         catch (ApiException ex)
         {
             MessageBox.Show(Window.GetWindow(this), ex.Message, "Bilan", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
-    }
-
-    // --- Remise ---
-
-    private bool _loadingRemiseEnabled;
-
-    private async Task LoadRemiseEnabledAsync()
-    {
-        try
-        {
-            _loadingRemiseEnabled = true;
-            var settings = await _session.GetReceiptSettingsAsync();
-            RemiseEnabledCheck.IsChecked = settings.RemiseEnabled;
-            TileShowQuantityCheck.IsChecked = settings.TileShowQuantity;
-            TileShowPriceCheck.IsChecked = settings.TileShowPrice;
-        }
-        catch (ApiException)
-        {
-            // Left unchecked, the default.
-        }
-        finally
-        {
-            _loadingRemiseEnabled = false;
-        }
-    }
-
-    private async void RemiseEnabled_Changed(object sender, RoutedEventArgs e)
-    {
-        if (_loadingRemiseEnabled) return;
-
-        try
-        {
-            var settings = await _session.Api.SaveRemiseSettingAsync(RemiseEnabledCheck.IsChecked == true);
-            _session.ApplyReceiptSettingsChange(settings);
-        }
-        catch (ApiException ex)
-        {
-            MessageBox.Show(Window.GetWindow(this), ex.Message, "Remise", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
-    }
-
-    // --- Produits dans Nouvelle Vente (Qté / Prix on the tiles) ---
-
-    private async void TileDisplay_Changed(object sender, RoutedEventArgs e)
-    {
-        // Loaded together with Remise (LoadRemiseEnabledAsync); not saved while filling in.
-        if (_loadingRemiseEnabled || !IsLoaded) return;
-
-        try
-        {
-            var settings = await _session.Api.SaveTileDisplayAsync(
-                TileShowQuantityCheck.IsChecked == true, TileShowPriceCheck.IsChecked == true);
-            _session.ApplyReceiptSettingsChange(settings);
-        }
-        catch (ApiException ex)
-        {
-            MessageBox.Show(Window.GetWindow(this), ex.Message, "Produits", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 

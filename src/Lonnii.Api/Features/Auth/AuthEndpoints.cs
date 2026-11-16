@@ -105,7 +105,7 @@ public static class AuthEndpoints
     /// for development and for the tests, which build workspaces without a licence server.
     /// </summary>
     internal static bool ManualSetupAllowed(IConfiguration config) =>
-        config.GetValue("Lonnii:AllowManualSetup", false);
+        Lonnii.Api.Features.Infrastructure.ShippedHost.ManualSetupAllowed(config);
 
     /// <summary>
     /// Creates the first account on a fresh host, which becomes the owner of whatever

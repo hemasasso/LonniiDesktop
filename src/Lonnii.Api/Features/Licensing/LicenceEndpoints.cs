@@ -1,4 +1,5 @@
 using Lonnii.Api.Features.Backup;
+using Lonnii.Api.Features.Infrastructure;
 using Lonnii.Data;
 using Lonnii.Data.Entities;
 using Lonnii.Shared.Contracts;
@@ -58,11 +59,16 @@ public static class LicenceEndpoints
 
         // A shop with no licence server to answer to has nothing to check in with: the server itself, or a
         // host that was never activated against ours.
-        if (groupe is null || string.IsNullOrWhiteSpace(groupe.LicenceServerUrl))
+        // On a shipped host every espace has ours, whatever its row says (see ShippedHost).
+        if (groupe is null || string.IsNullOrWhiteSpace(ShippedHost.LicenceServerUrlFor(groupe)))
             return Results.Ok(await guard.CheckAsync(request.GroupId, ct));
 
         var deviceId = http.Request.Headers["x-device-id"].ToString();
-        return await RenewAsync(groupe, deviceId, db, guard, licences, ct) ?? Results.Ok(await guard.CheckAsync(groupe, ct));
+        // The calling till's own hardware signature, so our server stores and compares it against the
+        // right machine (not the host's). Null for an older client; the host's own is used then.
+        var hardware = http.Request.Headers["x-device-hw"].ToString();
+        return await RenewAsync(groupe, deviceId, db, guard, licences, ct,
+            string.IsNullOrWhiteSpace(hardware) ? null : hardware) ?? Results.Ok(await guard.CheckAsync(groupe, ct));
     }
 
     /// <summary>
@@ -79,50 +85,106 @@ public static class LicenceEndpoints
     internal static readonly string HostVersion =
         typeof(LicenceEndpoints).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
 
+    /// <summary>One check-in at a time per espace. The host's own renewal and the app's check-in often
+    /// start together (after an update, at start-up): run side by side, the one finishing last saved its
+    /// slightly older licence over the newer one, and the next check reported "ancienne copie de la base".</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> RenewGates = new();
+
     internal static async Task<IResult?> RenewAsync(
-        Groupe groupe, string deviceId, LonniiDbContext db, LicenceGuard guard, ILicenceServer licences, CancellationToken ct)
+        Groupe groupe, string deviceId, LonniiDbContext db, LicenceGuard guard, ILicenceServer licences, CancellationToken ct,
+        string? hardwareSignature = null)
+    {
+        var gate = RenewGates.GetOrAdd(groupe.Id, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
+        {
+            return await RenewOnceAsync(groupe, deviceId, db, guard, licences, ct, hardwareSignature);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private static async Task<IResult?> RenewOnceAsync(
+        Groupe groupe, string deviceId, LonniiDbContext db, LicenceGuard guard, ILicenceServer licences, CancellationToken ct,
+        string? hardwareSignature)
     {
         // Every shop activated against our server checks in - local ones too. That is how a local shop
         // learns it was made online, or given more machines, or blocked: the server is the authority for
         // all three and has no way to reach a shop that never asks. What differs is the cost of failing:
         // only an online shop can be locked for not reaching us.
         var enforced = LicenceGuard.IsEnforced(groupe);
+        var serverUrl = ShippedHost.LicenceServerUrlFor(groupe)!;
+
+        // On a shop's computer the address is always ours: a row that says otherwise was edited.
+        if (ShippedHost.IsShipped
+            && !string.Equals(groupe.LicenceServerUrl?.TrimEnd('/'), serverUrl, StringComparison.OrdinalIgnoreCase))
+            guard.Security?.Record(groupe.Id, SecurityEventKinds.ServerUrlChanged,
+                string.IsNullOrWhiteSpace(groupe.LicenceServerUrl) ? "Adresse effacée" : $"Adresse : {groupe.LicenceServerUrl}");
+
+        // What this computer noticed since its last check-in rides along, and is forgotten once our
+        // server has answered - a refusal included, since it read them before refusing.
+        var events = guard.Security?.Pending(groupe.Id) ?? [];
+        var answered = false;
+        bool NoteAnswer(ActivationRefusedException e)
+        {
+            answered = e.Status is not null;
+            return false;
+        }
 
         try
         {
-            var response = await licences.RefreshAsync(
-                groupe.LicenceServerUrl!, new LicenceRefreshRequest(groupe.Id, deviceId, HostVersion), ct);
+            try
+            {
+                var response = await licences.RefreshAsync(
+                    serverUrl, new LicenceRefreshRequest(groupe.Id, deviceId, HostVersion, events.Count > 0 ? events : null,
+                        hardwareSignature ?? Infrastructure.HostMachineIdentity.Hardware,
+                        Infrastructure.HostBinaries.Hash), ct);
+                answered = true;
 
-            await guard.ApplyRefreshAsync(groupe, response, deviceId, ct);
+                // The server that just answered is the espace's: puts back a licence_server_url someone
+                // blanked or changed, so backups and the rest of the host see an activated espace again.
+                groupe.LicenceServerUrl = serverUrl;
+                await guard.ApplyRefreshAsync(groupe, response, deviceId, ct);
+            }
+            catch (ActivationRefusedException e) when (NoteAnswer(e))
+            {
+                // Never runs: only notes whether our server answered.
+            }
+            catch (ActivationRefusedException e) when (e.Status == System.Net.HttpStatusCode.Gone)
+            {
+                // The server's final word: this machine was removed from the shop. Only this machine
+                // locks - the shop's other computers check in through here too and carry on. Both modes,
+                // local included. Lifted by the next refresh that succeeds, after re-authorising.
+                await guard.MarkDeviceRemovedAsync(groupe.Id, deviceId, e.Message, ct);
+                return Results.Ok(LicenceGuard.Locked(e.Message, groupe.LicenceDeadline));
+            }
+            catch (ActivationRefusedException e) when (e.Status == System.Net.HttpStatusCode.NotFound)
+            {
+                // The shop itself was deleted on our side: every computer stops.
+                groupe.IsBlocked = true;
+                groupe.BlockReason = e.Message;
+                await db.SaveChangesAsync(ct);
+            }
+            catch (ActivationRefusedException) when (!enforced)
+            {
+                // A local shop works offline for ever: being unreachable, or not (yet) recognised by the server,
+                // changes nothing and shows nothing. It tries again at the next sync.
+                return Results.Ok(await guard.CheckAsync(groupe, ct));
+            }
+            catch (ActivationRefusedException e)
+            {
+                // Unreachable is a 503; a refusal keeps the server's own status (402 unpaid, 403
+                // device refused). Either way the deadline is left exactly where it was - a
+                // refused shop must not earn more days by asking.
+                return Results.Json(new ApiError(e.Message),
+                    statusCode: (int)(e.Status ?? System.Net.HttpStatusCode.ServiceUnavailable));
+            }
         }
-        catch (ActivationRefusedException e) when (e.Status == System.Net.HttpStatusCode.Gone)
+        finally
         {
-            // The server's final word: this machine was removed from the shop. Only this machine
-            // locks - the shop's other computers check in through here too and carry on. Both modes,
-            // local included. Lifted by the next refresh that succeeds, after re-authorising.
-            await guard.MarkDeviceRemovedAsync(groupe.Id, deviceId, e.Message, ct);
-            return Results.Ok(LicenceGuard.Locked(e.Message, groupe.LicenceDeadline));
-        }
-        catch (ActivationRefusedException e) when (e.Status == System.Net.HttpStatusCode.NotFound)
-        {
-            // The shop itself was deleted on our side: every computer stops.
-            groupe.IsBlocked = true;
-            groupe.BlockReason = e.Message;
-            await db.SaveChangesAsync(ct);
-        }
-        catch (ActivationRefusedException) when (!enforced)
-        {
-            // A local shop works offline for ever: being unreachable, or not (yet) recognised by the server,
-            // changes nothing and shows nothing. It tries again at the next sync.
-            return Results.Ok(await guard.CheckAsync(groupe, ct));
-        }
-        catch (ActivationRefusedException e)
-        {
-            // Unreachable is a 503; a refusal keeps the server's own status (402 unpaid, 403
-            // device refused). Either way the deadline is left exactly where it was - a
-            // refused shop must not earn more days by asking.
-            return Results.Json(new ApiError(e.Message),
-                statusCode: (int)(e.Status ?? System.Net.HttpStatusCode.ServiceUnavailable));
+            if (answered && events.Count > 0) guard.Security?.Sent(groupe.Id, events);
         }
 
         return null;
@@ -137,6 +199,7 @@ public static class LicenceEndpoints
         HttpContext http,
         BackupTokens backupTokens,
         LicenceSigner signer,
+        SecurityEventStore securityEvents,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.GroupId) || string.IsNullOrWhiteSpace(request.DeviceId))
@@ -163,6 +226,11 @@ public static class LicenceEndpoints
         if (groupe.ApprovalStatus != ApprovalStatuses.Approved)
             return ActivationEndpoints.NotApproved(groupe);
 
+        // What the shop's computer noticed (someone editing its database, its clock...), kept whatever
+        // the answer below: a refused machine's report is the most telling one.
+        var ip = http.Connection.RemoteIpAddress?.ToString();
+        securityEvents.AddReported(groupe.Id, request.Events, request.DeviceId, ip, request.AppVersion);
+
         var device = await db.Devices.FirstOrDefaultAsync(
             d => d.GroupId == groupe.Id && d.DeviceId == request.DeviceId, ct);
 
@@ -172,6 +240,8 @@ public static class LicenceEndpoints
         // the device list, and locking a shop for our gap would be wrong.
         if (device is { RevokedAt: not null })
         {
+            securityEvents.AddFromServer(groupe.Id, SecurityEventKinds.RevokedDevice, request.DeviceId, ip, request.AppVersion,
+                device.DeviceName is { Length: > 0 } name ? $"Poste : {name}" : null);
             return Results.Json(
                 new ApiError("Cet ordinateur a été retiré de l'espace. Demandez à l'administrateur de l'autoriser à nouveau."),
                 statusCode: StatusCodes.Status410Gone);
@@ -179,6 +249,7 @@ public static class LicenceEndpoints
 
         if (device is null)
         {
+            securityEvents.AddFromServer(groupe.Id, SecurityEventKinds.UnboundDevice, request.DeviceId, ip, request.AppVersion);
             return Results.Json(
                 new ApiError("Ce poste n'est pas autorisé. Réactivez-le depuis le fichier d'identifiants."),
                 statusCode: StatusCodes.Status403Forbidden);
@@ -205,11 +276,43 @@ public static class LicenceEndpoints
             }
         }
 
+        // Captured before they are overwritten below: a program-file change only means tampering when
+        // the version did not change too (a version change is an ordinary update, with new files).
+        var previousVersion = device.AppVersion;
+        var previousBuildHash = device.BuildHash;
+
         // The clock only moves on for a workspace that is actually entitled to run, so a
         // blocked or unpaid shop cannot refresh its way to another week.
         device.LastSeenAt = now;
         device.LastIpAddress = http.Connection.RemoteIpAddress?.ToString();
         if (!string.IsNullOrWhiteSpace(request.AppVersion)) device.AppVersion = request.AppVersion;
+
+        // The host's program files changed but its version did not: a build patched to switch the
+        // licence off keeps the same version so the swap passes for the one we published. Recorded for
+        // the dashboard; never blocks (an antivirus rewriting a file would read the same). Same version
+        // means the reported version equals the one stored, or the client sent none.
+        if (!string.IsNullOrWhiteSpace(request.BuildHash))
+        {
+            var sameVersion = string.IsNullOrWhiteSpace(request.AppVersion)
+                || string.Equals(previousVersion, request.AppVersion, StringComparison.OrdinalIgnoreCase);
+            if (previousBuildHash is { Length: > 0 } knownBuild && knownBuild != request.BuildHash && sameVersion)
+                securityEvents.AddFromServer(groupe.Id, SecurityEventKinds.BinariesModified, request.DeviceId, ip, request.AppVersion,
+                    $"Version {request.AppVersion ?? previousVersion ?? "?"} inchangée");
+            device.BuildHash = request.BuildHash;
+        }
+
+        // The device id is this machine's MachineGuid alone, so copying that value onto another computer
+        // reuses this binding. The hardware signature carries more of the machine, so the copy's differs:
+        // a signature that changes from the one first stored is that copy, or a disk or motherboard
+        // swapped on the real one. Recorded for the dashboard either way; never blocks - the owner knows
+        // which it was. An older client sends none, and absence is not a change.
+        if (!string.IsNullOrWhiteSpace(request.HardwareSignature))
+        {
+            if (device.HardwareSignature is { Length: > 0 } known && known != request.HardwareSignature)
+                securityEvents.AddFromServer(groupe.Id, SecurityEventKinds.HardwareChanged, request.DeviceId, ip, request.AppVersion,
+                    device.DeviceName is { Length: > 0 } dn ? $"Poste : {dn}" : null);
+            device.HardwareSignature = request.HardwareSignature;
+        }
 
         groupe.LastLicenceCheckAt = now;
 

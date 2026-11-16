@@ -128,6 +128,9 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
     public DbSet<VentesParametres> VentesParametres => Set<VentesParametres>();
     public DbSet<Client> Clients => Set<Client>();
     public DbSet<Serveur> Serveurs => Set<Serveur>();
+    public DbSet<EmballageRetour> EmballagesRetours => Set<EmballageRetour>();
+    public DbSet<EmballageMouvement> EmballagesMouvements => Set<EmballageMouvement>();
+    public DbSet<EmballageType> EmballageTypes => Set<EmballageType>();
     public DbSet<VentesUserActivity> VentesUserActivities => Set<VentesUserActivity>();
 
     // Charges
@@ -250,6 +253,9 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         [typeof(VentesParametres)] = "ventes_parametres",
         [typeof(Client)] = "clients",
         [typeof(Serveur)] = "serveurs",
+        [typeof(EmballageRetour)] = "emballages_retours",
+        [typeof(EmballageMouvement)] = "emballages_mouvements",
+        [typeof(EmballageType)] = "emballage_types",
         [typeof(VentesUserActivity)] = "ventes_user_activity",
         [typeof(Charge)] = "charges",
         [typeof(ChargeCategory)] = "charges_categories",
@@ -672,6 +678,33 @@ public class LonniiDbContext(DbContextOptions<LonniiDbContext> options) : DbCont
         {
             e.HasKey(x => x.Id);
             e.HasIndex(x => x.GroupId);
+        });
+
+        b.Entity<EmballageRetour>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.GroupId);
+            e.Property(x => x.ClientNom).HasMaxLength(255);
+            e.Property(x => x.ClientTelephone).HasMaxLength(100);
+            e.Property(x => x.ClientEmail).HasMaxLength(255);
+        });
+
+        b.Entity<EmballageMouvement>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.GroupId, x.ProductId });
+            e.Property(x => x.Type).HasMaxLength(30);
+            e.Property(x => x.NomProduit).HasMaxLength(255);
+            e.Property(x => x.SupplierName).HasMaxLength(255);
+            e.Property(x => x.ModePaiement).HasMaxLength(30);
+            e.Property(x => x.Note).HasMaxLength(500);
+        });
+
+        b.Entity<EmballageType>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.GroupId);
+            e.Property(x => x.Nom).HasMaxLength(255);
         });
 
         b.Entity<Serveur>(e =>

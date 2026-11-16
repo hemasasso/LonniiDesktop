@@ -28,6 +28,7 @@ public partial class LicenceLockWindow : Window
         InitializeComponent();
         _groupId = groupId;
         MessageText.Text = message;
+        OfferRegistration(message);
         Closing += (_, _) =>
         {
             if (!_renewed) Application.Current.Shutdown();
@@ -54,6 +55,26 @@ public partial class LicenceLockWindow : Window
         {
             _open = false;
         }
+    }
+
+    /// <summary>
+    /// A computer removed from the espace (from the dashboard, by the shop's admin, or by switching the
+    /// espace to phone-only) used to have no way back from this window: "Réessayer" only asked again
+    /// and got the same answer. An administrator can now authorise it again from here - the same
+    /// registration a new till goes through, which our server accepts for a machine it removed.
+    /// </summary>
+    private void OfferRegistration(string? message)
+    {
+        if (message is not null && message.Contains("retiré", StringComparison.OrdinalIgnoreCase))
+            RegisterButton.Visibility = Visibility.Visible;
+    }
+
+    private void Register_Click(object sender, RoutedEventArgs e)
+    {
+        if (!Parametres.RegisterDeviceDialog.Show(this, _groupId, App.Settings.LastIdentifier)) return;
+
+        // Authorised again: the check-in that follows brings the licence back and lifts the lock.
+        Retry_Click(sender, e);
     }
 
     private async void Retry_Click(object sender, RoutedEventArgs e)
@@ -94,5 +115,6 @@ public partial class LicenceLockWindow : Window
     {
         ErrorText.Text = message;
         ErrorPanel.Visibility = Visibility.Visible;
+        OfferRegistration(message);
     }
 }

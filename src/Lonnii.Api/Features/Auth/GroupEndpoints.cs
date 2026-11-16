@@ -1,3 +1,4 @@
+using Lonnii.Api.Features.Infrastructure;
 using Lonnii.Api.Features.Licensing;
 using Lonnii.Api.Features.Live;
 using System.Security.Claims;
@@ -103,21 +104,24 @@ public static class GroupEndpoints
         // Every espace is registered with Lonnii before it exists here, so we know all of them.
         // Skipped only when there is nowhere to register (no licence server configured) or the
         // switch is off - which is how development and the tests run.
-        var serverUrl = await db.Groupes
-            .Where(g => g.IdUserAdmin == userId && g.LicenceServerUrl != null && g.LicenceServerUrl != "")
-            .Select(g => g.LicenceServerUrl)
-            .FirstOrDefaultAsync(ct)
-            ?? config["Lonnii:LicenceServerUrl"];
+        // A shipped host only ever registers with ours (see ShippedHost).
+        var serverUrl = ShippedHost.IsShipped
+            ? ShippedHost.LicenceServerUrl
+            : await db.Groupes
+                .Where(g => g.IdUserAdmin == userId && g.LicenceServerUrl != null && g.LicenceServerUrl != "")
+                .Select(g => g.LicenceServerUrl)
+                .FirstOrDefaultAsync(ct)
+              ?? ShippedHost.ConfiguredLicenceServerUrl(config);
 
         Device? device = null;
         string? backupToken = null;
 
-        var registersOnline = config.GetValue("Lonnii:OnlineRegistration:Required", true)
+        var registersOnline = ShippedHost.OnlineRegistrationRequired(config)
             && !string.IsNullOrWhiteSpace(serverUrl);
 
         // Becoming an Admin Général always goes through Lonnii, where the owner's email was confirmed
         // with a code. Creating one purely here is only for development and the tests.
-        if (!registersOnline && !config.GetValue("Lonnii:AllowManualSetup", false))
+        if (!registersOnline && !ShippedHost.ManualSetupAllowed(config))
         {
             return Results.Json(
                 new ApiError("Un espace ne peut être créé qu'en ligne, par un propriétaire dont l'adresse e-mail a été vérifiée par Lonnii."),
@@ -210,11 +214,14 @@ public static class GroupEndpoints
             return Results.Conflict(new ApiError("Cet espace existe déjà sur ce poste."));
         }
 
+        // The pending list is a file on this computer: a shipped host activates with ours, whatever it says.
+        var serverUrl = ShippedHost.LicenceServerUrlFor(entry.ServerUrl)!;
+
         ActivationResponse activation;
         try
         {
             activation = await licences.ActivateAsync(
-                entry.ServerUrl,
+                serverUrl,
                 new ActivationRequest(groupId, email, request.Password, deviceId,
                     Environment.MachineName, DevicePlatforms.Windows),
                 ct);
@@ -233,7 +240,7 @@ public static class GroupEndpoints
             Mode = activation.Mode,
             MaxDevices = activation.MaxDevices,
             CurrencyLabel = activation.CurrencyLabel,
-            LicenceServerUrl = entry.ServerUrl,
+            LicenceServerUrl = serverUrl,
             LastLicenceCheckAt = activation.ActivatedAt,
         };
         var device = new Device { GroupId = groupe.Id, DeviceId = deviceId, DeviceName = Environment.MachineName };
@@ -320,6 +327,17 @@ public static class GroupEndpoints
         }
     }
 
+    /// <summary>A machine nobody registered tried to open the espace: a new till about to be registered,
+    /// or a copy of the installation. Noted for the dashboard on a shop's computer only.</summary>
+    private static void ReportUnknownDevice(LicenceGuard licence, string groupId, HttpContext http)
+    {
+        var deviceId = http.Request.Headers["x-device-id"].ToString();
+        var name = http.Request.Headers["x-device-name"].ToString();
+        licence.Security?.Record(groupId, SecurityEventKinds.UnknownDevice,
+            $"Poste {(string.IsNullOrWhiteSpace(name) ? "" : name + " ")}" +
+            $"({(deviceId.Length > 8 ? deviceId[..8] : deviceId)}), adresse {http.Connection.RemoteIpAddress}");
+    }
+
     /// <summary>Opens a group session and returns the token for the <c>x-group-session</c> header.</summary>
     private static async Task<IResult> OpenSessionAsync(
         string groupId,
@@ -328,6 +346,7 @@ public static class GroupEndpoints
         GroupSessionService sessions,
         PrivilegeResolver privileges,
         LicenceGuard licence,
+        ILicenceServer licences,
         HttpContext http,
         CancellationToken ct)
     {
@@ -343,7 +362,7 @@ public static class GroupEndpoints
         // lets the shop back in without anyone reinstalling.
         // On our server (PostgreSQL) every blocked shop is refused here, a shop's own row included:
         // the host-licence lock below does not run there.
-        if (groupe.IsBlocked && (string.IsNullOrWhiteSpace(groupe.LicenceServerUrl) || db.Database.IsNpgsql()))
+        if (groupe.IsBlocked && !licence.IsShopHost(groupe))
             return Results.Json(new ApiError(groupe.BlockReason ?? "Ce groupe est bloqué."),
                 statusCode: StatusCodes.Status403Forbidden);
 
@@ -353,6 +372,16 @@ public static class GroupEndpoints
             return ActivationEndpoints.NotApproved(groupe);
 
         var licenceStatus = await licence.CheckAsync(groupe, ct);
+
+        // No current signed licence here (a reinstall over an old lonnii.db, a restored copy): one
+        // check-in fixes that, so try it now rather than show a lock to a shop that is online.
+        if (LicenceGuard.NeedsSignedLicence(licenceStatus))
+        {
+            var deviceId = http.Request.Headers["x-device-id"].ToString();
+            if (await LicenceEndpoints.RenewAsync(groupe, deviceId, db, licence, licences, ct) is null)
+                licenceStatus = await licence.CheckAsync(groupe, ct);
+        }
+
         if (licenceStatus.Expired)
         {
             return Results.Json(new ApiError(licenceStatus.Message ?? LicenceGuard.ExpiredMessage),
@@ -376,15 +405,18 @@ public static class GroupEndpoints
         // A shop's host checks the machine against its signed licence first: deleting or adding
         // rows in its own devices table changes nothing there. Without a signed licence (the window
         // to fetch one) it falls back to the table as before.
-        if (!groupe.PhoneOnly && !string.IsNullOrWhiteSpace(groupe.LicenceServerUrl)
+        // On a shipped host neither the phone_only flag nor an emptied licence_server_url skips this.
+        var phoneOnly = ShippedHost.IsPhoneOnly(groupe);
+        if (!phoneOnly && licence.IsShopHost(groupe)
             && await licence.SignedDeviceAllowedAsync(groupId, http.Request.Headers["x-device-id"].ToString(), ct) == false)
         {
+            ReportUnknownDevice(licence, groupId, http);
             return Results.Json(
                 new ApiError("Ce poste n'est pas autorisé pour cet espace. Enregistrez-le avec un compte administrateur."),
                 statusCode: StatusCodes.Status403Forbidden);
         }
 
-        var bound = !groupe.PhoneOnly
+        var bound = !phoneOnly
             && await db.Devices.AnyAsync(d => d.GroupId == groupId && d.RevokedAt == null, ct);
 
         if (bound)
@@ -398,6 +430,7 @@ public static class GroupEndpoints
 
             if (device is null)
             {
+                ReportUnknownDevice(licence, groupId, http);
                 return Results.Json(
                     new ApiError("Ce poste n'est pas autorisé pour cet espace. Enregistrez-le avec un compte administrateur."),
                     statusCode: StatusCodes.Status403Forbidden);

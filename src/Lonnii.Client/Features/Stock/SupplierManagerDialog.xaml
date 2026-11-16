@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:Lonnii.Client.Common.Controls"
         Title="Fournisseurs"
-        Height="560" Width="820"
+        Height="560" Width="940"
         MinHeight="420" MinWidth="680"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResize"
@@ -21,8 +21,10 @@
         </Border>
 
         <Border DockPanel.Dock="Top" Style="{StaticResource ToolbarPanel}">
-            <DockPanel>
-                <StackPanel Orientation="Horizontal">
+            <!-- Wraps: on a narrow window the sort/filter/search group goes to a second line
+                 instead of sliding under the buttons. -->
+            <WrapPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,16,0">
                     <Button Content="Nouveau fournisseur" Style="{StaticResource PrimaryButton}" Click="Add_Click" />
                     <Button x:Name="EditButton" Content="Modifier" Margin="6,0,0,0"
                             Style="{StaticResource SecondaryButton}" Click="Edit_Click" />
@@ -31,7 +33,7 @@
                     <Rectangle Width="1" Margin="10,2" Fill="{DynamicResource Border}" />
                     <Button Content="Actualiser" Style="{StaticResource SecondaryButton}" Click="Refresh_Click" />
                 </StackPanel>
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,4">
                     <TextBlock Text="Trier par" Style="{StaticResource PageSubtitle}" VerticalAlignment="Center" Margin="0,0,6,0" />
                     <ComboBox x:Name="SortField" Width="110" Margin="0,0,4,0" SelectionChanged="Sort_Changed">
                         <ComboBoxItem Content="Nom" IsSelected="True" />
@@ -49,7 +51,7 @@
                                    VerticalAlignment="Center" IsHitTestVisible="False" />
                     </Grid>
                 </StackPanel>
-            </DockPanel>
+            </WrapPanel>
         </Border>
 
         <Border DockPanel.Dock="Bottom" Padding="18,12"
@@ -97,6 +99,14 @@
                         <DataGridTextColumn.ElementStyle>
                             <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}">
                                 <Setter Property="Foreground" Value="{DynamicResource Danger}" />
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+                    <DataGridTextColumn Header="Emballages" Binding="{Binding EmballagesDisplay}"
+                                        SortMemberPath="Supplier.EmballagesARendre" Width="120">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}">
+                                <Setter Property="ToolTip" Value="Pleins reçus de ce fournisseur moins vides rendus (Stock &gt; Emballages)" />
                             </Style>
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>

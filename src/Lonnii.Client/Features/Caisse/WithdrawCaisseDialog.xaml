@@ -42,14 +42,23 @@
                         Style="{StaticResource PrimaryButton}" Click="Mode_Click" Tag="cash">
                     <TextBlock Text="Espèces" Style="{StaticResource ButtonContentText}" />
                 </Button>
-                <Button x:Name="MobileModeButton" Width="110" Height="34"
+                <Button x:Name="MobileModeButton" Width="110" Height="34" Margin="0,0,8,0"
                         Style="{StaticResource SecondaryButton}" Click="Mode_Click" Tag="mobile_money">
                     <TextBlock Text="Mobile Money" Style="{StaticResource ButtonContentText}" />
                 </Button>
+                <Button x:Name="MixteModeButton" Width="80" Height="34"
+                        Style="{StaticResource SecondaryButton}" Click="Mode_Click" Tag="mixte">
+                    <TextBlock Text="Mixte" Style="{StaticResource ButtonContentText}" />
+                </Button>
             </StackPanel>
 
-            <TextBlock Text="Montant à retirer" Style="{StaticResource FieldLabel}" />
+            <TextBlock x:Name="MontantLabel" Text="Montant à retirer" Style="{StaticResource FieldLabel}" />
             <TextBox x:Name="MontantBox" />
+            <!-- Mixte: part from the espèces, part from the mobile money. -->
+            <StackPanel x:Name="MobilePartPanel" Visibility="Collapsed" Margin="0,10,0,0">
+                <TextBlock Text="Montant en mobile money" Style="{StaticResource FieldLabel}" />
+                <TextBox x:Name="MobileMontantBox" />
+            </StackPanel>
 
             <TextBlock Text="Motif" Style="{StaticResource FieldLabel}" Margin="0,14,0,4" />
             <TextBox x:Name="MotifBox" Height="56" TextWrapping="Wrap" AcceptsReturn="True"

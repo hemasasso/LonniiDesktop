@@ -147,6 +147,8 @@ public static class StockEndpoints
             return Results.BadRequest(new ApiError("La quantité ne peut pas être négative"));
         if (VenteMixteError(request) is { } venteMixteError)
             return Results.BadRequest(new ApiError(venteMixteError));
+        if (ExtrasError(request) is { } extrasError)
+            return Results.BadRequest(new ApiError(extrasError));
 
         if (await IsDuplicateAsync(db, scope.GroupId, request.Name, request.Sku, request.Barcode, excludeId: null, ct) is { } conflict)
             return Results.Conflict(new ApiError(conflict));
@@ -180,6 +182,9 @@ public static class StockEndpoints
             UpdatedBy = scope.UserId,
         };
 
+        ApplyExtras(product, request);
+        if (await EmballageTypeErrorAsync(db, scope.GroupId, product, ct) is { } typeError)
+            return Results.BadRequest(new ApiError(typeError));
         db.Products.Add(product);
 
         if (request.Quantity > 0)
@@ -228,6 +233,8 @@ public static class StockEndpoints
             return Results.BadRequest(new ApiError("Le prix ne peut pas être négatif"));
         if (VenteMixteError(request) is { } venteMixteError)
             return Results.BadRequest(new ApiError(venteMixteError));
+        if (ExtrasError(request) is { } extrasError)
+            return Results.BadRequest(new ApiError(extrasError));
 
         if (await IsDuplicateAsync(db, scope.GroupId, request.Name, request.Sku, request.Barcode, id, ct) is { } conflict)
             return Results.Conflict(new ApiError(conflict));
@@ -253,6 +260,9 @@ public static class StockEndpoints
         product.UniteVente = request.VenteMixte ? Blank(request.UniteVente) : null;
         product.FacteurConversion = request.VenteMixte ? request.FacteurConversion : null;
         product.PrixVenteDetail = request.VenteMixte ? request.PrixVenteDetail : null;
+        ApplyExtras(product, request);
+        if (await EmballageTypeErrorAsync(db, scope.GroupId, product, ct) is { } typeError)
+            return Results.BadRequest(new ApiError(typeError));
         product.UpdatedBy = scope.UserId;
         product.UpdatedAt = DateTime.UtcNow;
 
@@ -314,6 +324,15 @@ public static class StockEndpoints
             return Results.BadRequest(new ApiError(
                 $"Stock insuffisant: {product.Quantity} en stock, {-request.QuantityChanged} demandés"));
 
+        // A delivery of returnable crates names its supplier: the crates are also owed back to them.
+        Supplier? deliveredBy = null;
+        if (!string.IsNullOrWhiteSpace(request.SupplierId) && request.QuantityChanged > 0
+            && request.MovementType == StockMovementTypes.Ajout && product.EmballageRecuperable)
+        {
+            deliveredBy = await db.Suppliers.FirstOrDefaultAsync(s => s.Id == request.SupplierId && s.GroupId == scope.GroupId, ct);
+            if (deliveredBy is null) return Results.BadRequest(new ApiError("Fournisseur introuvable"));
+        }
+
         var previous = product.Quantity;
         product.Quantity = newQuantity;
         product.UpdatedBy = scope.UserId;
@@ -333,6 +352,31 @@ public static class StockEndpoints
             ReferenceType = "adjustment",
             UserId = scope.UserId,
         });
+
+        if (deliveredBy is not null)
+        {
+            // Counted like Stock > Emballages counts it: under the shared type when the product has
+            // one, and in crates (a Vente Mixte product's stock is in units).
+            var typeNom = product.EmballageTypeId is { } typeId
+                ? await db.EmballageTypes.Where(t => t.Id == typeId && t.GroupId == scope.GroupId).Select(t => t.Nom).FirstOrDefaultAsync(ct)
+                : null;
+            var crates = product.VenteMixte && (product.FacteurConversion ?? 1) > 1
+                ? Math.Floor(request.QuantityChanged * 4m / product.FacteurConversion!.Value) / 4m
+                : request.QuantityChanged;
+            if (crates > 0)
+                db.EmballagesMouvements.Add(new EmballageMouvement
+                {
+                    GroupId = scope.GroupId,
+                    ProductId = typeNom is null ? product.Id : product.EmballageTypeId!,
+                    NomProduit = typeNom ?? product.Name,
+                    Type = EmballageMouvementTypes.RecuFournisseur,
+                    Quantite = crates,
+                    SupplierId = deliveredBy.Id,
+                    SupplierName = deliveredBy.Name,
+                    Note = "Entrée en stock",
+                    CreatedBy = scope.UserId,
+                });
+        }
 
         await db.SaveChangesAsync(ct);
         await LogActivityAsync(db, scope, "stock.adjust", product.Id,
@@ -659,6 +703,16 @@ public static class StockEndpoints
                 s.PaymentTerms, s.Notes, s.Rating, s.IsActive, s.MontantDu))
             .ToListAsync(ct);
 
+        // Emballages still to give back to each supplier (reçus - rendus), for the Fournisseurs window.
+        var emballages = await db.EmballagesMouvements.AsNoTracking()
+            .Where(m => m.GroupId == scope.GroupId && m.SupplierId != null
+                && (m.Type == EmballageMouvementTypes.RecuFournisseur || m.Type == EmballageMouvementTypes.RetourFournisseur))
+            .GroupBy(m => m.SupplierId!)
+            .Select(g => new { SupplierId = g.Key, Solde = g.Sum(m => m.Quantite) })
+            .ToDictionaryAsync(x => x.SupplierId, x => x.Solde, ct);
+        if (emballages.Count > 0)
+            suppliers = suppliers.Select(s => emballages.TryGetValue(s.Id, out var solde) ? s with { EmballagesARendre = solde } : s).ToList();
+
         return Results.Ok(suppliers);
     }
 
@@ -831,7 +885,59 @@ public static class StockEndpoints
         p.VenteLibre, p.StockIllimite, p.UniteAffichage,
         p.IsActive, p.StorageLocation, p.ExpiryDate, p.ImageUrl ?? p.LegacyImagePath, p.UpdatedAt,
         NormaliseType(p.TypeProduit), p.MarginPercentage,
-        p.VenteMixte, p.UniteVente, p.FacteurConversion, p.PrixVenteDetail);
+        p.VenteMixte, p.UniteVente, p.FacteurConversion, p.PrixVenteDetail,
+        p.EffortGuerre, p.EmballageRecuperable, p.ConsigneMontant,
+        p.PrixQuart, p.PrixDemi, p.PrixTroisQuarts, p.FractionOuverte, p.EmballageContenance, p.EmballageTypeId);
+
+    /// <summary>Effort de guerre, consigne and fraction prices. A null field is one the client
+    /// did not send (the phone, an older desktop): it keeps the stored value. 0 clears it.</summary>
+    private static void ApplyExtras(Product product, SaveProductRequest request)
+    {
+        static decimal? Amount(decimal? sent, decimal? stored) =>
+            sent is null ? stored : sent > 0 ? sent : null;
+
+        product.EffortGuerre = Amount(request.EffortGuerre, product.EffortGuerre);
+        product.EmballageRecuperable = request.EmballageRecuperable ?? product.EmballageRecuperable;
+        product.ConsigneMontant = Amount(request.ConsigneMontant, product.ConsigneMontant);
+        if (request.EmballageContenance is { } contenance)
+            product.EmballageContenance = contenance > 0 ? contenance : null;
+        if (request.EmballageTypeId is { } typeId)
+            product.EmballageTypeId = string.IsNullOrWhiteSpace(typeId) ? null : typeId.Trim();
+        if (!product.EmballageRecuperable) { product.ConsigneMontant = null; product.EmballageContenance = null; product.EmballageTypeId = null; }
+
+        // Fractions sell a part of the base unit; a Vente Mixte product already has its own
+        // second unit, so it never takes them.
+        product.PrixQuart = product.VenteMixte ? null : Amount(request.PrixQuart, product.PrixQuart);
+        product.PrixDemi = product.VenteMixte ? null : Amount(request.PrixDemi, product.PrixDemi);
+        product.PrixTroisQuarts = product.VenteMixte ? null : Amount(request.PrixTroisQuarts, product.PrixTroisQuarts);
+    }
+
+    /// <summary>A crate in an interchangeable-emballage group: the group must exist in this
+    /// shop, and the crate must keep the group's contenance (a crate of 12 is not one of 16).</summary>
+    private static async Task<string?> EmballageTypeErrorAsync(LonniiDbContext db, string groupId, Product product, CancellationToken ct)
+    {
+        if (product.EmballageTypeId is not { } typeId) return null;
+        var typeNom = await db.EmballageTypes.Where(t => t.Id == typeId && t.GroupId == groupId).Select(t => t.Nom).FirstOrDefaultAsync(ct);
+        if (typeNom is null) return "Ce groupe d'emballages interchangeables n'existe plus. Choisissez-en un autre.";
+        var others = await db.Products
+            .Where(p => p.GroupId == groupId && p.DeletedAt == null && p.EmballageRecuperable
+                && p.EmballageTypeId == typeId && p.Id != product.Id)
+            .ToListAsync(ct);
+        if (others.Count == 0 || EmballagesEndpoints.ContenanceError([.. others, product]) is null) return null;
+        var size = others[0].EmballageContenance is { } c ? $"caisses de {c}" : "contenance non indiquée";
+        return $"{product.Name} ne peut pas être interchangeable avec « {typeNom} » ({size}) : seules des caisses de même contenance "
+            + "sont interchangeables. Gardez la même contenance, ou choisissez un autre groupe.";
+    }
+
+    private static string? ExtrasError(SaveProductRequest r)
+    {
+        if (r.EffortGuerre is < 0) return "L'effort de guerre ne peut pas être négatif";
+        if (r.ConsigneMontant is < 0) return "La consigne ne peut pas être négative";
+        if (r.EmballageContenance is < 0 or > 10000) return "Contenance de l'emballage invalide";
+        if (r.PrixQuart is < 0 || r.PrixDemi is < 0 || r.PrixTroisQuarts is < 0)
+            return "Le prix d'une fraction ne peut pas être négatif";
+        return null;
+    }
 
     /// <summary>An unknown or missing type is stored and reported as produit fini - the only
     /// value that keeps a product sellable, which is what it was before the column existed.</summary>

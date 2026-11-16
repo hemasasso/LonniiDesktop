@@ -234,13 +234,30 @@ public class LicenceEnforcementTests : IAsyncLifetime
         }
         await Mutate(g => g.Mode = DeploymentModes.Local);
 
+        // Offline: opening tries to renew by itself, cannot, and locks.
+        _licences.Refuse = new ActivationRefusedException("Impossible de joindre le serveur Lonnii.");
         var response = await OpenSessionAsync();
         Assert.Equal(HttpStatusCode.Locked, response.StatusCode);
         Assert.Contains("Internet", (await response.Content.ReadFromJsonAsync<ApiError>())!.Error);
 
         // Connecting once brings the signed licence and lifts it.
+        _licences.Refuse = null;
         Assert.Equal(HttpStatusCode.OK, (await SyncAsync()).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await OpenSessionAsync()).StatusCode);
+    }
+
+    [Fact]
+    public async Task Past_the_unsigned_window_an_online_host_renews_as_the_session_opens()
+    {
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+            db.HostLicences.Add(new HostLicence { GroupId = GroupId, UnsignedSince = DateTime.UtcNow.AddDays(-15) });
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await OpenSessionAsync()).StatusCode);
+        Assert.Equal(1, _licences.Calls);
     }
 
     [Fact]

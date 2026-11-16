@@ -1,6 +1,8 @@
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using Lonnii.Shared.Security;
 using Microsoft.Win32;
 
 namespace Lonnii.Client.Services;
@@ -45,6 +47,65 @@ public static class DeviceIdentity
 
     /// <summary>A name for the device list, so a shop can tell its tills apart.</summary>
     public static string FriendlyName => Environment.MachineName;
+
+    private static string? _hardware;
+    private static bool _hardwareComputed;
+
+    /// <summary>
+    /// A second fingerprint (see <see cref="HardwareSignature"/>), sent so our server can tell this
+    /// real machine from a copy of its MachineGuid on other hardware. Computed once and cached; null
+    /// when nothing could be read. Never blocks the machine - it is reported, not enforced here.
+    /// </summary>
+    public static string? Hardware
+    {
+        get
+        {
+            if (_hardwareComputed) return _hardware;
+            _hardware = HardwareSignature.Of(MachineGuid(), WindowsValue("ProductId"), WindowsValue("InstallDate"), SystemVolumeSerial());
+            _hardwareComputed = true;
+            return _hardware;
+        }
+    }
+
+    /// <summary>One value from Windows' version key - the product id, the install date - each unique
+    /// to a Windows installation, so a MachineGuid copied to another install does not carry them.</summary>
+    private static string? WindowsValue(string name)
+    {
+        try
+        {
+            using var key = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64)
+                .OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
+            return key?.GetValue(name)?.ToString();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return null;
+        }
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetVolumeInformation(
+        string? rootPathName, System.Text.StringBuilder? volumeNameBuffer, int volumeNameSize,
+        out uint volumeSerialNumber, out uint maximumComponentLength, out uint fileSystemFlags,
+        System.Text.StringBuilder? fileSystemNameBuffer, int fileSystemNameSize);
+
+    /// <summary>The serial of the system drive, written when Windows is installed. A plain MachineGuid
+    /// copy onto another computer carries a different one.</summary>
+    private static string? SystemVolumeSerial()
+    {
+        try
+        {
+            var root = Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.Windows));
+            if (string.IsNullOrEmpty(root)) return null;
+            return GetVolumeInformation(root, null, 0, out var serial, out _, out _, null, 0)
+                ? serial.ToString("x8") : null;
+        }
+        catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>The name shown to phones printing on this computer: the one set in Configuration,
     /// or the Windows name.</summary>

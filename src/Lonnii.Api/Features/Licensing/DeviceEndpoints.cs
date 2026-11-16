@@ -40,10 +40,16 @@ public static class DeviceEndpoints
         LonniiDbContext db,
         ILicenceServer licences,
         LicenceGuard guard,
+        HttpContext http,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.DeviceId))
             return Results.BadRequest(new ApiError("Identifiant de poste manquant."));
+
+        // This machine's hardware signature, as its client sent it, forwarded so our server records the
+        // right baseline for the machine being bound (see Device.HardwareSignature). Null for older clients.
+        var hardware = http.Request.Headers["x-device-hw"].ToString();
+        if (string.IsNullOrWhiteSpace(hardware)) hardware = null;
 
         // The espace being opened. A computer can hold several: binding the first one instead
         // would succeed and still leave this machine refused by the espace it asked for.
@@ -89,7 +95,7 @@ public static class DeviceEndpoints
         try
         {
             var activation = await licences.ActivateAsync(
-                groupe.LicenceServerUrl ?? string.Empty,
+                Lonnii.Api.Features.Infrastructure.ShippedHost.LicenceServerUrlFor(groupe) ?? string.Empty,
                 new ActivationRequest(
                     GroupId: groupe.Id,
                     Email: email,
@@ -97,7 +103,8 @@ public static class DeviceEndpoints
                     DeviceId: request.DeviceId,
                     DeviceName: request.DeviceName,
                     Platform: platform,
-                    AppVersion: request.AppVersion),
+                    AppVersion: request.AppVersion,
+                    HardwareSignature: hardware),
                 ct);
 
             // Our server is the authority for the allowance too, so a change made there
@@ -126,12 +133,12 @@ public static class DeviceEndpoints
         // The machine is bound on our server now, but this host's signed licence still lists the
         // old set and would keep refusing it: fetch the new one while we are online anyway.
         // Best effort - the next licence sync brings it otherwise.
-        if (!string.IsNullOrWhiteSpace(groupe.LicenceServerUrl))
+        if (Lonnii.Api.Features.Infrastructure.ShippedHost.LicenceServerUrlFor(groupe) is { Length: > 0 } licenceServer)
         {
             try
             {
-                var refreshed = await licences.RefreshAsync(groupe.LicenceServerUrl,
-                    new LicenceRefreshRequest(groupe.Id, request.DeviceId, request.AppVersion), ct);
+                var refreshed = await licences.RefreshAsync(licenceServer,
+                    new LicenceRefreshRequest(groupe.Id, request.DeviceId, request.AppVersion, HardwareSignature: hardware), ct);
                 await guard.ApplyRefreshAsync(groupe, refreshed, request.DeviceId, ct);
             }
             catch (Exception e) when (e is ActivationRefusedException or NotSupportedException or HttpRequestException)

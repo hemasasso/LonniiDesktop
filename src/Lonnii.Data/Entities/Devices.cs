@@ -60,6 +60,22 @@ public class Device
     public DateTime LastSeenAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
+    /// A second fingerprint built from several pieces of this computer's hardware and Windows install
+    /// (see the client's DeviceIdentity). The <see cref="DeviceId"/> is derived from MachineGuid alone,
+    /// so copying that one value onto another computer clones it; this one does not match on the other
+    /// computer, which is how our server notices the copy. Null from machines that do not report it.
+    /// Opaque to the server, which only compares it.
+    /// </summary>
+    public string? HardwareSignature { get; set; }
+
+    /// <summary>
+    /// A hash of the host's own program files at the last check-in (see the host's HostBinaries). A
+    /// change while the version stays the same is a program edited to dodge the licence. Null from
+    /// machines that do not report it. Opaque to the server, which only compares it.
+    /// </summary>
+    public string? BuildHash { get; set; }
+
+    /// <summary>
     /// Set when a machine is unbound - normally a till that broke and was replaced. The row
     /// is kept rather than deleted so the same machine returning is still recognisable, and
     /// a revoked binding does not count towards the limit.

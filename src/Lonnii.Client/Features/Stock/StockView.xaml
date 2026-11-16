@@ -55,6 +55,15 @@
                         <TextBlock Text="Analyse" Style="{StaticResource ButtonContentText}" />
                     </StackPanel>
                 </Button>
+                <Button x:Name="EmballagesTabButton" Margin="0,0,6,6" Visibility="Collapsed"
+                        Style="{StaticResource ModuleTabButton}" Click="EmballagesTab_Click"
+                        ToolTip="Emballages : pleins, vides, chez les clients">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE7B8;" FontFamily="Segoe MDL2 Assets"
+                                   Style="{StaticResource ButtonContentText}" Margin="0,0,6,0" />
+                        <TextBlock Text="Emballages" Style="{StaticResource ButtonContentText}" />
+                    </StackPanel>
+                </Button>
                 <!-- Not a tab: opens in its own window, same as Ventes' own Clients button
                      sitting next to its Statistiques tab. Moved out of the "⋯ Plus" menu below
                      so checking or updating a montant dû does not need a detour through it. -->
@@ -468,6 +477,9 @@
                  tab's filter, so looking at one never disturbs the other. Unconstrained
                  width: nothing here reads better narrow, so it fills whatever room the
                  window gives it. -->
+            <!-- Emballages tab: filled from code (EmballagesPanel) the first time it opens. -->
+            <ContentControl x:Name="EmballagesHost" Visibility="Collapsed" />
+
             <Border x:Name="AnalysePanel" Visibility="Collapsed" Background="{DynamicResource Surface}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="20">
                     <StackPanel>

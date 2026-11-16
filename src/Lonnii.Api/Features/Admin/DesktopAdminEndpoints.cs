@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Lonnii.Api.Features.Backup;
+using Lonnii.Api.Features.Licensing;
 using Lonnii.Data;
 using Lonnii.Data.Entities;
 using Lonnii.Shared.Contracts;
@@ -27,8 +28,16 @@ public static class DesktopAdminEndpoints
     /// <summary>A shop is "active today" when it was heard from within this window.</summary>
     private static readonly TimeSpan ActiveWindow = TimeSpan.FromHours(24);
 
-    /// <summary>Warn this many days before an online shop runs out of offline days.</summary>
-    private const int GraceWarningDays = 3;
+    /// <summary>An online shop silent this long gets a warning. Its computer checks in every hour, so a
+    /// week of silence means it is switched off - or running without asking us any more (an old version
+    /// with the internet cut, to dodge the subscription), which never locks by itself.</summary>
+    internal const int SilentWarningDays = 7;
+
+    /// <summary>An attempt to get round the licence keeps a shop on the attention list this long.</summary>
+    private const int SecurityAlertDays = 7;
+
+    /// <summary>How far back a shop's page lists the attempts.</summary>
+    private const int SecurityHistoryDays = 30;
 
     /// <summary>Warn when an online shop's contract ends within this many days.</summary>
     private const int ExpiryWarningDays = 7;
@@ -50,6 +59,9 @@ public static class DesktopAdminEndpoints
         group.MapGet("/shops/{id}", ShopDetailAsync).RequireDashboardPermission(ViewPermission);
 
         group.MapDelete("/shops/{id}/devices/{deviceId}", RevokeDeviceAsync)
+            .RequireDashboardPermission(ManageDevicesPermission);
+        // Undoes a removal, within the shop's limit: whoever may remove a machine may bring it back.
+        group.MapPost("/shops/{id}/devices/{deviceId}/restore", RestoreDeviceAsync)
             .RequireDashboardPermission(ManageDevicesPermission);
 
         // Raising the limit is what customers pay for, so it stays with owner and super admins.
@@ -76,21 +88,33 @@ public static class DesktopAdminEndpoints
         IReadOnlyList<Device> ActiveDevices,
         DashboardSubscription? CurrentSubscription,
         BackupInfoDto? Backup,
-        DateTime Now)
+        DateTime Now,
+        IReadOnlyList<StoredSecurityEvent> Security)
     {
         public bool IsOnline => Groupe.Mode == DeploymentModes.Online;
+
+        /// <summary>Attempts to get round the licence in the last week: what puts a shop on the
+        /// attention list. The detail page shows the last month.</summary>
+        public IReadOnlyList<StoredSecurityEvent> RecentSecurity =>
+            Security.Where(e => e.ReceivedAt >= Now.AddDays(-SecurityAlertDays)).ToList();
 
         public DateTime? LastActivity =>
             new[] { Groupe.LastLicenceCheckAt, ActiveDevices.Max(d => (DateTime?)d.LastSeenAt) }.Max();
 
         public int? DaysSinceCheck => Groupe.LastLicenceCheckAt is { } at ? (int)(Now - at).TotalDays : null;
 
-        /// <summary>Online shop that has used up its offline days: the app has locked itself.</summary>
-        public bool GraceExceeded => IsOnline
+        /// <summary>Whether this shop is expected to check in: online, approved, with a computer. A
+        /// phone-only shop has none - it lives on our server - and one awaiting approval has not started.</summary>
+        private bool ChecksIn => IsOnline && !Groupe.PhoneOnly && !IsPending;
+
+        /// <summary>Silent past its offline days. A current version has locked itself by now; an old
+        /// one with the internet cut keeps selling - either way someone should call the shop.</summary>
+        public bool GraceExceeded => ChecksIn
             && (Groupe.LastLicenceCheckAt is null || Now - Groupe.LastLicenceCheckAt > TimeSpan.FromDays(Groupe.MaxOfflineDays));
 
-        public bool GraceEndingSoon => IsOnline && !GraceExceeded
-            && DaysSinceCheck >= Groupe.MaxOfflineDays - GraceWarningDays;
+        /// <summary>Silent for a week or more, not yet past its offline days.</summary>
+        public bool GraceEndingSoon => ChecksIn && !GraceExceeded
+            && DaysSinceCheck >= SilentWarningDays;
 
         public bool NoSubscription => IsOnline && CurrentSubscription is null;
 
@@ -119,12 +143,29 @@ public static class DesktopAdminEndpoints
 
             if (IsPending)
                 yield return new(id, name, "pending", "info", "Inscription en attente d'approbation");
+
+            // One line per shop however many attempts: the worst one, and how many others.
+            var attempts = RecentSecurity;
+            if (attempts.Count > 0)
+            {
+                var worst = attempts
+                    .Select(e => (Event: e, Info: SecurityEventKinds.Describe(e.Kind)))
+                    .OrderByDescending(x => SeverityRank(x.Info.Severity))
+                    .ThenByDescending(x => x.Event.ReceivedAt)
+                    .First();
+                var others = attempts.Count - 1;
+                yield return new(id, name, "security", worst.Info.Severity,
+                    $"Tentative de contournement : {worst.Info.Label} ({worst.Event.ReceivedAt:dd/MM HH:mm})" +
+                    (others > 0 ? $" et {others} autre(s)" : ""));
+            }
             if (GraceExceeded)
                 yield return new(id, name, "offline", "critical",
-                    DaysSinceCheck is { } d ? $"Hors ligne depuis {d} jours : l'application est bloquée" : "Ne s'est jamais connectée au serveur");
+                    DaysSinceCheck is { } d
+                        ? $"Silencieuse depuis {d} jours : bloquée, ou utilisée sans se connecter (ancienne version ?). Appelez la boutique."
+                        : "Ne s'est jamais connectée au serveur");
             else if (GraceEndingSoon)
                 yield return new(id, name, "offline", "warning",
-                    $"Hors ligne depuis {DaysSinceCheck} jours (limite {Groupe.MaxOfflineDays})");
+                    $"Silencieuse depuis {DaysSinceCheck} jours (blocage à {Groupe.MaxOfflineDays} jours pour une version à jour)");
             if (NoSubscription)
                 yield return new(id, name, "subscription", "critical", "Mode en ligne sans abonnement actif");
             else if (SubscriptionEndingSoon)
@@ -156,7 +197,9 @@ public static class DesktopAdminEndpoints
             Attention().Select(a => SeverityRank(a.Severity)).DefaultIfEmpty(0).Max(),
             Groupe.IsDeleted,
             Groupe.PhoneOnly,
-            Groupe.GestionAccess);
+            Groupe.GestionAccess,
+            Security.Count,
+            Security.Count > 0 ? Security.Max(e => e.ReceivedAt) : null);
     }
 
     private static int SeverityRank(string severity) => severity switch
@@ -170,7 +213,7 @@ public static class DesktopAdminEndpoints
     /// <summary>Loads every desktop shop with its devices, contract and backup state. Shops deleted
     /// by their owner only when asked for: they are listed apart, awaiting permanent removal.</summary>
     private static async Task<List<ShopFacts>> LoadShopsAsync(
-        LonniiDbContext db, BackupStore backups, string? onlyGroupId, CancellationToken ct,
+        LonniiDbContext db, BackupStore backups, SecurityEventStore security, string? onlyGroupId, CancellationToken ct,
         bool includeDeleted = false)
     {
         var now = DateTime.UtcNow;
@@ -178,8 +221,11 @@ public static class DesktopAdminEndpoints
         var groupes = await db.Groupes.AsNoTracking()
             .Where(g => includeDeleted || !g.IsDeleted)
             .Where(g => onlyGroupId == null || g.Id == onlyGroupId)
+            // A phone-only shop has no devices row and never checks in, so it used to be missing here
+            // once approved: its flag alone makes it one of ours.
             .Where(g => db.Devices.Any(d => d.GroupId == g.Id)
                         || g.LastLicenceCheckAt != null
+                        || g.PhoneOnly
                         || g.ApprovalStatus != ApprovalStatuses.Approved)
             .ToListAsync(ct);
 
@@ -200,7 +246,8 @@ public static class DesktopAdminEndpoints
                     .OrderByDescending(s => s.ContractEndDate ?? DateTime.MaxValue)
                     .FirstOrDefault(),
                 g.Mode == DeploymentModes.Online ? BackupInfo(backups, g.Id) : null,
-                now))
+                now,
+                security.Read(g.Id, now.AddDays(-SecurityHistoryDays))))
             .ToList();
     }
 
@@ -213,9 +260,9 @@ public static class DesktopAdminEndpoints
     }
 
     private static async Task<IResult> OverviewAsync(
-        LonniiDbContext db, BackupStore backups, CancellationToken ct)
+        LonniiDbContext db, BackupStore backups, SecurityEventStore security, CancellationToken ct)
     {
-        var shops = await LoadShopsAsync(db, backups, null, ct);
+        var shops = await LoadShopsAsync(db, backups, security, null, ct);
         var now = DateTime.UtcNow;
 
         var attention = shops
@@ -236,13 +283,15 @@ public static class DesktopAdminEndpoints
             ActiveDevices: shops.Sum(s => s.ActiveDevices.Count),
             StaleBackups: shops.Count(s => s.BackupStale),
             Attention: attention,
-            GeneratedAt: now));
+            GeneratedAt: now,
+            SecurityAlerts: shops.Count(s => s.RecentSecurity.Count > 0)));
     }
 
     private static async Task<IResult> ListShopsAsync(
-        string? search, string? filter, LonniiDbContext db, BackupStore backups, CancellationToken ct)
+        string? search, string? filter, LonniiDbContext db, BackupStore backups, SecurityEventStore security,
+        CancellationToken ct)
     {
-        var shops = await LoadShopsAsync(db, backups, null, ct, includeDeleted: filter == "deleted");
+        var shops = await LoadShopsAsync(db, backups, security, null, ct, includeDeleted: filter == "deleted");
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -260,6 +309,7 @@ public static class DesktopAdminEndpoints
             "blocked" => shops.Where(s => s.Groupe.IsBlocked).ToList(),
             "deleted" => shops.Where(s => s.Groupe.IsDeleted).ToList(),
             "attention" => shops.Where(s => s.Attention().Any(a => a.Severity != "info")).ToList(),
+            "security" => shops.Where(s => s.Security.Count > 0).ToList(),
             _ => shops,
         };
 
@@ -271,9 +321,9 @@ public static class DesktopAdminEndpoints
     }
 
     private static async Task<IResult> ShopDetailAsync(
-        string id, LonniiDbContext db, BackupStore backups, CancellationToken ct)
+        string id, LonniiDbContext db, BackupStore backups, SecurityEventStore security, CancellationToken ct)
     {
-        var shop = (await LoadShopsAsync(db, backups, id, ct, includeDeleted: true)).SingleOrDefault();
+        var shop = (await LoadShopsAsync(db, backups, security, id, ct, includeDeleted: true)).SingleOrDefault();
         if (shop is null) return Results.NotFound(new ApiError("Boutique introuvable"));
 
         var owner = await db.Users.AsNoTracking()
@@ -312,7 +362,13 @@ public static class DesktopAdminEndpoints
                 latestSubscription.Montant,
                 IsCurrent: shop.CurrentSubscription is not null),
             shop.Backup,
-            [.. shop.Attention()]));
+            [.. shop.Attention()],
+            [.. shop.Security.Select(e =>
+            {
+                var (label, severity) = SecurityEventKinds.Describe(e.Kind);
+                return new AdminSecurityEventDto(
+                    e.Kind, label, severity, e.At, e.ReceivedAt, e.Detail, e.DeviceId, e.IpAddress, e.AppVersion, e.FromServer);
+            })]));
     }
 
     // --- Changing ------------------------------------------------------------------------
@@ -344,6 +400,50 @@ public static class DesktopAdminEndpoints
         logs.CreateLogger("Lonnii.Admin").LogInformation(
             "Dashboard admin {Admin} revoked device {Device} ({Name}) of shop {Shop}",
             DashboardAdminAuth.AdminId(admin), device.Id, device.DeviceName, id);
+
+        return Results.NoContent();
+    }
+
+    /// <summary>Why ticking "Téléphone uniquement" removed a machine - also how unticking it finds them.</summary>
+    internal const string PhoneOnlyRevokedReason = "Espace passé en téléphone uniquement";
+
+    /// <summary>
+    /// Brings a removed machine back. It gets in at its next check-in ("Réessayer" on its lock screen),
+    /// which also clears the removal it recorded locally. Refused while the shop is phone-only (it would
+    /// have nothing to run against) or when the shop has no free slot - the limit is what it pays for.
+    /// </summary>
+    private static async Task<IResult> RestoreDeviceAsync(
+        string id,
+        string deviceId,
+        ClaimsPrincipal admin,
+        LonniiDbContext db,
+        ILoggerFactory logs,
+        CancellationToken ct)
+    {
+        var groupe = await db.Groupes.FirstOrDefaultAsync(g => g.Id == id && !g.IsDeleted, ct);
+        if (groupe is null) return Results.NotFound(new ApiError("Boutique introuvable"));
+
+        var device = await db.Devices.FirstOrDefaultAsync(d => d.Id == deviceId && d.GroupId == id, ct);
+        if (device is null) return Results.NotFound(new ApiError("Appareil introuvable"));
+        if (device.RevokedAt is null) return Results.NoContent();
+
+        if (groupe.PhoneOnly)
+            return Results.Conflict(new ApiError(
+                "Cette boutique est en « Téléphone uniquement » : décochez-le d'abord, sinon l'appareil serait refusé."));
+
+        var inUse = await db.Devices.CountAsync(d => d.GroupId == id && d.RevokedAt == null, ct);
+        if (inUse >= groupe.MaxDevices)
+            return Results.Conflict(new ApiError(
+                $"Limite d'appareils atteinte ({inUse}/{groupe.MaxDevices}) : retirez-en un ou augmentez la limite."));
+
+        var previousReason = device.RevokedReason;
+        device.RevokedAt = null;
+        device.RevokedReason = null;
+        await db.SaveChangesAsync(ct);
+
+        logs.CreateLogger("Lonnii.Admin").LogInformation(
+            "Dashboard admin {Admin} restored device {Device} ({Name}) of shop {Shop}, removed for: {Reason}",
+            DashboardAdminAuth.AdminId(admin), device.Id, device.DeviceName, id, previousReason);
 
         return Results.NoContent();
     }
@@ -486,6 +586,7 @@ public static class DesktopAdminEndpoints
 
         groupe.PhoneOnly = request.PhoneOnly;
         var retired = 0;
+        var restored = 0;
 
         if (request.PhoneOnly)
         {
@@ -496,18 +597,34 @@ public static class DesktopAdminEndpoints
             foreach (var device in devices)
             {
                 device.RevokedAt = now;
-                device.RevokedReason = "Espace passé en téléphone uniquement";
+                device.RevokedReason = PhoneOnlyRevokedReason;
             }
             retired = devices.Count;
+        }
+        else if (request.RestoreComputers)
+        {
+            // Unticking used to leave every machine the switch had removed locked out, with no way back
+            // but the database. The ones it removed come back, most recently used first, within the limit.
+            var inUse = await db.Devices.CountAsync(d => d.GroupId == id && d.RevokedAt == null, ct);
+            var removed = await db.Devices
+                .Where(d => d.GroupId == id && d.RevokedAt != null && d.RevokedReason == PhoneOnlyRevokedReason)
+                .OrderByDescending(d => d.LastSeenAt)
+                .ToListAsync(ct);
+            foreach (var device in removed.Take(Math.Max(0, groupe.MaxDevices - inUse)))
+            {
+                device.RevokedAt = null;
+                device.RevokedReason = null;
+                restored++;
+            }
         }
 
         await db.SaveChangesAsync(ct);
 
         logs.CreateLogger("Lonnii.Admin").LogInformation(
-            "Dashboard admin {Admin} set shop {Shop} phone-only={PhoneOnly} ({Retired} machines retired)",
-            DashboardAdminAuth.AdminId(admin), id, request.PhoneOnly, retired);
+            "Dashboard admin {Admin} set shop {Shop} phone-only={PhoneOnly} ({Retired} machines retired, {Restored} restored)",
+            DashboardAdminAuth.AdminId(admin), id, request.PhoneOnly, retired, restored);
 
-        return Results.Ok(new { phoneOnly = groupe.PhoneOnly, mode = groupe.Mode, retiredDevices = retired });
+        return Results.Ok(new { phoneOnly = groupe.PhoneOnly, mode = groupe.Mode, retiredDevices = retired, restoredDevices = restored });
     }
 }
 
@@ -527,7 +644,8 @@ public sealed record DesktopOverviewDto(
     int ActiveDevices,
     int StaleBackups,
     IReadOnlyList<AttentionItemDto> Attention,
-    DateTime GeneratedAt);
+    DateTime GeneratedAt,
+    int SecurityAlerts = 0);
 
 public sealed record ShopSummaryDto(
     string Id,
@@ -547,7 +665,24 @@ public sealed record ShopSummaryDto(
     int AttentionLevel,
     bool IsDeleted,
     bool PhoneOnly,
-    bool GestionAccess);
+    bool GestionAccess,
+    int SecurityEvents = 0,
+    DateTime? LastSecurityEventAt = null);
+
+/// <summary>One attempt to get round the licence, for a shop's page in the dashboard.</summary>
+/// <param name="At">When the shop's computer noticed it, by its own clock.</param>
+/// <param name="ReceivedAt">When our server received it (or noticed it, for <paramref name="FromServer"/>).</param>
+public sealed record AdminSecurityEventDto(
+    string Kind,
+    string Label,
+    string Severity,
+    DateTime At,
+    DateTime ReceivedAt,
+    string? Detail,
+    string? DeviceId,
+    string? IpAddress,
+    string? AppVersion,
+    bool FromServer);
 
 public sealed record ShopOwnerDto(string Email, string Name, string? Phone);
 
@@ -573,12 +708,14 @@ public sealed record ShopDetailDto(
     IReadOnlyList<AdminDeviceDto> Devices,
     AdminSubscriptionDto? Subscription,
     BackupInfoDto? Backup,
-    IReadOnlyList<AttentionItemDto> Attention);
+    IReadOnlyList<AttentionItemDto> Attention,
+    IReadOnlyList<AdminSecurityEventDto>? SecurityEvents = null);
 
 public sealed record SetMaxDevicesRequest(int MaxDevices);
 
 public sealed record SetBlockedRequest(bool Blocked, string? Reason);
 
-public sealed record SetPhoneOnlyRequest(bool PhoneOnly);
+/// <param name="RestoreComputers">When unticking: bring back the machines that ticking it removed.</param>
+public sealed record SetPhoneOnlyRequest(bool PhoneOnly, bool RestoreComputers = false);
 
 public sealed record SetGestionAccessRequest(bool Enabled);

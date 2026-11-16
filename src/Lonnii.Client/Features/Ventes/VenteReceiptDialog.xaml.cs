@@ -20,6 +20,7 @@ public partial class VenteReceiptDialog : Window
 {
     private readonly Func<bool, System.Windows.Controls.Border> _build;
     private readonly bool _singlePage;
+    private readonly bool _a5;
     private readonly string _jobName;
 
     /// <summary>
@@ -49,7 +50,8 @@ public partial class VenteReceiptDialog : Window
         var template = settings.Template(facture);
 
         _build = forPrint => ReceiptDocument.Build(data, settings, logo, qrCode, fallbackCompany, forPrint);
-        _singlePage = template == ReceiptTemplates.A4;
+        _singlePage = ReceiptTemplates.IsPage(template);
+        _a5 = template == ReceiptTemplates.A5;
         _jobName = $"{(facture ? "Facture" : "Reçu")} {data.Numero}";
 
         Title = facture ? "Facture" : "Reçu de vente";
@@ -58,14 +60,20 @@ public partial class VenteReceiptDialog : Window
 
         PaperHost.Content = _build(false);
 
-        (Width, Height) = template switch
+        var landscape = settings.Landscape && ReceiptTemplates.IsPage(template);
+        var (width, height) = template switch
         {
-            ReceiptTemplates.A4 => (900d, 900d),
+            ReceiptTemplates.A4 => landscape ? (1220d, 960d) : (900d, 900d),
+            ReceiptTemplates.A5 => landscape ? (900d, 720d) : (680d, 900d),
             ReceiptTemplates.Compact => (380d, 720d),
             _ => (520d, 720d),
         };
+        // Never larger than the screen: a landscape A4 would otherwise open half off it.
+        var area = SystemParameters.WorkArea;
+        Width = Math.Min(width, area.Width - 40);
+        Height = Math.Min(height, area.Height - 40);
     }
 
     private void Print_Click(object sender, RoutedEventArgs e) =>
-        ReceiptDocument.Print(() => _build(true), _singlePage, _jobName);
+        ReceiptDocument.Print(() => _build(true), _singlePage, _jobName, _a5);
 }

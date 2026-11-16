@@ -38,10 +38,22 @@ public partial class StockAdjustDialog : Window
     /// <summary>The request to send, once the dialog has been accepted.</summary>
     public AdjustStockRequest? Result { get; private set; }
 
-    public StockAdjustDialog(ProductDto product)
+    private static readonly SupplierDto NoSupplier = new("", "—", null, null, null, null, null, null, null, null, null, true);
+
+    public StockAdjustDialog(ProductDto product, IReadOnlyList<SupplierDto>? suppliers = null)
     {
         _product = product;
         InitializeComponent();
+
+        // Only a product with a returnable emballage asks who delivered it; the product's own
+        // supplier is suggested.
+        _askSupplier = product.EmballageRecuperable && suppliers is { Count: > 0 };
+        if (_askSupplier)
+        {
+            var list = new[] { NoSupplier }.Concat(suppliers!.Where(s => s.IsActive || s.Id == product.SupplierId)).ToList();
+            SupplierBox.ItemsSource = list;
+            SupplierBox.SelectedItem = list.FirstOrDefault(s => s.Id == product.SupplierId) ?? NoSupplier;
+        }
 
         // Amounts read "1 000" while they are typed (see MoneyInput).
         MoneyInput.GroupAsYouType(QuantityBox);
@@ -56,6 +68,8 @@ public partial class StockAdjustDialog : Window
         Loaded += (_, _) => QuantityBox.Focus();
         UpdatePreview();
     }
+
+    private readonly bool _askSupplier;
 
     private MovementOption Selected => (MovementOption)MovementBox.SelectedItem;
 
@@ -87,6 +101,7 @@ public partial class StockAdjustDialog : Window
         if (MovementBox.SelectedItem is null) return;
 
         var movement = Selected;
+        SupplierPanel.Visibility = _askSupplier && movement.Value == "ajout" ? Visibility.Visible : Visibility.Collapsed;
         PreviewHint.Text = movement.Hint;
         QuantityLabel.Text = movement.IsSigned ? "Écart (+ ajoute, - retire)" : "Quantité";
 
@@ -138,7 +153,8 @@ public partial class StockAdjustDialog : Window
         Result = new AdjustStockRequest(
             QuantityChanged: change,
             MovementType: movement.Value,
-            Reason: string.IsNullOrWhiteSpace(ReasonBox.Text) ? null : ReasonBox.Text.Trim());
+            Reason: string.IsNullOrWhiteSpace(ReasonBox.Text) ? null : ReasonBox.Text.Trim(),
+            SupplierId: _askSupplier && movement.Value == "ajout" && SupplierBox.SelectedItem is SupplierDto { Id.Length: > 0 } s ? s.Id : null);
 
         DialogResult = true;
     }

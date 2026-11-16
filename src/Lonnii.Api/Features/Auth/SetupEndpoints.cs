@@ -74,11 +74,15 @@ public static class SetupEndpoints
             return Results.BadRequest(new ApiError(e.Message));
         }
 
+        // A shipped host activates with our server, never one named in the file: anyone able to write
+        // a credentials file could otherwise send activation to a server of their own that says yes.
+        var serverUrl = Lonnii.Api.Features.Infrastructure.ShippedHost.LicenceServerUrlFor(credentials.ServerUrl);
+
         ActivationResponse activation;
         try
         {
             activation = await licences.ActivateAsync(
-                credentials.ServerUrl ?? string.Empty,
+                serverUrl ?? string.Empty,
                 new ActivationRequest(
                     GroupId: credentials.GroupId,
                     Email: credentials.AdminEmail,
@@ -98,7 +102,7 @@ public static class SetupEndpoints
 
         return await CreateWorkspaceAsync(
             db, backups, activation,
-            credentials.AdminEmail, credentials.AdminPassword, credentials.ServerUrl,
+            credentials.AdminEmail, credentials.AdminPassword, serverUrl,
             request.DeviceId, request.DeviceName, request.AppVersion, ct);
     }
 

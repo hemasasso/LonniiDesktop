@@ -126,6 +126,11 @@
                                    ToolTip="Avoirs remboursés depuis cette caisse pendant la session (y compris ceux créés avant)" />
                         <TextBlock x:Name="AvoirsSoldesText" FontWeight="SemiBold"
                                    Foreground="{DynamicResource Danger}" />
+                        <!-- Consigne charged on the session's sales (money in), then given back: not avoirs. -->
+                        <TextBlock x:Name="ConsigneInLabel" Text="Consigne encaissée" Style="{StaticResource PageSubtitle}" Margin="0,8,0,0" />
+                        <TextBlock x:Name="ConsigneInText" FontWeight="SemiBold" Foreground="{DynamicResource Success}" />
+                        <TextBlock x:Name="ConsigneLabel" Text="Consigne remboursée" Style="{StaticResource PageSubtitle}" Margin="0,8,0,0" />
+                        <TextBlock x:Name="ConsigneText" FontWeight="SemiBold" Foreground="{DynamicResource Danger}" />
                     </StackPanel>
 
                     <!-- Fin de journée: the session's sales split by serveur. Only when at least

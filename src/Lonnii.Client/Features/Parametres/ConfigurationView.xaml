@@ -75,6 +75,33 @@
 
                 <!-- Reçus et factures: printed on customer-facing documents. -->
                 <StackPanel x:Name="VentesSettingsPanel" Visibility="Collapsed">
+                    <!-- Paramètres de vente: how sales are charged and tracked, apart from printing. -->
+                    <TextBlock Text="VENTES" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Configurer" VerticalAlignment="Center"
+                                    Style="{StaticResource SecondaryButton}" Click="OpenSalesSettings_Click" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Paramètres de vente" FontWeight="SemiBold" />
+                                <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap"
+                                           Text="TVA, prélèvement et taxe par unité, serveur, livraison." />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                    <TextBlock Text="STOCK" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
+                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
+                            BorderThickness="1" CornerRadius="3" Padding="16,12">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Configurer" VerticalAlignment="Center"
+                                    Style="{StaticResource SecondaryButton}" Click="OpenStockSettings_Click" />
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Paramètres de stock" FontWeight="SemiBold" />
+                                <TextBlock Style="{StaticResource PageSubtitle}" TextWrapping="Wrap"
+                                           Text="Vente par fraction (caisses entamées), suivi des emballages et leur unité." />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
                     <TextBlock Text="REÇUS ET FACTURES" Style="{StaticResource SectionHeader}" Margin="0,20,0,6" />
                     <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
                             BorderThickness="1" CornerRadius="3" Padding="16,12">
@@ -88,27 +115,7 @@
                             </StackPanel>
                         </DockPanel>
                     </Border>
-                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
-                            BorderThickness="1" CornerRadius="3" Padding="16,12" Margin="0,8,0,0">
-                        <StackPanel>
-                            <CheckBox x:Name="RemiseEnabledCheck" Content="Activer remise"
-                                      Checked="RemiseEnabled_Changed" Unchecked="RemiseEnabled_Changed" />
-                            <TextBlock Style="{StaticResource PageSubtitle}" Margin="20,4,0,0" TextWrapping="Wrap"
-                                       Text="Coché : les champs Remise (par article et remise globale) apparaissent à la caisse, sur l'ordinateur et le téléphone." />
-                        </StackPanel>
-                    </Border>
-                    <Border Background="{DynamicResource SurfaceAlt}" BorderBrush="{DynamicResource Border}"
-                            BorderThickness="1" CornerRadius="3" Padding="16,12" Margin="0,8,0,0">
-                        <StackPanel>
-                            <TextBlock Text="Produits dans Nouvelle Vente" FontWeight="SemiBold" Margin="0,0,0,6" />
-                            <CheckBox x:Name="TileShowQuantityCheck" Content="Afficher la quantité (Qté)" IsChecked="True"
-                                      Checked="TileDisplay_Changed" Unchecked="TileDisplay_Changed" />
-                            <CheckBox x:Name="TileShowPriceCheck" Content="Afficher le prix" IsChecked="True" Margin="0,6,0,0"
-                                      Checked="TileDisplay_Changed" Unchecked="TileDisplay_Changed" />
-                            <TextBlock Style="{StaticResource PageSubtitle}" Margin="20,4,0,0" TextWrapping="Wrap"
-                                       Text="Ce que montre chaque produit à la caisse, sur l'ordinateur et le téléphone. Coché par défaut." />
-                        </StackPanel>
-                    </Border>
+                    <!-- "Activer remise" and "Produits dans Nouvelle Vente" now live in Paramètres de vente. -->
                 </StackPanel>
 
                 <!-- This computer's name, as the shop's phones see it when printing on a poste. -->

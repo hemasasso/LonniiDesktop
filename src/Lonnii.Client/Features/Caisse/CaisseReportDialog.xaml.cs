@@ -60,6 +60,9 @@ public partial class CaisseReportDialog : Window
         // Always shown, even at 0: a report that says "0" proves no avoir moved this session.
         Row("Avoirs créés", Money.Format(c.TotalAvoir));
         Row("Avoirs remboursés", Money.Format(c.AvoirsSoldes));
+        // Always shown, like the avoirs: a "0" proves no consigne moved this session.
+        Row("Consigne encaissée", Money.Format(c.ConsigneEncaissee));
+        Row("Consigne remboursée", Money.Format(c.ConsigneRemboursee));
         Divider();
 
         // Fin de journée par serveur: only when the session's sales name at least one.

@@ -20,7 +20,9 @@ $config = "DebugInstaller"
 if (Test-Path $publish) { Remove-Item -Recurse -Force $publish }
 
 $common = @("-c", $config, "-r", "win-x64", "--self-contained", "true",
-            "-p:Optimize=true", "-p:DebugType=none", "-p:Version=$Version")
+            "-p:Optimize=true", "-p:DebugType=none", "-p:Version=$Version",
+            # Shop computers' licence rules (ShippedHost): keep it when this script moves to Release.
+            "-p:LonniiShippedHost=true")
 
 dotnet publish "$root\src\Lonnii.Api\Lonnii.Api.csproj" @common -o "$publish\Api"
 if ($LASTEXITCODE -ne 0) { throw "API publish failed" }
@@ -33,6 +35,15 @@ if ($LASTEXITCODE -ne 0) { throw "Client publish failed" }
 $client = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes("$publish\Client\Lonnii.Client.dll"))
 $xaml = $client.GetManifestResourceStream("Lonnii.Client.g.resources")
 if (-not $xaml -or $xaml.Length -lt 10000) { throw "Client XAML resources are missing or empty - rebuild" }
+
+# Refuse to package an API built without the shop licence rules: it would trust lonnii.db and
+# appsettings.json again. The project stamps a "LonniiShippedHost" assembly attribute only in that
+# build; searched as bytes because Windows PowerShell cannot load a .NET 10 assembly's types.
+$apiBytes = [IO.File]::ReadAllBytes("$publish\Api\Lonnii.Api.dll")
+$apiText = [Text.Encoding]::ASCII.GetString($apiBytes)
+if (-not $apiText.Contains("LonniiShippedHost")) {
+    throw "Lonnii.Api was built without LONNII_SHIPPED_HOST - refusing to package it"
+}
 
 # Never ship development settings.
 Remove-Item -Force -ErrorAction SilentlyContinue "$publish\Api\appsettings.Development.json"

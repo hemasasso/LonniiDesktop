@@ -6,6 +6,17 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <!-- The build installed on shops' computers (ShippedHost): its licence rules ignore the switches a
+       shop could edit in lonnii.db or appsettings.json. Set by deploy/windows/build-installer.ps1;
+       never for the OCI build, which refuses to start with it anyway (it runs on PostgreSQL). -->
+  <PropertyGroup Condition="'$(LonniiShippedHost)' == 'true' or '$(Configuration)' == 'DebugInstaller'">
+    <DefineConstants>$(DefineConstants);LONNII_SHIPPED_HOST</DefineConstants>
+  </PropertyGroup>
+  <!-- The marker build-installer.ps1 looks for before packaging. -->
+  <ItemGroup Condition="'$(LonniiShippedHost)' == 'true' or '$(Configuration)' == 'DebugInstaller'">
+    <AssemblyMetadata Include="LonniiShippedHost" Value="true" />
+  </ItemGroup>
+
   <!-- When this build was made: caps how long a host may run without a signed licence (LicenceGuard). -->
   <ItemGroup>
     <AssemblyMetadata Include="BuildDateUtc" Value="$([System.DateTime]::UtcNow.ToString('o'))" />

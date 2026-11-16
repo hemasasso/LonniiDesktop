@@ -448,7 +448,10 @@ public static class CaisseEndpoints
         // An earlier facture's payment is already one of this cashier's payments above. Its
         // "facture_anterieure" movement only adds money when someone else took the payment into
         // this drawer (VentesEndpoints.FindOpenCaisseAsync's fallback), and then in its own mode.
-        foreach (var t in transactions.Where(t => t.Type == "entree" && t.CreatedBy != caisse.UserId))
+        // A supplier's consigne for returned empties (Stock > Emballages) is cash coming into
+        // this cashier's own drawer, so it counts even though they recorded it themselves.
+        foreach (var t in transactions.Where(t => t.Type == "entree"
+            && (t.CreatedBy != caisse.UserId || t.Category == Lonnii.Api.Features.Stock.EmballagesEndpoints.CaisseCategory)))
         {
             switch (t.ModePaiement)
             {
@@ -486,7 +489,7 @@ public static class CaisseEndpoints
     /// </summary>
     internal static async Task<string?> AddAvoirRefundAsync(
         LonniiDbContext db, string groupId, string userId, decimal montant, string? mode,
-        string description, CancellationToken ct)
+        string description, CancellationToken ct, string category = "avoir_solde")
     {
         mode = string.IsNullOrWhiteSpace(mode) ? ModePaiement.Cash : mode;
         var label = mode switch
@@ -500,7 +503,8 @@ public static class CaisseEndpoints
 
         var caisse = await db.Caisses.FirstOrDefaultAsync(
             c => c.GroupId == groupId && c.UserId == userId && c.Status == CaisseStatus.Open, ct);
-        if (caisse is null) return "Ouvrez votre caisse pour rembourser cet avoir.";
+        if (caisse is null)
+            return category == "avoir_solde" ? "Ouvrez votre caisse pour rembourser cet avoir." : "Ouvrez votre caisse pour rembourser.";
 
         var stats = await ComputeLiveStatsAsync(db, caisse, DateTime.UtcNow, ct);
         var available = mode switch
@@ -523,7 +527,7 @@ public static class CaisseEndpoints
             Type = "sortie",
             Montant = montant,
             Description = description,
-            Category = "avoir_solde",
+            Category = category,
             ModePaiement = mode,
             CreatedBy = userId,
         });
@@ -541,8 +545,13 @@ public static class CaisseEndpoints
         var avoirsSoldes = (await LoadAvoirsSoldesAsync(db, [caisse.Id], ct)).GetValueOrDefault(caisse.Id);
         var reste = await ComputeResteAsync(db, caisse, ct);
         var serveurSales = await ComputeServeurSalesAsync(db, caisse, ct);
+        var (consigneIn, consigneOut) = await ComputeConsigneAsync(db, caisse, ct);
         if (caisse.Status == CaisseStatus.Closed)
-            return ToDto(caisse, retraits) with { AvoirsSoldes = avoirsSoldes, ResteAPayer = reste, ServeurSales = serveurSales };
+            return ToDto(caisse, retraits) with
+            {
+                AvoirsSoldes = avoirsSoldes, ResteAPayer = reste, ServeurSales = serveurSales,
+                ConsigneEncaissee = consigneIn, ConsigneRemboursee = consigneOut,
+            };
 
         var stats = await ComputeLiveStatsAsync(db, caisse, DateTime.UtcNow, ct);
         return new CaisseDto(
@@ -555,7 +564,7 @@ public static class CaisseEndpoints
             caisse.Status, caisse.Notes, retraits ?? [], caisse.MontantFinalMobile,
             MontantInitialCarte: caisse.MontantInitialCarte, MontantFinalCarte: caisse.MontantFinalCarte,
             Origine: await ComputeOrigineAsync(db, caisse, ct), AvoirsSoldes: avoirsSoldes, ResteAPayer: reste,
-            ServeurSales: serveurSales);
+            ServeurSales: serveurSales, ConsigneEncaissee: consigneIn, ConsigneRemboursee: consigneOut);
     }
 
     /// <summary>
@@ -700,7 +709,7 @@ public static class CaisseEndpoints
         if (caisseIds.Count == 0) return [];
         var rows = await db.CaisseTransactions.AsNoTracking()
             .Where(t => caisseIds.Contains(t.CaisseId) && t.Type == "sortie"
-                && (t.Category == null || t.Category != RetraitCategory))
+                && (t.Category == null || (t.Category != RetraitCategory && t.Category != "consigne_rembourse")))
             .Select(t => new { t.CaisseId, t.Montant })
             .ToListAsync(ct);
         return rows.GroupBy(r => r.CaisseId).ToDictionary(g => g.Key, g => g.Sum(r => r.Montant));
@@ -730,6 +739,30 @@ public static class CaisseEndpoints
                 .Where(p => ids.Contains(p.VenteId)).Select(p => new { p.VenteId, p.Montant }).ToListAsync(ct))
             .GroupBy(p => p.VenteId).ToDictionary(g => g.Key, g => g.Sum(p => p.Montant));
         return ventes.Sum(v => Math.Max(0, v.MontantTotal - paye.GetValueOrDefault(v.Id)));
+    }
+
+    /// <summary>Consigne taken on this session's sales, and given back - off a sale's total or
+    /// paid out of this drawer for empties returned without a sale.</summary>
+    private static async Task<(decimal In, decimal Out)> ComputeConsigneAsync(
+        LonniiDbContext db, Lonnii.Data.Entities.Caisse caisse, CancellationToken ct)
+    {
+        var asOf = caisse.DateFermeture ?? DateTime.UtcNow;
+        var ventes = await db.Ventes.AsNoTracking()
+            .Where(v => v.GroupId == caisse.GroupId && v.CreatedBy == caisse.UserId
+                && v.DateVente >= caisse.DateOuverture && v.DateVente <= asOf
+                && v.StatutPaiement != StatutPaiement.Annule
+                && (v.ConsigneAmount != null || v.ConsigneRendue != null))
+            .Select(v => new { v.ConsigneAmount, v.ConsigneRendue })
+            .ToListAsync(ct);
+        var paidOut = await db.CaisseTransactions.AsNoTracking()
+            .Where(t => t.CaisseId == caisse.Id && t.Type == "sortie" && t.Category == "consigne_rembourse")
+            .Select(t => t.Montant)
+            .ToListAsync(ct);
+        var fromSuppliers = await db.CaisseTransactions.AsNoTracking()
+            .Where(t => t.CaisseId == caisse.Id && t.Type == "entree" && t.Category == Lonnii.Api.Features.Stock.EmballagesEndpoints.CaisseCategory)
+            .Select(t => t.Montant)
+            .ToListAsync(ct);
+        return (ventes.Sum(v => v.ConsigneAmount ?? 0) + fromSuppliers.Sum(), ventes.Sum(v => v.ConsigneRendue ?? 0) + paidOut.Sum());
     }
 
     private const string RetraitCategory = "retrait_manuel";

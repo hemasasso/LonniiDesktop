@@ -104,6 +104,7 @@ public static class PrivilegeProfiles
             Priv.Gestion.ViewStock, Priv.Gestion.AddProducts, Priv.Gestion.EditProducts,
             Priv.Gestion.ManageCategories, Priv.Gestion.ManageSuppliers, Priv.Gestion.AdjustStock, Priv.Gestion.ViewStockHistory,
             Priv.Gestion.ExportStockData, Priv.Gestion.ViewAnalytics, Priv.Gestion.ViewStockAnalytics,
+            Priv.Gestion.ViewEmballages,
         }),
         new("Responsable", "tout Caisse, Ventes et Stock", Grants: null),
 

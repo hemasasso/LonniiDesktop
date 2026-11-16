@@ -30,6 +30,13 @@ public partial class SupplierManagerDialog : Window
     {
         public string RatingDisplay => Supplier.Rating is { } r ? $"{r} / 5" : string.Empty;
         public string MontantDuDisplay => Supplier.MontantDu > 0 ? Money.Format(Supplier.MontantDu) : "—";
+        /// <summary>Full crates received minus empties sent back (Stock > Emballages).</summary>
+        public string EmballagesDisplay => Supplier.EmballagesARendre switch
+        {
+            null => "—",
+            > 0 and var n => $"{SaleCharges.CountLabel(n)} à rendre",
+            _ => "soldé",
+        };
     }
 
     public SupplierManagerDialog(AppSession session)
@@ -57,8 +64,10 @@ public partial class SupplierManagerDialog : Window
             _rows = suppliers.Select(s => new Row(s)).ToList();
 
             var owed = suppliers.Sum(s => s.MontantDu);
+            var crates = suppliers.Sum(s => Math.Max(0, s.EmballagesARendre ?? 0));
             SummaryText.Text = $"{_rows.Count} fournisseur(s)"
-                               + (owed > 0 ? $"  •  dû aux fournisseurs : {Money.Format(owed)}" : string.Empty);
+                               + (owed > 0 ? $"  •  dû aux fournisseurs : {Money.Format(owed)}" : string.Empty)
+                               + (crates > 0 ? $"  •  emballages à rendre : {SaleCharges.CountLabel(crates)}" : string.Empty);
             EmptyPanel.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             ApplyFilter();
             HideError();

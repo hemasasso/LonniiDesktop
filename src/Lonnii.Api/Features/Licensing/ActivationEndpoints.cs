@@ -169,6 +169,8 @@ public static class ActivationEndpoints
         device.DeviceName = string.IsNullOrWhiteSpace(request.DeviceName) ? device.DeviceName : request.DeviceName.Trim();
         device.Platform = request.Platform;
         device.AppVersion = request.AppVersion;
+        // The baseline this machine's later check-ins are compared against (see the refresh endpoint).
+        if (!string.IsNullOrWhiteSpace(request.HardwareSignature)) device.HardwareSignature = request.HardwareSignature;
         device.LastIpAddress = http.Connection.RemoteIpAddress?.ToString();
         device.LastSeenAt = DateTime.UtcNow;
         device.RevokedAt = null;

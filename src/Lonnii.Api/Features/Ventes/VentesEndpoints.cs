@@ -262,7 +262,9 @@ public static class VentesEndpoints
         {
             if (!hasLineFilter)
             {
-                rows.Add((v, v.MontantTotal, 1m));
+                // Consigne is a deposit the client gets back, not revenue: kept out of the chiffre
+                // d'affaires both ways (charged, and given back off the sale) and reported apart below.
+                rows.Add((v, v.MontantTotal - (v.ConsigneAmount ?? 0) + (v.ConsigneRendue ?? 0), 1m));
                 continue;
             }
 
@@ -352,7 +354,7 @@ public static class VentesEndpoints
                     && (string.IsNullOrEmpty(serveurId) || v.ServeurId == serveurId)
                     && (string.IsNullOrEmpty(vendeurId) || v.CreatedBy == vendeurId)
                     && (string.IsNullOrEmpty(caissierId) || v.Paiements.Any(p => p.CreatedBy == caissierId)))
-                .SumAsync(v => (decimal?)v.MontantTotal, ct) ?? 0;
+                .SumAsync(v => (decimal?)(v.MontantTotal - (v.ConsigneAmount ?? 0) + (v.ConsigneRendue ?? 0)), ct) ?? 0;
 
             if (previousTotal > 0)
                 croissance = (chiffreAffaires - previousTotal) / previousTotal * 100;
@@ -377,13 +379,41 @@ public static class VentesEndpoints
             .OrderByDescending(s => s.MontantTotal)
             .ToList();
 
+        // Consigne in the period, apart from the chiffre d'affaires: charged on sales, given back at the
+        // till (off a sale) or from Clients (paid out of the caisse), per client. Follows the period and
+        // the vendeur/serveur filters through the sales; Clients refunds follow the period only.
+        static string ClientOf(string? nom, string? tel, string? email) =>
+            !string.IsNullOrWhiteSpace(nom) ? nom.Trim() : tel?.Trim() ?? email?.Trim() ?? "Sans nom";
+        var consigneVentes = rows.Select(r => r.Vente)
+            .Where(v => (v.ConsigneAmount ?? 0) != 0 || (v.ConsigneRendue ?? 0) != 0)
+            .Select(v => (Client: ClientOf(v.ClientNom, v.ClientTelephone, v.ClientEmail),
+                In: v.ConsigneAmount ?? 0, Out: v.ConsigneRendue ?? 0))
+            .ToList();
+        var retoursQuery = db.EmballagesRetours.AsNoTracking()
+            .Where(r => r.GroupId == scope.GroupId && r.VenteId == null && r.Montant != null && r.Montant > 0);
+        if (rangeStart is { } rs) retoursQuery = retoursQuery.Where(r => r.CreatedAt >= rs);
+        if (rangeEnd is { } re) retoursQuery = retoursQuery.Where(r => r.CreatedAt < re);
+        var consigneRetours = hasLineFilter || !string.IsNullOrWhiteSpace(serveurId) || !string.IsNullOrWhiteSpace(vendeurId)
+            || !string.IsNullOrWhiteSpace(caissierId)
+            ? []
+            : (await retoursQuery.Select(r => new { r.ClientNom, r.ClientTelephone, r.ClientEmail, r.Montant }).ToListAsync(ct))
+                .Select(r => (Client: ClientOf(r.ClientNom, r.ClientTelephone, r.ClientEmail), In: 0m, Out: r.Montant ?? 0))
+                .ToList();
+        var consigneAll = hasLineFilter ? [] : consigneVentes.Concat(consigneRetours).ToList();
+        var consigneClients = consigneAll
+            .GroupBy(c => ClientsEndpoints.NameKey(c.Client))
+            .Select(g => new ConsigneClientStatsDto(g.First().Client, g.Sum(c => c.In), g.Sum(c => c.Out), g.Sum(c => c.In - c.Out)))
+            .OrderByDescending(c => c.Encaissee + c.Remboursee)
+            .ToList();
+
         return Results.Ok(new VentesStatsResponse(
             rows.Count, chiffreAffaires, montantEncaisse, montantRestant, totalAvoir,
             venteMoyenne, venteMax,
             CountByStatus(StatutPaiement.Paye), CountByStatus(StatutPaiement.Partiel),
             CountByStatus(StatutPaiement.EnAttente), ventes.Count - active.Count,
             clientsUniques, paiementCash, paiementMobile, paiementCarte, paiementAutres,
-            moyenneQuotidienne, croissance, categorySales, topProducts, serie, serveurSales, vendeurs, caissiers));
+            moyenneQuotidienne, croissance, categorySales, topProducts, serie, serveurSales, vendeurs, caissiers,
+            consigneAll.Sum(c => c.In), consigneAll.Sum(c => c.Out), consigneClients));
     }
 
     /// <summary>
@@ -518,10 +548,16 @@ public static class VentesEndpoints
             if (item.ProductId is null || !products.TryGetValue(item.ProductId, out var product)) continue;
             if (product.VenteLibre && !product.StockIllimite && product.Quantity == 0) continue;
 
-            product.Quantity += item.Quantite;
+            // In quarters, so a fraction sold (1/2 caisse) goes back into the opened unit.
+            var quarts = product.Quantity * 4 + product.FractionOuverte + item.Quantite * 4 + (item.Quarts ?? 0);
+            product.Quantity = quarts / 4;
+            product.FractionOuverte = quarts % 4;
             product.UpdatedBy = scope.UserId;
             product.UpdatedAt = DateTime.UtcNow;
         }
+
+        // Empties brought back at this sale go back to being owed, with their consigne.
+        db.EmballagesRetours.RemoveRange(await db.EmballagesRetours.Where(r => r.VenteId == vente.Id).ToListAsync(ct));
 
         vente.StatutPaiement = StatutPaiement.Annule;
         vente.CancellationReason = request.Motif.Trim();
@@ -655,7 +691,8 @@ public static class VentesEndpoints
         if (request.Items is not { Count: > 0 } && !standaloneAvoir)
             return Results.BadRequest(new ApiError("Le panier est vide"));
 
-        if (request.Items.Any(i => i.Quantity <= 0))
+        // A line may be a fraction alone (1/2 caisse: Quantity 0, Quarts 2), never nothing at all.
+        if (request.Items.Any(i => i.Quantity < 0 || i.Quarts is < 0 or > 3 || (i.Quantity == 0 && i.Quarts == 0)))
             return Results.BadRequest(new ApiError("Chaque ligne doit avoir une quantité positive"));
 
         if (request.MontantPaye < 0)
@@ -706,6 +743,16 @@ public static class VentesEndpoints
                 return Results.BadRequest(new ApiError("Le serveur choisi est introuvable"));
         }
 
+        // Computed here from the workspace's settings, not taken from the request: the
+        // customer is charged what the shop configured, whatever the till believed.
+        var settings = await db.VentesParametres.AsNoTracking()
+            .Where(p => p.GroupeId == scope.GroupId)
+            .Select(p => new { p.TvaMode, p.TvaRate, p.PrelevementRate, p.PrelevementApresTva, p.EffortGuerreEnabled, p.EmballagesCreditAccepte, p.LivraisonEnabled, p.FractionsEnabled, p.EmballagesSuivi })
+            .FirstOrDefaultAsync(ct);
+
+        if (request.Items.Any(i => i.Quarts > 0) && settings?.FractionsEnabled != true)
+            return Results.BadRequest(new ApiError("La vente par fraction (1/4, 1/2, 3/4) n'est pas activée dans les paramètres"));
+
         var vente = new Vente
         {
             GroupId = scope.GroupId,
@@ -728,6 +775,25 @@ public static class VentesEndpoints
         };
 
         decimal total = 0;
+        decimal effortGuerre = 0;
+        decimal consigne = 0;
+        var emballagesPris = 0m;
+
+        // The client's emballage credit (empties left at the shop beyond what they owed), per
+        // product: the caisses taken now use it first, and carry no consigne.
+        // Keyed by emballage: interchangeable crates (a shared type) share one credit.
+        var credits = new Dictionary<string, decimal>();
+        var emballagesCredit = 0m;
+        Func<string, string> emballageKey = id => id;
+        if (settings?.EmballagesSuivi == true && settings.EmballagesCreditAccepte == true
+            && (vente.ClientNom ?? vente.ClientTelephone ?? vente.ClientEmail) is not null)
+        {
+            var map = await Lonnii.Api.Features.Stock.EmballagesEndpoints.EmballagesAsync(db, scope.GroupId, ct);
+            emballageKey = map.Key;
+            foreach (var s in await ConsigneRetours.SoldesAsync(db, scope.GroupId,
+                         vente.ClientNom, vente.ClientTelephone, vente.ClientEmail, ct))
+                if (s.Dus < 0) credits[s.ProductId] = -s.Dus;
+        }
 
         foreach (var line in request.Items)
         {
@@ -742,7 +808,7 @@ public static class VentesEndpoints
                 : product.Price;
             var unite = enGros ? product.UniteVente
                 : product.VenteMixte ? product.UniteAffichage ?? "unité"
-                : null;
+                : SaleCharges.RealUnit(product.UniteAffichage);
 
             decimal unitPrice;
             if (product.PrixFixe)
@@ -766,9 +832,21 @@ public static class VentesEndpoints
                     $"Le prix de « {product.Name} » doit être précisé pour cette vente"));
             }
 
+            // A fraction (1/4, 1/2, 3/4 of a unit) sells at the shop's own price for it, never pro-rata.
+            decimal? fractionPrice = null;
+            if (line.Quarts > 0)
+            {
+                fractionPrice = product.VenteMixte ? null
+                    : SaleCharges.FractionPrice(product.PrixQuart, product.PrixDemi, product.PrixTroisQuarts, line.Quarts);
+                if (fractionPrice is null)
+                    return Results.BadRequest(new ApiError(
+                        $"« {product.Name} » ne se vend pas par {SaleCharges.FractionLabel(line.Quarts)}"));
+            }
+
+            var gross = unitPrice * line.Quantity + (fractionPrice ?? 0);
             var lineTotal = line.DiscountType == DiscountTypes.Amount
-                ? unitPrice * line.Quantity - line.Discount
-                : unitPrice * line.Quantity * (1 - line.Discount / 100m);
+                ? gross - line.Discount
+                : gross * (1 - line.Discount / 100m);
             // Whole currency units, like TVA (TvaModes.Added): a percentage discount gave lines such as
             // 2 517.5, so totals carried half-francs the screen hid and a "paid" sale could owe 0.5.
             lineTotal = Math.Max(0, Math.Round(lineTotal, 0, MidpointRounding.AwayFromZero));
@@ -785,18 +863,59 @@ public static class VentesEndpoints
                 Discount = line.Discount,
                 DiscountType = line.DiscountType,
                 Unite = unite,
+                Quarts = line.Quarts > 0 ? line.Quarts : null,
+                PrixFraction = fractionPrice,
             });
+
+            // Per base unit: a carton of 12 pays 12 times a bottle's effort de guerre and consigne.
+            // Only while switched on in Paramètres de vente, whatever the product says.
+            if (settings?.EffortGuerreEnabled == true)
+                effortGuerre += SaleCharges.PerUnit(product.EffortGuerre, line.Quantity * factor, line.Quarts);
+            // Counted in the unit sold, as sold: 1 caisse and a half is 1.5 emballages.
+            var item = vente.Items.Last();
+            var emballages = line.Quantity + line.Quarts / 4m;
+            if (product.EmballageRecuperable && emballages > 0)
+            {
+                emballagesPris += emballages;
+                item.EmballagesPris = emballages;
+                item.EmballageContenance = product.EmballageContenance;
+            }
+            var couvert = 0m;
+            if (product.EmballageRecuperable && emballages > 0
+                && credits.TryGetValue(emballageKey(product.Id), out var credit) && credit > 0)
+            {
+                couvert = Math.Min(credit, emballages);
+                credits[emballageKey(product.Id)] = credit - couvert;
+                emballagesCredit += couvert;
+                item.EmballagesCredit = couvert;
+            }
+            if (request.AvecConsigne && product.EmballageRecuperable)
+            {
+                var lineConsigne = SaleCharges.PerUnit(product.ConsigneMontant, line.Quantity * factor, line.Quarts);
+                // Caisses covered by the credit are exchanges for empties already here: no consigne.
+                if (couvert > 0)
+                    lineConsigne = Math.Round(lineConsigne * (emballages - couvert) / emballages, 0, MidpointRounding.AwayFromZero);
+                consigne += lineConsigne;
+                if (lineConsigne > 0) item.Consigne = lineConsigne;
+            }
 
             if (product.VenteLibre || product.StockIllimite) continue;
 
+            // Counted in quarters: selling 1/2 of 10 caisses opens one, leaving "9 + 1/2".
+            // Quantity itself stays a whole number; the opened unit's rest is FractionOuverte.
             var stockQuantity = line.Quantity * factor;
-            var newQuantity = product.Quantity - stockQuantity;
-            if (newQuantity < 0)
+            var available = product.Quantity * 4 + product.FractionOuverte;
+            var remaining = available - (stockQuantity * 4 + line.Quarts);
+            if (remaining < 0)
                 return Results.BadRequest(new ApiError(
-                    $"Stock insuffisant pour « {product.Name} » : {product.Quantity} en stock, {stockQuantity} demandés"));
+                    $"Stock insuffisant pour « {product.Name} » : {SaleCharges.QuantityLabel(product.Quantity, product.FractionOuverte)} en stock, " +
+                    $"{SaleCharges.QuantityLabel(stockQuantity, line.Quarts)} demandés"));
 
             var previous = product.Quantity;
+            var newQuantity = remaining / 4;
             product.Quantity = newQuantity;
+            product.FractionOuverte = remaining % 4;
+            var wholeTaken = previous - newQuantity;
             product.UpdatedBy = scope.UserId;
             product.UpdatedAt = DateTime.UtcNow;
 
@@ -806,10 +925,10 @@ public static class VentesEndpoints
                 ProductId = product.Id,
                 MovementType = StockMovementTypes.Vente,
                 PreviousQuantity = previous,
-                QuantityChanged = -stockQuantity,
+                QuantityChanged = -wholeTaken,
                 NewQuantity = newQuantity,
                 UnitCost = product.CostPrice,
-                TotalCost = product.CostPrice * stockQuantity,
+                TotalCost = product.CostPrice * (stockQuantity + line.Quarts / 4m),
                 ReferenceId = vente.Id,
                 ReferenceType = "sale",
                 UserId = scope.UserId,
@@ -830,18 +949,84 @@ public static class VentesEndpoints
         var remiseGlobale = Math.Clamp(Math.Round(request.RemiseGlobale, 0, MidpointRounding.AwayFromZero), 0, total);
         total -= remiseGlobale;
 
-        // Computed here from the workspace's settings, not taken from the request: the
-        // customer is charged what the shop configured, whatever the till believed.
-        var tvaSettings = await db.VentesParametres.AsNoTracking()
-            .Where(p => p.GroupeId == scope.GroupId)
-            .Select(p => new { p.TvaMode, p.TvaRate })
-            .FirstOrDefaultAsync(ct);
-        var tvaRate = tvaSettings?.TvaRate;
-        if (TvaModes.Normalise(tvaSettings?.TvaMode) == TvaModes.Ajoutee && tvaRate is > 0)
+        var net = total;
+        var tvaRate = settings?.TvaRate;
+        if (TvaModes.Normalise(settings?.TvaMode) == TvaModes.Ajoutee && tvaRate is > 0)
         {
             vente.TvaRate = tvaRate;
             vente.TvaAmount = TvaModes.Added(total, tvaRate.Value);
             total += vente.TvaAmount.Value;
+        }
+
+        // Prélèvement: a percentage of the HT amount, printed after the TVA.
+        if (settings?.PrelevementRate is { } prelevementRate && prelevementRate > 0)
+        {
+            var prelevement = SaleCharges.Prelevement(net, prelevementRate, tvaRate, settings.TvaMode, settings.PrelevementApresTva == true);
+            if (prelevement > 0)
+            {
+                vente.PrelevementRate = prelevementRate;
+                vente.PrelevementAmount = prelevement;
+                total += prelevement;
+            }
+        }
+
+        // Fixed amounts, outside the HT base: neither taxed nor discounted.
+        if (effortGuerre > 0) { vente.EffortGuerreAmount = effortGuerre; total += effortGuerre; }
+        if (consigne > 0) { vente.ConsigneAmount = consigne; total += consigne; }
+
+        if (request.EmballagesRendus < 0)
+            return Results.BadRequest(new ApiError("Le nombre d'emballages rapportés ne peut pas être négatif"));
+
+        // Empties brought back per product: their consigne comes off this sale's total.
+        var rendus = request.EmballagesRendus;
+        if (request.Retours is { Count: > 0 } retourLignes)
+        {
+            var (retours, retourError) = await ConsigneRetours.BuildAsync(db, scope.GroupId,
+                vente.ClientNom, vente.ClientTelephone, vente.ClientEmail, retourLignes, vente.Id, scope.UserId, ct,
+                vente.Items.Where(i => i.ProductId != null && i.EmballagesPris > 0).GroupBy(i => i.ProductId!)
+                    .ToDictionary(g => g.Key, g => (g.First().NomProduit, g.Sum(i => i.EmballagesPris ?? 0), g.First().EmballageContenance,
+                        g.Sum(i => i.Consigne ?? 0))),
+                settings?.EmballagesCreditAccepte == true);
+            if (retourError is not null) return Results.BadRequest(new ApiError(retourError));
+            var rendue = retours.Sum(r => r.Montant ?? 0);
+            if (rendue > total)
+                return Results.BadRequest(new ApiError(
+                    "La consigne à rendre dépasse le montant de la vente - utilisez « Retour emballages » dans Clients"));
+            if (rendue > 0) { vente.ConsigneRendue = rendue; total -= rendue; }
+            db.EmballagesRetours.AddRange(retours);
+            rendus = retours.Sum(r => r.Quantite);
+        }
+
+        if (settings?.EmballagesSuivi == true && (emballagesPris > 0 || rendus > 0))
+        {
+            vente.EmballagesPris = emballagesPris;
+            vente.EmballagesRendus = rendus;
+            if (emballagesCredit > 0) vente.EmballagesCredit = emballagesCredit;
+            // Credit left: what was not used, plus empties handed back beyond what this sale left owing
+            // AND beyond what the client already owed - those first pay off the old empties (a client
+            // owing 3 who takes 3 and brings back 6 owes nothing, with no credit).
+            var exces = Math.Max(0, rendus - (emballagesPris - emballagesCredit));
+            // What the client owed before this sale (read before it is saved), kept on the sale so the
+            // reçu / facture can print the client's total still to bring back, old empties included.
+            var avant = await ConsigneRetours.SoldesAsync(db, scope.GroupId,
+                vente.ClientNom, vente.ClientTelephone, vente.ClientEmail, ct);
+            var dusAvant = avant.Sum(s => s.Dus);
+            if (dusAvant != 0) vente.EmballagesDusAvant = dusAvant;
+            if (exces > 0)
+                exces = Math.Max(0, exces - avant.Where(s => s.Dus > 0).Sum(s => s.Dus));
+            var restant = credits.Values.Sum() + exces;
+            if (restant > 0) vente.EmballagesCreditRestant = restant;
+        }
+
+        if (request.Livraison < 0)
+            return Results.BadRequest(new ApiError("Le montant de la livraison ne peut pas être négatif"));
+        var livraison = Math.Round(request.Livraison, 0, MidpointRounding.AwayFromZero);
+        if (livraison > 0)
+        {
+            if (settings?.LivraisonEnabled != true)
+                return Results.BadRequest(new ApiError("La livraison n'est pas activée dans les paramètres"));
+            vente.LivraisonAmount = livraison;
+            total += livraison;
         }
 
         // Overpaying is only kept (as an avoir) when the till asked for it; otherwise the
@@ -991,6 +1176,14 @@ public static class VentesEndpoints
         var avoirSoldedByName = await DisplayNameAsync(db, v.AvoirSoldedBy, ct);
         var cancelledByName = await DisplayNameAsync(db, v.CancelledBy, ct);
 
+        // Empties handed back at this sale, per product, with the size the sale's line carries.
+        var rendus = (await db.EmballagesRetours.AsNoTracking().Where(r => r.VenteId == v.Id)
+                .Select(r => new { r.ProductId, r.NomProduit, r.Quantite }).ToListAsync(ct))
+            .GroupBy(r => r.ProductId)
+            .Select(g => new EmballageRenduDto(g.Key, g.First().NomProduit ?? "", g.Sum(r => r.Quantite),
+                v.Items.FirstOrDefault(i => i.ProductId == g.Key)?.EmballageContenance))
+            .ToList();
+
         var payerIds = v.Paiements.Select(p => p.CreatedBy).Where(id => id is not null).Distinct().ToList();
         var payerNames = await db.Users.AsNoTracking()
             .Where(u => payerIds.Contains(u.IdUser))
@@ -1033,10 +1226,14 @@ public static class VentesEndpoints
             StatutPaiement.Normalise(v.StatutPaiement), v.ModePaiement, v.Notes,
             vendeurNom,
             v.Items.Select(i => new VenteItemDto(
-                i.Id, i.ProductId, i.NomProduit, i.Quantite, i.PrixUnitaire, i.PrixTotal, i.Discount, i.DiscountType, i.Unite))
+                i.Id, i.ProductId, i.NomProduit, i.Quantite, i.PrixUnitaire, i.PrixTotal, i.Discount, i.DiscountType, i.Unite,
+                i.Quarts, i.PrixFraction, i.EmballagesPris, i.EmballageContenance, i.EmballagesCredit))
                 .ToList(),
             v.AvoirAmount, v.IsAvoirSolded, avoirSoldedByName, v.AvoirSoldedAt,
             v.CancellationReason, cancelledByName, v.CancelledAt, paiements, v.TvaRate, v.TvaAmount,
-            avoirCreatedByName, v.ServeurNom, v.ServeurId);
+            avoirCreatedByName, v.ServeurNom, v.ServeurId,
+            v.PrelevementRate, v.PrelevementAmount, v.EffortGuerreAmount, v.ConsigneAmount, v.LivraisonAmount,
+            v.EmballagesPris, v.EmballagesRendus, v.ConsigneRendue, rendus,
+            v.EmballagesCredit, v.EmballagesCreditRestant, v.EmballagesDusAvant);
     }
 }

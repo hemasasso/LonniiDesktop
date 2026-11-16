@@ -21,8 +21,9 @@
         </Border>
 
         <Border DockPanel.Dock="Top" Style="{StaticResource ToolbarPanel}">
-            <DockPanel>
-                <StackPanel Orientation="Horizontal">
+            <!-- Wraps: on a narrow window the filters go to a second line instead of covering the buttons. -->
+            <WrapPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,16,4">
                     <Button x:Name="AddButton" Content="Nouveau client" Style="{StaticResource PrimaryButton}" Click="Add_Click" />
                     <Button x:Name="EditButton" Content="Modifier" Margin="6,0,0,0"
                             Style="{StaticResource SecondaryButton}" Click="Edit_Click" />
@@ -30,10 +31,13 @@
                             Style="{StaticResource SecondaryButton}" Click="ToggleActive_Click" />
                     <Button x:Name="ShowSalesButton" Content="Voir ses ventes" Margin="6,0,0,0"
                             Style="{StaticResource SecondaryButton}" Click="ShowSales_Click" />
+                    <Button x:Name="EmballagesButton" Content="Retour emballages" Margin="6,0,0,0"
+                            Style="{StaticResource SecondaryButton}" Click="Emballages_Click" IsEnabled="False"
+                            ToolTip="Enregistrer des emballages vides rapportés sans vente" />
                     <Rectangle Width="1" Margin="10,2" Fill="{DynamicResource Border}" />
                     <Button Content="Actualiser" Style="{StaticResource SecondaryButton}" Click="Refresh_Click" />
                 </StackPanel>
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                     <TextBlock Text="Trier par" Style="{StaticResource PageSubtitle}" VerticalAlignment="Center" Margin="0,0,6,0" />
                     <ComboBox x:Name="SortField" Width="130" Margin="0,0,4,0" SelectionChanged="Sort_Changed">
                         <ComboBoxItem Content="Classement" IsSelected="True" />
@@ -54,7 +58,7 @@
                                    VerticalAlignment="Center" IsHitTestVisible="False" />
                     </Grid>
                 </StackPanel>
-            </DockPanel>
+            </WrapPanel>
         </Border>
 
         <Border DockPanel.Dock="Bottom" Padding="18,12"
@@ -90,10 +94,11 @@
                  rows, not the whole filtered list behind it. -->
             <DataGrid x:Name="ClientGrid" RowHeight="34" AutoGenerateColumns="False" IsReadOnly="True"
                       CanUserSortColumns="False"
+                      HorizontalScrollBarVisibility="Auto"
                       MouseDoubleClick="Grid_DoubleClick" SelectionChanged="Grid_SelectionChanged">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="#" Binding="{Binding Rank}" Width="40" />
-                    <DataGridTextColumn Header="Nom" Binding="{Binding Client.Nom}" Width="2*" />
+                    <DataGridTextColumn Header="Nom" Binding="{Binding Client.Nom}" Width="220" />
                     <DataGridTextColumn Header="Téléphone" Binding="{Binding Client.Telephone}" Width="130" />
                     <DataGridTextColumn Header="Achats" Binding="{Binding Client.NombreAchats}" Width="70">
                         <DataGridTextColumn.ElementStyle>
@@ -112,6 +117,19 @@
                             <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}">
                                 <Setter Property="Foreground" Value="{DynamicResource Danger}" />
                             </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+                    <DataGridTextColumn x:Name="EmballagesColumn" Header="Emballages dus" Binding="{Binding EmballagesDisplay}"
+                                        SortMemberPath="Client.EmballagesDus" Width="110">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}" />
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+                    <!-- Consigne the client paid on emballages and has not had back yet. -->
+                    <DataGridTextColumn x:Name="ConsigneColumn" Header="Consigne versée" Binding="{Binding ConsigneDisplay}"
+                                        SortMemberPath="Client.ConsigneVersee" Width="120">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource NumericCell}" />
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
                     <DataGridTextColumn Header="Dernier achat" Binding="{Binding DernierDisplay}"

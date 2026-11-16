@@ -1,5 +1,6 @@
 using Lonnii.Api.Features.Infrastructure;
 using Lonnii.Data;
+using Lonnii.Shared.Security;
 using Microsoft.EntityFrameworkCore;
 
 namespace Lonnii.Api.Features.Licensing;
@@ -22,8 +23,26 @@ namespace Lonnii.Api.Features.Licensing;
 /// leaves the renewing to the app, as before.
 /// </para>
 /// </summary>
-public sealed class LicenceRenewalService(IServiceScopeFactory scopes, ILogger<LicenceRenewalService> logger) : BackgroundService
+public sealed class LicenceRenewalService(
+    IServiceScopeFactory scopes, IConfiguration config, ILogger<LicenceRenewalService> logger) : BackgroundService
 {
+    /// <summary>
+    /// The settings a shipped host ignores (see ShippedHost) but someone set anyway in appsettings.json
+    /// or the environment: nothing to enforce - they have no effect - but worth telling us, since nobody
+    /// edits them by accident.
+    /// </summary>
+    private string? TamperedSettings()
+    {
+        if (!ShippedHost.IsShipped) return null;
+        var found = new List<string>();
+        if (config.GetValue("Lonnii:AllowManualSetup", false)) found.Add("AllowManualSetup");
+        if (!config.GetValue("Lonnii:OnlineRegistration:Required", true)) found.Add("OnlineRegistration:Required");
+        if (config["Lonnii:LicenceServerUrl"] is { Length: > 0 } url
+            && !string.Equals(url.Trim().TrimEnd('/'), ShippedHost.LicenceServerUrl, StringComparison.OrdinalIgnoreCase))
+            found.Add($"LicenceServerUrl = {url}");
+        return found.Count == 0 ? null : string.Join(", ", found);
+    }
+
     private static readonly TimeSpan Interval = TimeSpan.FromHours(1);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -62,12 +81,24 @@ public sealed class LicenceRenewalService(IServiceScopeFactory scopes, ILogger<L
         var guard = services.GetRequiredService<LicenceGuard>();
         var licences = services.GetRequiredService<ILicenceServer>();
 
+        // On a shipped host every espace checks in, an emptied licence_server_url included.
+        var shipped = ShippedHost.IsShipped;
         var groupes = await db.Groupes
-            .Where(g => g.LicenceServerUrl != null && g.LicenceServerUrl != "" && !g.IsDeleted)
+            .Where(g => (shipped || (g.LicenceServerUrl != null && g.LicenceServerUrl != "")) && !g.IsDeleted)
             .ToListAsync(ct);
+
+        var tampered = TamperedSettings();
 
         foreach (var groupe in groupes)
         {
+            if (tampered is not null) guard.Security?.Record(groupe.Id, SecurityEventKinds.ConfigTampered, tampered);
+
+            // This computer is not one of the espace's machines (the app runs on a till only): our server
+            // would refuse it - and now notes every such refusal as an unknown machine - so leave the
+            // renewing to the app, as a refusal used to.
+            if (!await db.Devices.AnyAsync(d => d.GroupId == groupe.Id && d.DeviceId == deviceId && d.RevokedAt == null, ct))
+                continue;
+
             var refused = await LicenceEndpoints.RenewAsync(groupe, deviceId, db, guard, licences, ct);
             if (refused is null)
                 logger.LogDebug("Licence renouvelée pour l'espace {GroupId}", groupe.Id);

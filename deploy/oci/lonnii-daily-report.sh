@@ -8,6 +8,7 @@
 #   Errors     exceptions the .NET API logged in the last 24 h, most frequent first
 #   HTTPS      days left on www.lonnii.com's certificate
 #   Shops      registrations awaiting approval, online shops whose cloud backup is older than 24 h,
+#              online shops silent for 7 days or more, licence-tampering attempts in the last 24 h,
 #              subscriptions ending within 7 days
 #
 # Email: the API's own SMTP settings (/etc/lonnii-api.env, Lonnii__Email__*), sent with curl.
@@ -105,6 +106,36 @@ if [ ${#stale[@]} -eq 0 ]; then ok "Sauvegardes cloud des boutiques en ligne : �
 else warn "Sauvegarde cloud de plus de 24 h : $(printf '%s, ' "${stale[@]}" | sed 's/, $//')"; fi
 
 SEC="Boutiques"
+# Online shops that stopped checking in. A paying shop's computer checks in every hour; one silent
+# for a week is either switched off, or running without asking us any more (an old version with the
+# internet cut, to dodge the subscription). Phone-only shops have no computer to check in and live on
+# this server, so they are left out. last_licence_check_at is a plain TIMESTAMP holding UTC.
+silent=$(sql "SELECT string_agg(nom || ' (' || CASE WHEN last_licence_check_at IS NULL THEN 'jamais connectée'
+                     ELSE floor(extract(epoch FROM now() AT TIME ZONE 'UTC' - last_licence_check_at) / 86400)::int || ' j' END || ')', ', '
+                     ORDER BY last_licence_check_at NULLS FIRST)
+              FROM groupes
+              WHERE mode = 'online' AND approval_status = 'approved'
+                AND COALESCE(is_deleted, false) = false AND COALESCE(phone_only, false) = false
+                AND (last_licence_check_at IS NULL OR last_licence_check_at < now() AT TIME ZONE 'UTC' - interval '7 days')")
+if [ -z "$silent" ]; then ok "Boutiques en ligne silencieuses depuis 7 jours : aucune"
+else warn "Boutiques en ligne silencieuses depuis 7 jours ou plus (éteintes, ou utilisées sans se connecter) : $silent"; fi
+
+# Attempts to get round a licence, reported by shops' computers at check-in or noticed by the API
+# (one file per espace in $DATA_DIR/security, named by its id). Files touched in the last 24 hours.
+attempts=()
+while IFS= read -r f; do
+  gid=$(basename "$f" .jsonl)
+  [[ "$gid" =~ ^[0-9a-f-]{36}$ ]] || continue
+  since=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%S)
+  n=$(grep -o '"receivedAt":"[^"]*"' "$f" | cut -d'"' -f4 | awk -v s="$since" '$0 >= s' | wc -l)
+  [ "$n" -gt 0 ] || continue
+  nom=$(sql "SELECT nom FROM groupes WHERE id = '$gid'")
+  kinds=$(grep -o '"kind":"[^"]*"' "$f" | tail -"$n" | cut -d'"' -f4 | sort -u | paste -sd, -)
+  attempts+=("${nom:-$gid} ($n : $kinds)")
+done < <(find "$DATA_DIR/security" -name '*.jsonl' -mmin -1440 2>/dev/null)
+if [ ${#attempts[@]} -eq 0 ]; then ok "Tentatives de contournement de licence (24 h) : aucune"
+else warn "Tentatives de contournement de licence (24 h) : $(printf '%s, ' "${attempts[@]}" | sed 's/, $//') - voir le tableau de bord"; fi
+
 ending=$(sql "SELECT string_agg(group_name || ' (' || to_char(contract_end_date, 'DD/MM') || ')', ', ')
               FROM dashboard_subscriptions
               WHERE statut = 'Active' AND contract_end_date BETWEEN now() AND now() + interval '7 days'")
@@ -196,13 +227,23 @@ if [ -n "$host" ] && [ -n "$from" ]; then
     echo "$html" | sed 's/<tr>/\n<tr>/g; s/<table/\n<table/g; s/<div/\n<div/g'
   } > "$mail"
   auth=(); [ -n "$user" ] && auth=(--user "$user:$pass")
-  if ! curl -s -m 30 --ssl-reqd --url "$scheme://$host:$port" "${auth[@]}" \
-        --mail-from "$from" --mail-rcpt "$REPORT_TO" -T "$mail"; then
-    echo "$(date '+%F %T') email failed" >&2
-  fi
+  # Three tries, five minutes apart: on 2026-11-12 the mail server refused the 06:00 send once and
+  # accepted the same message by hand later. -sS keeps the progress bar out of the log but writes
+  # the server's own reason (535 authentication, 421 busy, ...) into it.
+  sent=no
+  for try in 1 2 3; do
+    if err=$(curl -sS -m 30 --ssl-reqd --url "$scheme://$host:$port" "${auth[@]}" \
+          --mail-from "$from" --mail-rcpt "$REPORT_TO" -T "$mail" 2>&1); then
+      sent=yes; break
+    fi
+    echo "$(date '+%F %T') email failed (try $try/3): ${err:-no detail}" >&2
+    [ "$try" -lt 3 ] && sleep 300
+  done
+  [ "$sent" = yes ] || echo "$(date '+%F %T') email NOT sent after 3 tries" >&2
   rm -f "$mail"
 else
   echo "$(date '+%F %T') no SMTP settings in /etc/lonnii-api.env" >&2
 fi
 
-echo "$(date '+%F %T') report sent: $verdict"
+if [ "${sent:-no}" = yes ]; then echo "$(date '+%F %T') report sent: $verdict"
+else echo "$(date '+%F %T') report built but NOT emailed: $verdict"; fi

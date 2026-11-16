@@ -8,6 +8,7 @@ using Lonnii.Data;
 using Lonnii.Data.Entities;
 using Lonnii.Shared.Security;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
@@ -93,6 +94,160 @@ public class DesktopAdminTests : IAsyncLifetime
         _dashboardKey.Dispose();
         try { Directory.Delete(_dataDirectory, recursive: true); } catch (IOException) { }
         return Task.CompletedTask;
+    }
+
+    // --- Silent shops ----------------------------------------------------------------------
+
+    private async Task AddShop(Groupe groupe, bool withComputer)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+        groupe.IdUserAdmin = db.Users.Select(u => u.IdUser).First();
+        db.Groupes.Add(groupe);
+        if (withComputer) db.Devices.Add(new Device { GroupId = groupe.Id, DeviceId = "pc-" + groupe.Id });
+        await db.SaveChangesAsync();
+    }
+
+    private async Task<DesktopOverviewDto> Overview()
+    {
+        var response = await _client.SendAsync(Request(HttpMethod.Get, "/api/admin/desktop/overview", Viewer()));
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<DesktopOverviewDto>())!;
+    }
+
+    [Fact]
+    public async Task A_phone_only_shop_is_listed_and_never_flagged_as_silent()
+    {
+        // No computer, so no devices row and no check-in: it used to vanish from the list once approved,
+        // and would have been flagged as "never connected".
+        const string phoneShop = "0b6f1d1e-1a7e-4d55-9a51-2f2a7f0c0010";
+        await AddShop(new Groupe { Id = phoneShop, Nom = "Boutique Téléphone", Mode = DeploymentModes.Online, PhoneOnly = true },
+            withComputer: false);
+
+        var response = await _client.SendAsync(Request(HttpMethod.Get, "/api/admin/desktop/shops", Viewer()));
+        var shops = (await response.Content.ReadFromJsonAsync<List<ShopSummaryDto>>())!;
+
+        Assert.Contains(shops, s => s.Id == phoneShop && s.PhoneOnly);
+        Assert.DoesNotContain((await Overview()).Attention, a => a.ShopId == phoneShop && a.Kind == "offline");
+    }
+
+    [Fact]
+    public async Task An_online_shop_silent_for_a_week_is_flagged_before_it_would_lock()
+    {
+        const string quietShop = "0b6f1d1e-1a7e-4d55-9a51-2f2a7f0c0011";
+        await AddShop(new Groupe
+        {
+            Id = quietShop, Nom = "Boutique Silencieuse", Mode = DeploymentModes.Online, MaxOfflineDays = 14,
+            LastLicenceCheckAt = DateTime.UtcNow.AddDays(-8).AddHours(-1),
+        }, withComputer: true);
+
+        var item = Assert.Single((await Overview()).Attention, a => a.ShopId == quietShop && a.Kind == "offline");
+
+        Assert.Equal("warning", item.Severity);
+        Assert.Contains("Silencieuse depuis 8 jours", item.Message);
+    }
+
+    [Fact]
+    public async Task Past_its_offline_days_a_silent_shop_is_not_assumed_locked()
+    {
+        // An old version with the internet cut keeps selling: the dashboard must not say it is blocked.
+        var item = Assert.Single((await Overview()).Attention, a => a.ShopId == OnlineShopOffline && a.Kind == "offline");
+
+        Assert.Contains("utilisée sans se connecter", item.Message);
+    }
+
+    // --- Attempts to get round the licence ------------------------------------------------
+
+    [Fact]
+    public async Task Attempts_reported_at_check_in_reach_the_dashboard_even_when_the_check_in_is_refused()
+    {
+        // The shop's computer reports that an old copy of its database was put back. Its subscription has
+        // lapsed, so the check-in itself is refused - the report is kept all the same.
+        var refresh = await _client.PostAsJsonAsync("/api/licence/refresh", new Lonnii.Shared.Contracts.LicenceRefreshRequest(
+            OnlineShopOffline, "pos-1", "1.0.21",
+            [new Lonnii.Shared.Contracts.SecurityEventDto(SecurityEventKinds.LicenceOlder, DateTime.UtcNow.AddHours(-1), "Licence du 01/09/2026")]));
+        Assert.Equal(HttpStatusCode.PaymentRequired, refresh.StatusCode);
+
+        var item = Assert.Single((await Overview()).Attention, a => a.ShopId == OnlineShopOffline && a.Kind == "security");
+        Assert.Equal("critical", item.Severity);
+        Assert.Contains("Ancienne copie de la base", item.Message);
+        Assert.Equal(1, (await Overview()).SecurityAlerts);
+
+        var response = await _client.SendAsync(Request(HttpMethod.Get, $"/api/admin/desktop/shops/{OnlineShopOffline}", Viewer()));
+        var detail = (await response.Content.ReadFromJsonAsync<ShopDetailDto>())!;
+        var attempt = Assert.Single(detail.SecurityEvents!);
+        Assert.Equal("pos-1", attempt.DeviceId);
+        Assert.Equal("1.0.21", attempt.AppVersion);
+        Assert.Equal("Licence du 01/09/2026", attempt.Detail);
+        Assert.False(attempt.FromServer);
+    }
+
+    [Fact]
+    public async Task A_machine_nobody_registered_asking_for_a_licence_is_noted_once_a_day()
+    {
+        for (var i = 0; i < 3; i++)
+            await _client.PostAsJsonAsync("/api/licence/refresh",
+                new Lonnii.Shared.Contracts.LicenceRefreshRequest(LocalShop, "copied-pc", "1.0.20"));
+
+        var response = await _client.SendAsync(Request(HttpMethod.Get, $"/api/admin/desktop/shops/{LocalShop}", Viewer()));
+        var detail = (await response.Content.ReadFromJsonAsync<ShopDetailDto>())!;
+
+        var attempt = Assert.Single(detail.SecurityEvents!);
+        Assert.Equal(SecurityEventKinds.UnboundDevice, attempt.Kind);
+        Assert.True(attempt.FromServer);
+
+        var shops = await _client.SendAsync(Request(HttpMethod.Get, "/api/admin/desktop/shops?filter=security", Viewer()));
+        Assert.Equal([LocalShop], (await shops.Content.ReadFromJsonAsync<List<ShopSummaryDto>>())!.Select(s => s.Id));
+    }
+
+    [Fact]
+    public async Task A_changed_hardware_signature_on_the_same_device_is_flagged_as_a_possible_clone()
+    {
+        async Task Refresh(string hardware) =>
+            (await _client.PostAsJsonAsync("/api/licence/refresh",
+                new Lonnii.Shared.Contracts.LicenceRefreshRequest(LocalShop, "till-a", "1.0.21", HardwareSignature: hardware)))
+                .EnsureSuccessStatusCode();
+
+        // First check-in sets the baseline; a copy of the MachineGuid on other hardware checks in next.
+        await Refresh("hw-sig-real-machine");
+        await Refresh("hw-sig-cloned-pc");
+
+        var response = await _client.SendAsync(Request(HttpMethod.Get, $"/api/admin/desktop/shops/{LocalShop}", Viewer()));
+        var detail = (await response.Content.ReadFromJsonAsync<ShopDetailDto>())!;
+
+        var attempt = Assert.Single(detail.SecurityEvents!, e => e.Kind == SecurityEventKinds.HardwareChanged);
+        Assert.True(attempt.FromServer);
+        Assert.Equal("till-a", attempt.DeviceId);
+
+        // The same signature checking in again is not a change.
+        await Refresh("hw-sig-cloned-pc");
+        var after = await _client.SendAsync(Request(HttpMethod.Get, $"/api/admin/desktop/shops/{LocalShop}", Viewer()));
+        var detail2 = (await after.Content.ReadFromJsonAsync<ShopDetailDto>())!;
+        Assert.Single(detail2.SecurityEvents!, e => e.Kind == SecurityEventKinds.HardwareChanged);
+    }
+
+    [Fact]
+    public async Task Changed_program_files_on_the_same_version_are_flagged_but_a_version_change_is_not()
+    {
+        async Task Refresh(string version, string buildHash) =>
+            (await _client.PostAsJsonAsync("/api/licence/refresh",
+                new Lonnii.Shared.Contracts.LicenceRefreshRequest(LocalShop, "till-b", version, BuildHash: buildHash)))
+                .EnsureSuccessStatusCode();
+
+        async Task<ShopDetailDto> Detail()
+        {
+            var r = await _client.SendAsync(Request(HttpMethod.Get, $"/api/admin/desktop/shops/{LocalShop}", Viewer()));
+            return (await r.Content.ReadFromJsonAsync<ShopDetailDto>())!;
+        }
+
+        // Baseline, then the published build updates (new version, new files) - not tampering.
+        await Refresh("1.0.21", "build-aaa");
+        await Refresh("1.0.22", "build-bbb");
+        Assert.DoesNotContain((await Detail()).SecurityEvents!, e => e.Kind == SecurityEventKinds.BinariesModified);
+
+        // Same version, different files: a patched build.
+        await Refresh("1.0.22", "build-ccc-patched");
+        Assert.Single((await Detail()).SecurityEvents!, e => e.Kind == SecurityEventKinds.BinariesModified);
     }
 
     // --- Tokens like the ones dashboard-auth issues -----------------------------------------
@@ -394,6 +549,64 @@ public class DesktopAdminTests : IAsyncLifetime
 
         var response = await _client.SendAsync(Request(HttpMethod.Get, "/api/admin/desktop/overview", shopToken));
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    // --- Bringing a removed machine back -----------------------------------------------------
+
+    private Device ReadDevice(string fingerprint)
+    {
+        using var scope = _factory.Services.CreateScope();
+        return scope.ServiceProvider.GetRequiredService<LonniiDbContext>().Devices.AsNoTracking().Single(d => d.DeviceId == fingerprint);
+    }
+
+    [Fact]
+    public async Task A_removed_machine_is_brought_back_within_the_limit()
+    {
+        var url = $"/api/admin/desktop/shops/{LocalShop}/devices/{await DeviceRowId("till-old")}/restore";
+
+        // Viewing is not managing.
+        Assert.Equal(HttpStatusCode.Forbidden, (await _client.SendAsync(Request(HttpMethod.Post, url, Viewer()))).StatusCode);
+
+        // 2/2 in use: no room.
+        Assert.Equal(HttpStatusCode.Conflict, (await _client.SendAsync(Request(HttpMethod.Post, url, DeviceManager()))).StatusCode);
+        Assert.NotNull(ReadDevice("till-old").RevokedAt);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+            db.Groupes.Single(g => g.Id == LocalShop).MaxDevices = 3;
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.SendAsync(Request(HttpMethod.Post, url, DeviceManager()))).StatusCode);
+        var device = ReadDevice("till-old");
+        Assert.Null(device.RevokedAt);
+        Assert.Null(device.RevokedReason);
+    }
+
+    [Fact]
+    public async Task Unticking_phone_only_can_bring_back_the_computers_it_removed()
+    {
+        var url = $"/api/admin/desktop/shops/{OnlineShopOffline}/phone-only";
+        HttpRequestMessage Put(object body)
+        {
+            var request = Request(HttpMethod.Put, url, SuperAdmin());
+            request.Content = JsonContent.Create(body);
+            return request;
+        }
+
+        (await _client.SendAsync(Put(new { phoneOnly = true }))).EnsureSuccessStatusCode();
+        Assert.Equal(DesktopAdminEndpoints.PhoneOnlyRevokedReason, ReadDevice("pos-1").RevokedReason);
+
+        // While phone-only, a single machine cannot be brought back: it would be refused at once.
+        var restore = $"/api/admin/desktop/shops/{OnlineShopOffline}/devices/{await DeviceRowId("pos-1")}/restore";
+        Assert.Equal(HttpStatusCode.Conflict, (await _client.SendAsync(Request(HttpMethod.Post, restore, DeviceManager()))).StatusCode);
+
+        var response = await _client.SendAsync(Put(new { phoneOnly = false, restoreComputers = true }));
+        response.EnsureSuccessStatusCode();
+
+        Assert.Null(ReadDevice("pos-1").RevokedAt);
+        Assert.Contains("\"restoredDevices\":1", await response.Content.ReadAsStringAsync());
     }
 
     private Task<string> DeviceRowId(string fingerprint)

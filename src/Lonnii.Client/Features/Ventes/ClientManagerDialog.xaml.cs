@@ -42,6 +42,9 @@ public partial class ClientManagerDialog : Window
         public string ResteDisplay => Client.ResteDu > 0
             ? $"{Money.Format(Client.ResteDu)} ({Client.FacturesImpayees})"
             : "—";
+        public string EmballagesDisplay => Client.EmballagesDus > 0 ? SaleCharges.CountLabel(Client.EmballagesDus)
+            : Client.EmballagesDus < 0 ? $"crédit {SaleCharges.CountLabel(-Client.EmballagesDus)}" : "—";
+        public string ConsigneDisplay => Client.ConsigneVersee > 0 ? Money.Format(Client.ConsigneVersee) : "—";
         public string DernierDisplay => Client.DernierAchat?.ToLocalTime().ToString("dd/MM/yyyy", French) ?? "—";
         public string FicheDisplay => !Client.IsRegistered ? "non enregistré" : Client.IsActive ? "enregistré" : "désactivé";
     }
@@ -51,6 +54,21 @@ public partial class ClientManagerDialog : Window
         _session = session;
         _canManage = session.Can(Priv.Gestion.ManageClients);
         InitializeComponent();
+
+        // Emballages only show when the shop tracks them (Paramètres "Suivi des emballages").
+        var receipt = session.CachedReceiptSettings;
+        if (receipt?.EmballagesSuivi != true)
+        {
+            EmballagesColumn.Visibility = Visibility.Collapsed;
+            ConsigneColumn.Visibility = Visibility.Collapsed;
+            EmballagesButton.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            // Each product carries its own unit now, so a client's mixed total has no single word.
+            EmballagesColumn.Header = "Emballages dus";
+            EmballagesButton.Content = "Retour emballages";
+        }
 
         AddButton.IsEnabled = _canManage;
         if (!_canManage)
@@ -197,6 +215,60 @@ public partial class ClientManagerDialog : Window
         ToggleActiveButton.IsEnabled = _canManage && client?.IsRegistered == true;
         ToggleActiveButton.Content = client?.IsActive == false ? "Activer" : "Désactiver";
         ShowSalesButton.IsEnabled = client is { NombreAchats: > 0 };
+        EmballagesButton.IsEnabled = client is not null;
+    }
+
+    /// <summary>Records empties brought back without a sale; lowers "Emballages dus".</summary>
+    private async void Emballages_Click(object sender, RoutedEventArgs e)
+    {
+        if (Selected is not { } client) return;
+
+        // Per product when the client took crates with product details (newer sales):
+        // the consigne they paid is refunded out of the caisse in the mode chosen.
+        List<ConsigneSoldeDto> soldes;
+        try { soldes = await _session.Api.GetConsignesAsync(client.Nom, client.Telephone, client.Email); }
+        catch (ApiException ex) { ErrorText.Text = ex.Message; return; }
+        soldes = soldes.Where(s => s.Dus > 0).ToList(); // below 0 is a credit, nothing owed
+        if (soldes.Count > 0)
+        {
+            var dialog = new EmballagesRetourDialog(this, client.Nom, soldes, null, _session.CachedReceiptSettings,
+                askMode: soldes.Any(s => s.ConsigneRestante > 0));
+            if (dialog.ShowDialog() != true || dialog.Result.Count == 0) return;
+            try
+            {
+                await _session.Api.AddEmballageRetourAsync(new EmballageRetourRequest(
+                    client.Nom, client.Telephone, client.Email, dialog.Result.Sum(r => r.Quantite),
+                    dialog.Result, dialog.ModePaiement, dialog.MontantMobile));
+                await LoadAsync();
+            }
+            catch (ApiException ex)
+            {
+                ErrorText.Text = ex.Message;
+            }
+            return;
+        }
+
+        var typed = Lonnii.Client.Common.PromptDialog.Show(this, "Emballages rapportés",
+            $"Nombre rapporté par {client.Nom}"
+            + (client.EmballagesDus > 0 && _session.CachedReceiptSettings is { } s
+                ? $" (doit {s.Emballages(client.EmballagesDus)}) :" : " :"),
+            client.EmballagesDus > 0 ? SaleCharges.CountLabel(client.EmballagesDus) : string.Empty);
+        if (typed is null) return;
+        if (!SaleCharges.TryParseCount(typed, out var quantite) || quantite <= 0)
+        {
+            ErrorText.Text = "Nombre d'emballages invalide.";
+            return;
+        }
+        try
+        {
+            await _session.Api.AddEmballageRetourAsync(
+                new EmballageRetourRequest(client.Nom, client.Telephone, client.Email, quantite));
+            await LoadAsync();
+        }
+        catch (ApiException ex)
+        {
+            ErrorText.Text = ex.Message;
+        }
     }
 
     private void Grid_DoubleClick(object sender, MouseButtonEventArgs e)

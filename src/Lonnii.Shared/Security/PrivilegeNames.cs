@@ -76,6 +76,9 @@ public static class Priv
         public const string ExportStockData = "can_export_stock_data";
         public const string ViewAnalytics = "can_view_analytics";
         public const string ViewStockAnalytics = "can_view_stock_analytics";
+        /// <summary>Opens Stock > Emballages (pleins, vides, crates at clients, their history).
+        /// New to the desktop port; recording a movement still needs AdjustStock.</summary>
+        public const string ViewEmballages = "can_view_emballages";
 
         // sales (legacy module name, kept for import fidelity)
         public const string ViewSales = "can_view_sales";

@@ -93,6 +93,8 @@ public static class RemoteEndpoints
         ReplicaStore replicas,
         BackupStore backups,
         LiveSnapshotBuilder live,
+        Lonnii.Api.Features.Admin.ShopConnectionLog connections,
+        HttpContext http,
         CancellationToken ct)
     {
         var userId = principal.FindFirstValue(TokenService.UserIdClaim)!;
@@ -155,7 +157,7 @@ public static class RemoteEndpoints
         // shop administrator's address and be taken for them.
         var account = await db.Users.AsNoTracking()
             .Where(u => u.IdUser == userId)
-            .Select(u => new { u.Email, u.IsVerified })
+            .Select(u => new { u.Email, u.IsVerified, u.FirstName, u.LastName })
             .FirstOrDefaultAsync(ct);
 
         if (account is null || !account.IsVerified || string.IsNullOrWhiteSpace(account.Email))
@@ -198,12 +200,17 @@ public static class RemoteEndpoints
 
         var (token, expires) = tokens.Create(groupId, userId, shopUserId, DateTime.UtcNow);
 
+        // Seen in the dashboard: who works on this shop from afar, from what, and when.
+        connections.Record(groupId, Lonnii.Api.Features.Admin.ShopConnectionLog.From(
+            http.Request, Lonnii.Api.Features.Admin.ShopConnectionKinds.Remote,
+            userId, account.Email, $"{account.FirstName} {account.LastName}".Trim()));
+
         return Results.Ok(new RemoteSessionResponse(
             token,
             expires,
             replica.SnapshotAt,
             new GroupeDto(
-                shop.Id, shop.Nom, privileges.IsAdminGeneral, privileges.Role, shop.GestionAccess,
+                shop.Id, shop.Nom, privileges.IsAdminGeneral, privileges.Role, shop.DesktopGestionAccess,
                 shop.PrestationsEnabled, shop.PrestationsLocation, memberCount, shop.CreatedAt,
                 shop.CurrencyLabel, shop.CurrencyBefore, shop.PhotoUrl, shop.Color)));
     }

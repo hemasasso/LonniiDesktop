@@ -433,7 +433,7 @@ public sealed class EspaceTransferService(
     private static EspaceSettings SettingsOf(Lonnii.Data.Entities.Groupe g) => new(
         CurrencyLabel: g.CurrencyLabel,
         CurrencyBefore: g.CurrencyBefore,
-        GestionAccess: g.GestionAccess,
+        GestionAccess: g.DesktopGestionAccess,
         PrestationsEnabled: g.PrestationsEnabled,
         PrestationsLocation: g.PrestationsLocation,
         Color: g.Color);
@@ -445,6 +445,7 @@ public sealed class EspaceTransferService(
         g.CurrencyLabel = settings.CurrencyLabel;
         g.CurrencyBefore = settings.CurrencyBefore;
         g.GestionAccess = settings.GestionAccess;
+        g.DesktopGestionAccess = settings.GestionAccess;
         g.PrestationsEnabled = settings.PrestationsEnabled;
         g.PrestationsLocation = settings.PrestationsLocation;
         // Files from before colours carry none: keep the receiving espace's own colour then.

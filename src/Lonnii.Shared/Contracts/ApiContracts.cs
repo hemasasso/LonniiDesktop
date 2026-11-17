@@ -1802,9 +1802,15 @@ public sealed record DeviceListResponse(int MaxDevices, int Used, IReadOnlyList<
 /// so our server can tell a copied MachineGuid from the real machine. Null from older versions.</param>
 /// <param name="BuildHash">A hash of the host's own program files, so our server can tell when they
 /// were changed without the version changing - a program patched to dodge the licence. Null from older versions.</param>
+/// <param name="Devices">When the shop's other devices were last seen by its host - the phones and tablets
+/// on its Wi-Fi, which never check in with our server themselves. Null from older versions.</param>
 public sealed record LicenceRefreshRequest(
     string GroupId, string DeviceId, string? AppVersion = null, IReadOnlyList<SecurityEventDto>? Events = null,
-    string? HardwareSignature = null, string? BuildHash = null);
+    string? HardwareSignature = null, string? BuildHash = null, IReadOnlyList<DeviceSeenDto>? Devices = null);
+
+/// <summary>One of the shop's devices as its host last saw it, sent along with a licence check-in.</summary>
+public sealed record DeviceSeenDto(
+    string DeviceId, DateTime LastSeenAt, string? AppVersion = null, string? DeviceName = null, string? Platform = null);
 
 /// <summary>One attempt to get round the licence, as the shop's computer noticed it.</summary>
 /// <param name="Kind">One of SecurityEventKinds.</param>

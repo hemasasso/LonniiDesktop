@@ -1336,6 +1336,10 @@ namespace Lonnii.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("currency_label");
 
+                    b.Property<bool>("DesktopGestionAccess")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("desktop_gestion_access");
+
                     b.Property<bool>("GestionAccess")
                         .HasColumnType("INTEGER")
                         .HasColumnName("gestion_access");

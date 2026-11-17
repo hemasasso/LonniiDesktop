@@ -609,6 +609,138 @@ public class DesktopAdminTests : IAsyncLifetime
         Assert.Contains("\"restoredDevices\":1", await response.Content.ReadAsStringAsync());
     }
 
+    // --- Gestion: Lonnii Desktop's own switch -------------------------------------------
+
+    [Fact]
+    public async Task Gestion_switched_from_the_desktop_dashboard_leaves_the_web_apps_column_alone()
+    {
+        // The React dashboard switches groupes.gestion_access for the web app. Turning Gestion off there
+        // used to turn it off in the shop's desktop app too: the two must not touch each other.
+        bool webBefore;
+        using (var before = _factory.Services.CreateScope())
+            webBefore = before.ServiceProvider.GetRequiredService<LonniiDbContext>().Groupes.AsNoTracking().Single(g => g.Id == LocalShop).GestionAccess;
+
+        var request = Request(HttpMethod.Put, $"/api/admin/desktop/shops/{LocalShop}/gestion", SuperAdmin());
+        request.Content = JsonContent.Create(new { enabled = false });
+        (await _client.SendAsync(request)).EnsureSuccessStatusCode();
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+        var groupe = db.Groupes.AsNoTracking().Single(g => g.Id == LocalShop);
+        Assert.False(groupe.DesktopGestionAccess);
+        Assert.Equal(webBefore, groupe.GestionAccess);
+
+        var detail = await _client.SendAsync(Request(HttpMethod.Get, $"/api/admin/desktop/shops/{LocalShop}", Viewer()));
+        Assert.False((await detail.Content.ReadFromJsonAsync<ShopDetailDto>())!.Shop.GestionAccess);
+    }
+
+    // --- Sign-ins through our server ----------------------------------------------------
+
+    [Fact]
+    public async Task A_phone_signing_in_from_afar_shows_on_the_shops_page_the_connections_page_and_the_overview()
+    {
+        var log = _factory.Services.GetRequiredService<ShopConnectionLog>();
+        log.Record(OnlineShopOffline, new StoredShopConnection(
+            ShopConnectionKinds.Remote, DateTime.UtcNow.AddMinutes(-5), "user-1", "awa@shop.bf", "Awa Ouedraogo",
+            "phone-1", "Samsung A14", "android", "41.1.1.1", "1.0.11"));
+        // The app re-opening its session a minute later is the same visit, not a second one.
+        log.Record(OnlineShopOffline, new StoredShopConnection(
+            ShopConnectionKinds.Remote, DateTime.UtcNow.AddMinutes(-4), "user-1", "awa@shop.bf", "Awa Ouedraogo",
+            "phone-1", "Samsung A14", "android", "41.1.1.1", "1.0.11"));
+
+        var detail = await _client.SendAsync(Request(HttpMethod.Get, $"/api/admin/desktop/shops/{OnlineShopOffline}", Viewer()));
+        var shop = (await detail.Content.ReadFromJsonAsync<ShopDetailDto>())!;
+        var connection = Assert.Single(shop.Connections!);
+        Assert.Equal("android", connection.Platform);
+        Assert.Equal("Awa Ouedraogo", connection.UserName);
+        Assert.Equal(1, shop.Shop.RemoteConnections7d);
+        Assert.NotNull(shop.Shop.LastActivityAt);
+
+        var all = await _client.SendAsync(Request(HttpMethod.Get, "/api/admin/desktop/connections?days=1", Viewer()));
+        var rows = (await all.Content.ReadFromJsonAsync<List<AdminConnectionDto>>())!;
+        Assert.Equal("Super Marché En Ligne", Assert.Single(rows).ShopName);
+
+        var overview = await Overview();
+        Assert.Equal(1, overview.RemoteConnections24h);
+        Assert.Equal(1, overview.ShopsConnectedRemotely24h);
+        Assert.Single(overview.RecentConnections!);
+
+        var filtered = await _client.SendAsync(Request(HttpMethod.Get, "/api/admin/desktop/shops?filter=remote", Viewer()));
+        Assert.Single((await filtered.Content.ReadFromJsonAsync<List<ShopSummaryDto>>())!);
+    }
+
+    [Fact]
+    public async Task A_check_in_carries_when_the_shops_other_devices_were_last_seen()
+    {
+        // A phone on the shop's Wi-Fi signs in to the shop's computer, never to us: its host reports
+        // when it last saw it, so the dashboard stops showing the day it was added.
+        // Later than when the test data was seeded (a device's clock only moves forward), not in the future.
+        var seenAt = DateTime.UtcNow.AddMinutes(5);
+        seenAt = new DateTime(seenAt.Ticks - seenAt.Ticks % TimeSpan.TicksPerSecond, DateTimeKind.Utc);
+        var refresh = await _client.PostAsJsonAsync("/api/licence/refresh", new Lonnii.Shared.Contracts.LicenceRefreshRequest(
+            LocalShop, "till-a", "1.5.0",
+            Devices: [
+                new Lonnii.Shared.Contracts.DeviceSeenDto("till-b", seenAt, "1.5.0", "Caisse 2"),
+                // Far in the future by the host's clock: not believed.
+                new Lonnii.Shared.Contracts.DeviceSeenDto("till-old", DateTime.UtcNow.AddDays(3)),
+            ]));
+        refresh.EnsureSuccessStatusCode();
+
+        Assert.Equal(seenAt, ReadDevice("till-b").LastSeenAt);
+        Assert.True(ReadDevice("till-old").LastSeenAt < DateTime.UtcNow.AddMinutes(1));
+    }
+
+    [Fact]
+    public async Task An_alert_marked_as_dealt_with_leaves_the_attention_list_until_a_new_one()
+    {
+        var store = _factory.Services.GetRequiredService<SecurityEventStore>();
+        store.AddFromServer(LocalShop, SecurityEventKinds.BinariesModified, "till-a", null, "1.5.0");
+        Assert.Contains((await Overview()).Attention, a => a.ShopId == LocalShop && a.Kind == "security");
+
+        var ack = await _client.SendAsync(Request(HttpMethod.Post, $"/api/admin/desktop/shops/{LocalShop}/security/acknowledge", SuperAdmin()));
+        Assert.Equal(HttpStatusCode.NoContent, ack.StatusCode);
+
+        Assert.DoesNotContain((await Overview()).Attention, a => a.ShopId == LocalShop && a.Kind == "security");
+        var detail = await _client.SendAsync(Request(HttpMethod.Get, $"/api/admin/desktop/shops/{LocalShop}", Viewer()));
+        var shop = (await detail.Content.ReadFromJsonAsync<ShopDetailDto>())!;
+        Assert.NotEmpty(shop.SecurityEvents!);       // still listed on the shop's page
+        Assert.NotNull(shop.SecurityAcknowledgedAt);
+        Assert.Equal(0, shop.Shop.SecurityEvents);   // no badge
+
+        // A viewer may not dismiss alerts.
+        var refused = await _client.SendAsync(Request(HttpMethod.Post, $"/api/admin/desktop/shops/{LocalShop}/security/acknowledge", Viewer()));
+        Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+    }
+
+    [Fact]
+    public async Task Activity_adds_up_sales_on_a_sqlite_database()
+    {
+        // A shop's cloud copy is SQLite, which cannot sum or sort decimals in a query: this returned a 500.
+        // The test database is SQLite too, and a phone-only shop is read from it directly.
+        const string phoneShop = "0b6f1d1e-1a7e-4d55-9a51-2f2a7f0c0020";
+        await AddShop(new Groupe { Id = phoneShop, Nom = "Boutique Ventes", Mode = DeploymentModes.Online, PhoneOnly = true },
+            withComputer: false);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LonniiDbContext>();
+            var vente = new Vente { GroupId = phoneShop, NumeroVente = "V1", MontantTotal = 1500m, ServeurNom = "Ali" };
+            vente.Items.Add(new VenteItem { NomProduit = "Coca", Quantite = 3, PrixUnitaire = 500m, PrixTotal = 1500m });
+            db.Ventes.Add(vente);
+            db.Ventes.Add(new Vente { GroupId = phoneShop, NumeroVente = "V2", MontantTotal = 500m });
+            await db.SaveChangesAsync();
+        }
+
+        var response = await _client.SendAsync(Request(HttpMethod.Get, $"/api/admin/desktop/shops/{phoneShop}/activity", Viewer()));
+        response.EnsureSuccessStatusCode();
+        var activity = (await response.Content.ReadFromJsonAsync<ShopActivityDto>())!;
+
+        Assert.Equal("live", activity.Source);
+        Assert.Equal(2000m, activity.Today.Amount);
+        Assert.Equal(2, activity.Last7Days.Sales);
+        Assert.Equal("Coca", Assert.Single(activity.TopProducts).Name);
+        Assert.Equal("Ali", activity.Sellers[0].Name);
+    }
+
     private Task<string> DeviceRowId(string fingerprint)
     {
         using var scope = _factory.Services.CreateScope();

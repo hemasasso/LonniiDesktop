@@ -348,6 +348,7 @@ public static class GroupEndpoints
         LicenceGuard licence,
         ILicenceServer licences,
         HttpContext http,
+        Lonnii.Api.Features.Admin.ShopConnectionLog connections,
         CancellationToken ct)
     {
         var userId = principal.FindFirstValue(TokenService.UserIdClaim)!;
@@ -439,6 +440,19 @@ public static class GroupEndpoints
             device.LastSeenAt = DateTime.UtcNow;
             device.LastIpAddress = http.Connection.RemoteIpAddress?.ToString();
             await db.SaveChangesAsync(ct);
+        }
+
+        // A phone-only shop lives here, so its phones are never bound machines: this is the only
+        // trace of them, and what the dashboard shows as the shop's connections.
+        if (phoneOnly)
+        {
+            var who = await db.Users.AsNoTracking()
+                .Where(u => u.IdUser == userId)
+                .Select(u => new { u.Email, u.FirstName, u.LastName })
+                .FirstOrDefaultAsync(ct);
+            connections.Record(groupId, Lonnii.Api.Features.Admin.ShopConnectionLog.From(
+                http.Request, Lonnii.Api.Features.Admin.ShopConnectionKinds.PhoneOnly,
+                userId, who?.Email, $"{who?.FirstName} {who?.LastName}".Trim()));
         }
 
         var memberCount = await db.GroupMembers.CountAsync(m => m.IdGroupe == groupId, ct);
@@ -1045,7 +1059,7 @@ public static class GroupEndpoints
     }
 
     private static GroupeDto ToDto(Groupe g, string role, bool isAdminGeneral, int memberCount) => new(
-        g.Id, g.Nom, isAdminGeneral, role, g.GestionAccess,
+        g.Id, g.Nom, isAdminGeneral, role, g.DesktopGestionAccess,
         g.PrestationsEnabled, g.PrestationsLocation, memberCount, g.CreatedAt, g.CurrencyLabel, g.CurrencyBefore,
         g.PhotoUrl, g.Color);
 }

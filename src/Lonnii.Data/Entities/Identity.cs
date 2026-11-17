@@ -58,8 +58,18 @@ public class Groupe
     /// </summary>
     public string IdUserAdmin { get; set; } = string.Empty;
 
-    /// <summary>Mirrors <c>groupes.gestion_access</c>: hides the whole Gestion module when false.</summary>
+    /// <summary>Mirrors <c>groupes.gestion_access</c>: the web app's (Lonnii Business) Gestion switch,
+    /// set from the React dashboard. Not read by Lonnii Desktop any more - see <see cref="DesktopGestionAccess"/>.</summary>
     public bool GestionAccess { get; set; }
+
+    /// <summary>
+    /// <c>groupes.desktop_gestion_access</c>: whether Lonnii Desktop shows the Gestion module (Opérations,
+    /// Finance, Administration) for this espace. Its own column because the shared <c>gestion_access</c>
+    /// belongs to the web app: switching Gestion off for a web workspace in the React dashboard used to
+    /// switch it off in the shop's desktop app too. Set from the Lonnii Desktop dashboard on our server;
+    /// a shop's computer copies it from its signed licence at each check-in.
+    /// </summary>
+    public bool DesktopGestionAccess { get; set; } = true;
 
     /// <summary>
     /// Feature toggle for the Prestations module. Maps to <c>prestations_access</c>, not the

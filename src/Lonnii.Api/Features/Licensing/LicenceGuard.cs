@@ -380,8 +380,10 @@ public class LicenceGuard(
 
             if (newest is null || signed.IssuedAt >= newest.Value - IssueTolerance)
             {
-                // Gestion granted or withdrawn from the dashboard.
+                // Gestion granted or withdrawn from the Lonnii Desktop dashboard. Both columns on a shop's
+                // computer: the web app's one too, so nothing there reads a stale value.
                 groupe.GestionAccess = signed.GestionAccess;
+                groupe.DesktopGestionAccess = signed.GestionAccess;
                 if (state is null) db.HostLicences.Add(state = new HostLicence { GroupId = groupe.Id });
                 state.Token = response.LicenceToken;
                 state.UpdatedAt = DateTime.UtcNow;

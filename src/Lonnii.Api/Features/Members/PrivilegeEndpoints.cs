@@ -56,7 +56,7 @@ public static class PrivilegeEndpoints
 
         // A shop's own host believes the signed licence, not its editable database; our server
         // (no signed licence stored) reads the row the dashboard sets.
-        var gestionAccess = (await licence.SignedClaimsAsync(groupe.Id, ct))?.GestionAccess ?? groupe.GestionAccess;
+        var gestionAccess = (await licence.SignedClaimsAsync(groupe.Id, ct))?.GestionAccess ?? groupe.DesktopGestionAccess;
 
         var espace = AppMenu.Visible(
             AppMenu.Espace, all, gestionAccess, scope.IsAdmin);

@@ -289,6 +289,17 @@ public class LonniiApiClient
     private static string AppVersion =>
         typeof(LonniiApiClient).Assembly.GetName().Version?.ToString() ?? "1.0.0";
 
+    /// <summary>What kind of device this is, its name and version, on every request: our server keeps
+    /// them with each sign-in from afar so the dashboard can say who connected from what.</summary>
+    private static void AddDeviceDescription(HttpRequestMessage request)
+    {
+        request.Headers.TryAddWithoutValidation("x-device-platform", "windows");
+        // A header is ASCII: an accented machine name would make the request fail before it is sent.
+        var name = new string(DeviceIdentity.FriendlyName.Where(c => c >= ' ' && c < 127).ToArray());
+        if (name.Length > 0) request.Headers.TryAddWithoutValidation("x-device-name", name);
+        request.Headers.TryAddWithoutValidation("x-app-version", AppVersion);
+    }
+
     public Task<List<GroupMemberDto>> GetMembersAsync(CancellationToken ct = default) =>
         GetAsync<List<GroupMemberDto>>("api/groupe/members", ct);
 
@@ -1208,6 +1219,7 @@ public class LonniiApiClient
             request.Headers.Add("x-group-session", _groupSession);
         request.Headers.Add("x-device-id", DeviceIdentity.Current);
         if (DeviceIdentity.Hardware is { } hw) request.Headers.Add("x-device-hw", hw);
+        AddDeviceDescription(request);
 
         HttpResponseMessage response;
         try
@@ -1353,6 +1365,7 @@ public class LonniiApiClient
             request.Headers.Add("x-group-session", _groupSession);
         request.Headers.Add("x-device-id", DeviceIdentity.Current);
         if (DeviceIdentity.Hardware is { } hw) request.Headers.Add("x-device-hw", hw);
+        AddDeviceDescription(request);
 
         HttpResponseMessage response;
         try
@@ -1441,6 +1454,7 @@ public class LonniiApiClient
         // a copied installation trying to stay quiet.
         request.Headers.Add("x-device-id", DeviceIdentity.Current);
         if (DeviceIdentity.Hardware is { } hw) request.Headers.Add("x-device-hw", hw);
+        AddDeviceDescription(request);
 
         HttpResponseMessage response;
         try

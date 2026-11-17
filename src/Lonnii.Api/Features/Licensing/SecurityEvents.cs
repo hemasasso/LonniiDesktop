@@ -147,6 +147,31 @@ public sealed class SecurityEventStore(string dataDirectory)
         Append(groupId, [new StoredSecurityEvent(kind, now.Date, now, Trim(detail, MaxDetail), Trim(deviceId, 80), ip, Trim(appVersion, 20), FromServer: true)]);
     }
 
+    /// <summary>When an admin last marked the espace's attempts as dealt with (a false alarm, or the shop
+    /// called): what was received before then no longer puts the shop on the attention list. Null if never.</summary>
+    public DateTime? AcknowledgedAt(string groupId)
+    {
+        var path = PathFor(groupId);
+        if (path is null) return null;
+        var ack = Path.ChangeExtension(path, ".ack");
+        try
+        {
+            return File.Exists(ack) && DateTime.TryParse(File.ReadAllText(ack).Trim(), null,
+                System.Globalization.DateTimeStyles.RoundtripKind, out var at) ? at : null;
+        }
+        catch (IOException) { return null; }
+    }
+
+    public void Acknowledge(string groupId, DateTime at)
+    {
+        var path = PathFor(groupId) ?? throw new ArgumentException("Identifiant d'espace invalide.", nameof(groupId));
+        lock (_gate)
+        {
+            Directory.CreateDirectory(_directory);
+            File.WriteAllText(Path.ChangeExtension(path, ".ack"), at.ToString("O"));
+        }
+    }
+
     /// <summary>The espace's attempts since <paramref name="since"/>, newest first.</summary>
     public IReadOnlyList<StoredSecurityEvent> Read(string groupId, DateTime since)
     {

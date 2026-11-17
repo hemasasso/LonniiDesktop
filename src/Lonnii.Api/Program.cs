@@ -172,6 +172,9 @@ builder.Services.AddSingleton(new BackupStore(dataDirectory));
 if (!databaseOptions.IsPostgres)
     builder.Services.AddSingleton(new HostSecurityLog(dataDirectory));
 builder.Services.AddSingleton(new SecurityEventStore(dataDirectory));
+// Who signed in to an espace through our server (phones away from the shop, phone-only shops): the
+// devices table only knows machines bound at the shop, so the dashboard saw none of these.
+builder.Services.AddSingleton(new Lonnii.Api.Features.Admin.ShopConnectionLog(dataDirectory));
 builder.Services.AddSingleton(new Lonnii.Api.Features.Remote.RemoteSessionTokens(jwtOptions.Secret));
 builder.Services.AddSingleton(new Lonnii.Api.Features.Remote.RemoteCommandStore(dataDirectory));
 builder.Services.AddSingleton(sp => new Lonnii.Api.Features.Remote.ReplicaStore(

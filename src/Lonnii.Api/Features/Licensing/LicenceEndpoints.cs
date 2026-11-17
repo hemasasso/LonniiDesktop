@@ -133,6 +133,16 @@ public static class LicenceEndpoints
             return false;
         }
 
+        // The shop's other devices as this host last saw them. A phone on the shop's Wi-Fi signs in here,
+        // never with our server, so without this the dashboard showed it "seen" on the day it was added
+        // and never again. The calling device is left out: our server stamps it itself.
+        var seen = await db.Devices.AsNoTracking()
+            .Where(d => d.GroupId == groupe.Id && d.RevokedAt == null && d.DeviceId != deviceId)
+            .OrderByDescending(d => d.LastSeenAt)
+            .Take(50)
+            .Select(d => new DeviceSeenDto(d.DeviceId, d.LastSeenAt, d.AppVersion, d.DeviceName, d.Platform))
+            .ToListAsync(ct);
+
         try
         {
             try
@@ -140,7 +150,7 @@ public static class LicenceEndpoints
                 var response = await licences.RefreshAsync(
                     serverUrl, new LicenceRefreshRequest(groupe.Id, deviceId, HostVersion, events.Count > 0 ? events : null,
                         hardwareSignature ?? Infrastructure.HostMachineIdentity.Hardware,
-                        Infrastructure.HostBinaries.Hash), ct);
+                        Infrastructure.HostBinaries.Hash, seen.Count > 0 ? seen : null), ct);
                 answered = true;
 
                 // The server that just answered is the espace's: puts back a licence_server_url someone
@@ -316,6 +326,24 @@ public static class LicenceEndpoints
 
         groupe.LastLicenceCheckAt = now;
 
+        // The shop's other devices as its host saw them (phones on its Wi-Fi never reach us themselves).
+        // Only moves a bound device's clock forward, never past now; the host's say-so adds nothing else.
+        if (request.Devices is { Count: > 0 } reported)
+        {
+            var reportedIds = reported.Select(r => r.DeviceId).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().Take(50).ToList();
+            var known = await db.Devices
+                .Where(d => d.GroupId == groupe.Id && d.RevokedAt == null && reportedIds.Contains(d.DeviceId))
+                .ToListAsync(ct);
+            foreach (var r in reported)
+            {
+                var d = known.FirstOrDefault(k => k.DeviceId == r.DeviceId);
+                if (d is null || r.LastSeenAt <= d.LastSeenAt || r.LastSeenAt > now.AddHours(1)) continue;
+                d.LastSeenAt = r.LastSeenAt;
+                if (!string.IsNullOrWhiteSpace(r.AppVersion)) d.AppVersion = r.AppVersion[..Math.Min(r.AppVersion.Length, 20)];
+                if (!string.IsNullOrWhiteSpace(r.DeviceName)) d.DeviceName = r.DeviceName[..Math.Min(r.DeviceName.Length, 80)];
+            }
+        }
+
         await db.SaveChangesAsync(ct);
 
         var bound = await db.Devices
@@ -328,7 +356,7 @@ public static class LicenceEndpoints
         // What the shop's host will enforce, signed so its own database cannot overrule it.
         var licenceToken = signer.Sign(new LicenceClaims(
             groupe.Id, groupe.Mode, mustReconnectBy, now, bound, groupe.IsBlocked, groupe.BlockReason,
-            groupe.GestionAccess));
+            groupe.DesktopGestionAccess));
 
         return Results.Ok(new LicenceRefreshResponse(
             GroupId: groupe.Id,

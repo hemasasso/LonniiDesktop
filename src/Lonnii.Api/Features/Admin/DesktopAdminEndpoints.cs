@@ -57,6 +57,10 @@ public static class DesktopAdminEndpoints
         group.MapGet("/overview", OverviewAsync).RequireDashboardPermission(ViewPermission);
         group.MapGet("/shops", ListShopsAsync).RequireDashboardPermission(ViewPermission);
         group.MapGet("/shops/{id}", ShopDetailAsync).RequireDashboardPermission(ViewPermission);
+        // What the shop has been doing (sales, stock, who sells), read from its latest cloud copy.
+        group.MapGet("/shops/{id}/activity", ShopActivityAsync).RequireDashboardPermission(ViewPermission);
+        // Every sign-in through our server, all shops, newest first.
+        group.MapGet("/connections", ConnectionsAsync).RequireDashboardPermission(ViewPermission);
 
         group.MapDelete("/shops/{id}/devices/{deviceId}", RevokeDeviceAsync)
             .RequireDashboardPermission(ManageDevicesPermission);
@@ -76,6 +80,9 @@ public static class DesktopAdminEndpoints
         // Gestion is what turns Programme-only into the full product: owner and super admins.
         group.MapPut("/shops/{id}/gestion", SetGestionAccessAsync).RequireDashboardSuperAdmin();
 
+        // A false alarm, or the shop was called: its attempts so far leave the attention list.
+        group.MapPost("/shops/{id}/security/acknowledge", AcknowledgeSecurityAsync).RequireDashboardSuperAdmin();
+
         // The whole shop - sales, customers, account password hashes: owner and super admins only.
         group.MapGet("/shops/{id}/database", DownloadDatabaseAsync).RequireDashboardSuperAdmin();
     }
@@ -89,17 +96,30 @@ public static class DesktopAdminEndpoints
         DashboardSubscription? CurrentSubscription,
         BackupInfoDto? Backup,
         DateTime Now,
-        IReadOnlyList<StoredSecurityEvent> Security)
+        IReadOnlyList<StoredSecurityEvent> Security,
+        IReadOnlyList<StoredShopConnection> Connections,
+        DateTime? SecurityAcknowledgedAt = null)
     {
         public bool IsOnline => Groupe.Mode == DeploymentModes.Online;
 
         /// <summary>Attempts to get round the licence in the last week: what puts a shop on the
         /// attention list. The detail page shows the last month.</summary>
         public IReadOnlyList<StoredSecurityEvent> RecentSecurity =>
-            Security.Where(e => e.ReceivedAt >= Now.AddDays(-SecurityAlertDays)).ToList();
+            OpenSecurity.Where(e => e.ReceivedAt >= Now.AddDays(-SecurityAlertDays)).ToList();
 
+        /// <summary>Attempts nobody has marked as dealt with yet ("Marquer comme traité" on the shop's page).</summary>
+        public IReadOnlyList<StoredSecurityEvent> OpenSecurity =>
+            SecurityAcknowledgedAt is { } ack ? Security.Where(e => e.ReceivedAt > ack).ToList() : Security;
+
+        /// <summary>Sign-ins through our server (phones away from the shop, phone-only shops) this week.</summary>
+        public int ConnectionsThisWeek => Connections.Count(c => c.At >= Now.AddDays(-7));
+
+        public DateTime? LastConnectionAt => Connections.Count > 0 ? Connections.Max(c => c.At) : null;
+
+        /// <summary>The last time anything of the shop reached us: a check-in, a device at the shop
+        /// (as its host reported it), or someone signing in from afar.</summary>
         public DateTime? LastActivity =>
-            new[] { Groupe.LastLicenceCheckAt, ActiveDevices.Max(d => (DateTime?)d.LastSeenAt) }.Max();
+            new[] { Groupe.LastLicenceCheckAt, ActiveDevices.Max(d => (DateTime?)d.LastSeenAt), LastConnectionAt }.Max();
 
         public int? DaysSinceCheck => Groupe.LastLicenceCheckAt is { } at ? (int)(Now - at).TotalDays : null;
 
@@ -197,9 +217,11 @@ public static class DesktopAdminEndpoints
             Attention().Select(a => SeverityRank(a.Severity)).DefaultIfEmpty(0).Max(),
             Groupe.IsDeleted,
             Groupe.PhoneOnly,
-            Groupe.GestionAccess,
-            Security.Count,
-            Security.Count > 0 ? Security.Max(e => e.ReceivedAt) : null);
+            Groupe.DesktopGestionAccess,
+            OpenSecurity.Count,
+            OpenSecurity.Count > 0 ? OpenSecurity.Max(e => e.ReceivedAt) : null,
+            ConnectionsThisWeek,
+            LastConnectionAt);
     }
 
     private static int SeverityRank(string severity) => severity switch
@@ -213,8 +235,8 @@ public static class DesktopAdminEndpoints
     /// <summary>Loads every desktop shop with its devices, contract and backup state. Shops deleted
     /// by their owner only when asked for: they are listed apart, awaiting permanent removal.</summary>
     private static async Task<List<ShopFacts>> LoadShopsAsync(
-        LonniiDbContext db, BackupStore backups, SecurityEventStore security, string? onlyGroupId, CancellationToken ct,
-        bool includeDeleted = false)
+        LonniiDbContext db, BackupStore backups, SecurityEventStore security, ShopConnectionLog connections,
+        string? onlyGroupId, CancellationToken ct, bool includeDeleted = false)
     {
         var now = DateTime.UtcNow;
 
@@ -247,8 +269,162 @@ public static class DesktopAdminEndpoints
                     .FirstOrDefault(),
                 g.Mode == DeploymentModes.Online ? BackupInfo(backups, g.Id) : null,
                 now,
-                security.Read(g.Id, now.AddDays(-SecurityHistoryDays))))
+                security.Read(g.Id, now.AddDays(-SecurityHistoryDays)),
+                connections.Read(g.Id, now.AddDays(-ConnectionHistoryDays)),
+                security.AcknowledgedAt(g.Id)))
             .ToList();
+    }
+
+    /// <summary>How far back a shop's page lists sign-ins through our server.</summary>
+    private const int ConnectionHistoryDays = 30;
+
+    /// <summary>The most sign-ins the all-shops list returns at once.</summary>
+    private const int MaxConnectionsListed = 300;
+
+    private static AdminConnectionDto ToDto(string shopId, string shopName, StoredShopConnection c) => new(
+        shopId, shopName, c.Kind, ShopConnectionKinds.Label(c.Kind), c.At, c.UserEmail, c.UserName,
+        c.DeviceId, c.DeviceName, c.Platform, c.IpAddress, c.AppVersion, c.UserAgent);
+
+    /// <summary>Sign-ins through our server across every shop, newest first: the "what is going on"
+    /// page. Each line names its shop, so a row opens the right one.</summary>
+    private static async Task<IResult> ConnectionsAsync(
+        int? days, LonniiDbContext db, ShopConnectionLog connections, CancellationToken ct)
+    {
+        var since = DateTime.UtcNow.AddDays(-Math.Clamp(days ?? 7, 1, 90));
+        var recent = connections.ReadAll(since, MaxConnectionsListed);
+
+        var ids = recent.Select(r => r.GroupId).Distinct().ToList();
+        var names = await db.Groupes.AsNoTracking()
+            .Where(g => ids.Contains(g.Id))
+            .Select(g => new { g.Id, g.Nom })
+            .ToDictionaryAsync(g => g.Id, g => g.Nom, ct);
+
+        return Results.Ok(recent
+            .Select(r => ToDto(r.GroupId, names.GetValueOrDefault(r.GroupId, "Boutique supprimée"), r.Connection))
+            .ToList());
+    }
+
+    /// <summary>
+    /// What the shop has been doing, read from the data we hold: a phone-only shop's data lives here
+    /// (live), any other online shop is read from its latest cloud copy (as of that snapshot). A local
+    /// shop sends us nothing, so there is nothing to show.
+    /// </summary>
+    private static async Task<IResult> ShopActivityAsync(
+        string id, int? days, LonniiDbContext db, Lonnii.Api.Features.Remote.ReplicaStore replicas, CancellationToken ct)
+    {
+        // The period the products, sellers and clients cards cover: today, 7 or 30 days.
+        var period = days is 1 or 30 ? days.Value : 7;
+        var groupe = await db.Groupes.AsNoTracking().FirstOrDefaultAsync(g => g.Id == id, ct);
+        if (groupe is null) return Results.NotFound(new ApiError("Boutique introuvable"));
+
+        if (groupe.PhoneOnly)
+            return Results.Ok(await ActivityOf(db, id, "live", null, period, ct));
+
+        if (groupe.Mode != DeploymentModes.Online)
+            return Results.Ok(ShopActivityDto.None("Mode local : les données restent sur l'ordinateur de la boutique."));
+
+        Lonnii.Api.Features.Remote.ReplicaInfo? replica;
+        try { replica = await replicas.EnsureAsync(id, ct); }
+        catch (ArgumentException) { replica = null; }
+        if (replica is null)
+            return Results.Ok(ShopActivityDto.None("Aucune sauvegarde cloud reçue : rien à lire pour le moment."));
+
+        await using var copy = new LonniiDbContext(Lonnii.Api.Features.Remote.ReplicaStore.OptionsFor(replica.Path));
+        return Results.Ok(await ActivityOf(copy, id, "backup", replica.SnapshotAt, period, ct));
+    }
+
+    private static async Task<ShopActivityDto> ActivityOf(
+        LonniiDbContext data, string id, string source, DateTime? snapshotAt, int period, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var today = now.Date;
+        var week = now.AddDays(-7);
+        var from = period == 1 ? today : now.AddDays(-period);
+
+        // Sums and sorts on money are done here, not in the database: a cloud copy is SQLite, which
+        // cannot add or order decimals (the query failed with a 500). A month of one shop's sales is small.
+        var sales = await data.Ventes.AsNoTracking()
+            .Where(v => v.GroupId == id && v.DateVente >= today.AddDays(-30))
+            .Select(v => new { v.DateVente, v.MontantTotal, v.ServeurNom, v.ClientNom, v.ClientTelephone })
+            .ToListAsync(ct);
+
+        PeriodStatsDto Period(DateTime from, DateTime? to = null)
+        {
+            var of = sales.Where(v => v.DateVente >= from && (to == null || v.DateVente < to)).ToList();
+            return new PeriodStatsDto(of.Count, of.Sum(v => v.MontantTotal));
+        }
+
+        var lastSale = await data.Ventes.AsNoTracking()
+            .Where(v => v.GroupId == id)
+            .OrderByDescending(v => v.DateVente)
+            .Select(v => (DateTime?)v.DateVente)
+            .FirstOrDefaultAsync(ct);
+
+        var days = Enumerable.Range(0, 14)
+            .Select(i => today.AddDays(-13 + i))
+            .Select(day =>
+            {
+                var of = sales.Where(v => v.DateVente.Date == day).ToList();
+                return new DailySalesDto(day, of.Count, of.Sum(v => v.MontantTotal));
+            })
+            .ToList();
+
+        var items = await data.VenteItems.AsNoTracking()
+            .Where(i => i.Vente!.GroupId == id && i.Vente.DateVente >= from)
+            .Select(i => new { i.NomProduit, i.Quantite, i.PrixTotal })
+            .ToListAsync(ct);
+        var topProducts = items
+            .GroupBy(i => i.NomProduit)
+            .Select(g => new AdminTopProductDto(g.Key, g.Sum(i => i.Quantite), g.Sum(i => i.PrixTotal)))
+            .OrderByDescending(p => p.Amount)
+            .Take(5)
+            .ToList();
+
+        var sellers = sales
+            .Where(v => v.DateVente >= from)
+            .GroupBy(v => string.IsNullOrWhiteSpace(v.ServeurNom) ? "Sans serveur" : v.ServeurNom!)
+            .Select(g => new SellerStatsDto(g.Key, g.Count(), g.Sum(v => v.MontantTotal)))
+            .OrderByDescending(s => s.Amount)
+            .Take(8)
+            .ToList();
+
+        var products = await data.Products.AsNoTracking().CountAsync(p => p.GroupId == id, ct);
+        var lowStock = await data.Products.AsNoTracking()
+            .CountAsync(p => p.GroupId == id && p.Quantity <= p.MinimumThreshold, ct);
+        // Buyers named on the period's sales (by phone when there is one, else by name): most shops type
+        // the name at the till without saving a client card, so the cards alone said "1".
+        var buyers = sales
+            .Where(v => v.DateVente >= from)
+            .Select(v => !string.IsNullOrWhiteSpace(v.ClientTelephone) ? "t:" + v.ClientTelephone!.Replace(" ", "")
+                       : !string.IsNullOrWhiteSpace(v.ClientNom) ? "n:" + v.ClientNom!.Trim().ToLowerInvariant() : null)
+            .Where(k => k != null)
+            .Distinct()
+            .Count();
+        var anonymous = sales.Count(v => v.DateVente >= from
+            && string.IsNullOrWhiteSpace(v.ClientNom) && string.IsNullOrWhiteSpace(v.ClientTelephone));
+        var clients = await data.Clients.AsNoTracking().CountAsync(c => c.GroupId == id && c.IsActive, ct);
+        var members = await data.GroupMembers.AsNoTracking().CountAsync(m => m.IdGroupe == id, ct);
+
+        return new ShopActivityDto(
+            Source: source,
+            SnapshotAt: snapshotAt,
+            Message: null,
+            Today: Period(today),
+            Last7Days: Period(week),
+            Previous7Days: Period(now.AddDays(-14), week),
+            Last30Days: Period(now.AddDays(-30)),
+            LastSaleAt: lastSale,
+            Products: products,
+            LowStockProducts: lowStock,
+            Clients: clients,
+            Members: members,
+            Days: days,
+            TopProducts: topProducts,
+            Sellers: sellers,
+            PeriodDays: period,
+            Period: Period(from),
+            Buyers: buyers,
+            AnonymousSales: anonymous);
     }
 
     /// <summary>The backup store only accepts GUID-shaped ids; one odd row in the shared table
@@ -260,10 +436,13 @@ public static class DesktopAdminEndpoints
     }
 
     private static async Task<IResult> OverviewAsync(
-        LonniiDbContext db, BackupStore backups, SecurityEventStore security, CancellationToken ct)
+        LonniiDbContext db, BackupStore backups, SecurityEventStore security, ShopConnectionLog connections,
+        CancellationToken ct)
     {
-        var shops = await LoadShopsAsync(db, backups, security, null, ct);
+        var shops = await LoadShopsAsync(db, backups, security, connections, null, ct);
         var now = DateTime.UtcNow;
+        var dayAgo = now - ActiveWindow;
+        var recentConnections = shops.SelectMany(s => s.Connections.Where(c => c.At >= dayAgo).Select(c => (Shop: s, Connection: c))).ToList();
 
         var attention = shops
             .SelectMany(s => s.Attention())
@@ -284,14 +463,30 @@ public static class DesktopAdminEndpoints
             StaleBackups: shops.Count(s => s.BackupStale),
             Attention: attention,
             GeneratedAt: now,
-            SecurityAlerts: shops.Count(s => s.RecentSecurity.Count > 0)));
+            SecurityAlerts: shops.Count(s => s.RecentSecurity.Count > 0),
+            RemoteConnections24h: recentConnections.Count,
+            ShopsConnectedRemotely24h: recentConnections.Select(x => x.Shop.Groupe.Id).Distinct().Count(),
+            PhoneOnlyShops: shops.Count(s => s.Groupe.PhoneOnly),
+            BlockedShops: shops.Count(s => s.Groupe.IsBlocked),
+            RecentConnections: recentConnections
+                .OrderByDescending(x => x.Connection.At)
+                .Take(15)
+                .Select(x => ToDto(x.Shop.Groupe.Id, x.Shop.Groupe.Nom, x.Connection))
+                .ToList(),
+            Versions: shops
+                .SelectMany(s => s.ActiveDevices.Select(d => d.AppVersion))
+                .Where(v => !string.IsNullOrEmpty(v))
+                .GroupBy(v => v!)
+                .Select(g => new VersionCountDto(g.Key, g.Count()))
+                .OrderByDescending(v => Version.TryParse(v.Version, out var parsed) ? parsed : new Version(0, 0))
+                .ToList()));
     }
 
     private static async Task<IResult> ListShopsAsync(
         string? search, string? filter, LonniiDbContext db, BackupStore backups, SecurityEventStore security,
-        CancellationToken ct)
+        ShopConnectionLog connections, CancellationToken ct)
     {
-        var shops = await LoadShopsAsync(db, backups, security, null, ct, includeDeleted: filter == "deleted");
+        var shops = await LoadShopsAsync(db, backups, security, connections, null, ct, includeDeleted: filter == "deleted");
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -309,7 +504,9 @@ public static class DesktopAdminEndpoints
             "blocked" => shops.Where(s => s.Groupe.IsBlocked).ToList(),
             "deleted" => shops.Where(s => s.Groupe.IsDeleted).ToList(),
             "attention" => shops.Where(s => s.Attention().Any(a => a.Severity != "info")).ToList(),
-            "security" => shops.Where(s => s.Security.Count > 0).ToList(),
+            "security" => shops.Where(s => s.OpenSecurity.Count > 0).ToList(),
+            "phone" => shops.Where(s => s.Groupe.PhoneOnly).ToList(),
+            "remote" => shops.Where(s => s.ConnectionsThisWeek > 0).ToList(),
             _ => shops,
         };
 
@@ -321,9 +518,10 @@ public static class DesktopAdminEndpoints
     }
 
     private static async Task<IResult> ShopDetailAsync(
-        string id, LonniiDbContext db, BackupStore backups, SecurityEventStore security, CancellationToken ct)
+        string id, LonniiDbContext db, BackupStore backups, SecurityEventStore security, ShopConnectionLog connections,
+        CancellationToken ct)
     {
-        var shop = (await LoadShopsAsync(db, backups, security, id, ct, includeDeleted: true)).SingleOrDefault();
+        var shop = (await LoadShopsAsync(db, backups, security, connections, id, ct, includeDeleted: true)).SingleOrDefault();
         if (shop is null) return Results.NotFound(new ApiError("Boutique introuvable"));
 
         var owner = await db.Users.AsNoTracking()
@@ -368,10 +566,28 @@ public static class DesktopAdminEndpoints
                 var (label, severity) = SecurityEventKinds.Describe(e.Kind);
                 return new AdminSecurityEventDto(
                     e.Kind, label, severity, e.At, e.ReceivedAt, e.Detail, e.DeviceId, e.IpAddress, e.AppVersion, e.FromServer);
-            })]));
+            })],
+            [.. shop.Connections.Take(200).Select(c => ToDto(shop.Groupe.Id, shop.Groupe.Nom, c))],
+            shop.SecurityAcknowledgedAt));
     }
 
     // --- Changing ------------------------------------------------------------------------
+
+    /// <summary>Marks the shop's attempts so far as dealt with. They stay listed on its page (marked
+    /// "traité"); only a new one puts the shop back on the attention list.</summary>
+    private static async Task<IResult> AcknowledgeSecurityAsync(
+        string id, ClaimsPrincipal admin, LonniiDbContext db, SecurityEventStore security, ILoggerFactory logs,
+        CancellationToken ct)
+    {
+        if (!await db.Groupes.AnyAsync(g => g.Id == id, ct)) return Results.NotFound(new ApiError("Boutique introuvable"));
+        try { security.Acknowledge(id, DateTime.UtcNow); }
+        catch (ArgumentException) { return Results.BadRequest(new ApiError("Identifiant de boutique invalide.")); }
+
+        logs.CreateLogger("Lonnii.Admin").LogInformation(
+            "Dashboard admin {Admin} marked the security alerts of shop {Shop} as dealt with",
+            DashboardAdminAuth.AdminId(admin), id);
+        return Results.NoContent();
+    }
 
     /// <summary>
     /// Unbinds a machine, freeing its slot - a broken or replaced till. The row is kept, so the same
@@ -545,6 +761,8 @@ public static class DesktopAdminEndpoints
     /// Grants or withdraws Gestion (Opérations, Finance, Administration). Without it the shop only
     /// has Programme. Phones and remote access read this row directly; a shop's own computer gets it
     /// inside its signed licence at its next check (within the hour while it is online).
+    /// Lonnii Desktop's own column (<c>desktop_gestion_access</c>): the web app's <c>gestion_access</c>,
+    /// switched from the React dashboard, no longer reaches the desktop app, and this does not touch it.
     /// </summary>
     private static async Task<IResult> SetGestionAccessAsync(
         string id,
@@ -557,14 +775,14 @@ public static class DesktopAdminEndpoints
         var groupe = await db.Groupes.FirstOrDefaultAsync(g => g.Id == id && !g.IsDeleted, ct);
         if (groupe is null) return Results.NotFound(new ApiError("Boutique introuvable"));
 
-        groupe.GestionAccess = request.Enabled;
+        groupe.DesktopGestionAccess = request.Enabled;
         await db.SaveChangesAsync(ct);
 
         logs.CreateLogger("Lonnii.Admin").LogInformation(
-            "Dashboard admin {Admin} set gestion access of shop {Shop} to {Enabled}",
+            "Dashboard admin {Admin} set desktop gestion access of shop {Shop} to {Enabled}",
             DashboardAdminAuth.AdminId(admin), id, request.Enabled);
 
-        return Results.Ok(new { gestionAccess = groupe.GestionAccess });
+        return Results.Ok(new { gestionAccess = groupe.DesktopGestionAccess });
     }
 
     /// <summary>
@@ -645,7 +863,71 @@ public sealed record DesktopOverviewDto(
     int StaleBackups,
     IReadOnlyList<AttentionItemDto> Attention,
     DateTime GeneratedAt,
-    int SecurityAlerts = 0);
+    int SecurityAlerts = 0,
+    int RemoteConnections24h = 0,
+    int ShopsConnectedRemotely24h = 0,
+    int PhoneOnlyShops = 0,
+    int BlockedShops = 0,
+    IReadOnlyList<AdminConnectionDto>? RecentConnections = null,
+    IReadOnlyList<VersionCountDto>? Versions = null);
+
+/// <summary>How many active devices run each version of the desktop app, newest first.</summary>
+public sealed record VersionCountDto(string Version, int Devices);
+
+/// <summary>One sign-in to a shop through our server, for the dashboard.</summary>
+public sealed record AdminConnectionDto(
+    string ShopId,
+    string ShopName,
+    string Kind,
+    string KindLabel,
+    DateTime At,
+    string? UserEmail,
+    string? UserName,
+    string? DeviceId,
+    string? DeviceName,
+    string? Platform,
+    string? IpAddress,
+    string? AppVersion,
+    string? UserAgent = null);
+
+public sealed record PeriodStatsDto(int Sales, decimal Amount);
+
+public sealed record DailySalesDto(DateTime Day, int Sales, decimal Amount);
+
+public sealed record AdminTopProductDto(string Name, int Quantity, decimal Amount);
+
+public sealed record SellerStatsDto(string Name, int Sales, decimal Amount);
+
+/// <summary>What a shop has been doing, from the data we hold. <paramref name="Source"/> is "live" (a
+/// phone-only shop, whose data is here), "backup" (read from the cloud copy taken at
+/// <paramref name="SnapshotAt"/>) or "none" (nothing to read; <paramref name="Message"/> says why).</summary>
+public sealed record ShopActivityDto(
+    string Source,
+    DateTime? SnapshotAt,
+    string? Message,
+    PeriodStatsDto Today,
+    PeriodStatsDto Last7Days,
+    PeriodStatsDto Previous7Days,
+    PeriodStatsDto Last30Days,
+    DateTime? LastSaleAt,
+    int Products,
+    int LowStockProducts,
+    int Clients,
+    int Members,
+    IReadOnlyList<DailySalesDto> Days,
+    IReadOnlyList<AdminTopProductDto> TopProducts,
+    IReadOnlyList<SellerStatsDto> Sellers,
+    int PeriodDays = 7,
+    PeriodStatsDto? Period = null,
+    int Buyers = 0,
+    int AnonymousSales = 0)
+{
+    public static ShopActivityDto None(string message)
+    {
+        var empty = new PeriodStatsDto(0, 0);
+        return new("none", null, message, empty, empty, empty, empty, null, 0, 0, 0, 0, [], [], []);
+    }
+}
 
 public sealed record ShopSummaryDto(
     string Id,
@@ -667,7 +949,9 @@ public sealed record ShopSummaryDto(
     bool PhoneOnly,
     bool GestionAccess,
     int SecurityEvents = 0,
-    DateTime? LastSecurityEventAt = null);
+    DateTime? LastSecurityEventAt = null,
+    int RemoteConnections7d = 0,
+    DateTime? LastRemoteConnectionAt = null);
 
 /// <summary>One attempt to get round the licence, for a shop's page in the dashboard.</summary>
 /// <param name="At">When the shop's computer noticed it, by its own clock.</param>
@@ -709,7 +993,9 @@ public sealed record ShopDetailDto(
     AdminSubscriptionDto? Subscription,
     BackupInfoDto? Backup,
     IReadOnlyList<AttentionItemDto> Attention,
-    IReadOnlyList<AdminSecurityEventDto>? SecurityEvents = null);
+    IReadOnlyList<AdminSecurityEventDto>? SecurityEvents = null,
+    IReadOnlyList<AdminConnectionDto>? Connections = null,
+    DateTime? SecurityAcknowledgedAt = null);
 
 public sealed record SetMaxDevicesRequest(int MaxDevices);
 

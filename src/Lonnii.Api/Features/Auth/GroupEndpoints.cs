@@ -444,15 +444,30 @@ public static class GroupEndpoints
 
         // A phone-only shop lives here, so its phones are never bound machines: this is the only
         // trace of them, and what the dashboard shows as the shop's connections.
-        if (phoneOnly)
+        // A sign-in at the shop (the host laptop itself, a poste or a phone on the Wi-Fi) is noted on
+        // the host too, and goes to our server with the next licence check-in: until then the
+        // dashboard only knew the people who came in from outside.
+        var atShop = !phoneOnly && licence.IsShopHost(groupe);
+        if (phoneOnly || atShop)
         {
             var who = await db.Users.AsNoTracking()
                 .Where(u => u.IdUser == userId)
                 .Select(u => new { u.Email, u.FirstName, u.LastName })
                 .FirstOrDefaultAsync(ct);
-            connections.Record(groupId, Lonnii.Api.Features.Admin.ShopConnectionLog.From(
-                http.Request, Lonnii.Api.Features.Admin.ShopConnectionKinds.PhoneOnly,
-                userId, who?.Email, $"{who?.FirstName} {who?.LastName}".Trim()));
+            var entry = Lonnii.Api.Features.Admin.ShopConnectionLog.From(
+                http.Request,
+                phoneOnly ? Lonnii.Api.Features.Admin.ShopConnectionKinds.PhoneOnly : Lonnii.Api.Features.Admin.ShopConnectionKinds.Shop,
+                userId, who?.Email, $"{who?.FirstName} {who?.LastName}".Trim());
+            // An older till sends no name: the poste's own row knows it.
+            if (atShop && entry.DeviceName is null && entry.DeviceId is { } did)
+                entry = entry with
+                {
+                    DeviceName = await db.Devices.AsNoTracking()
+                        .Where(d => d.GroupId == groupId && d.DeviceId == did)
+                        .Select(d => d.DeviceName)
+                        .FirstOrDefaultAsync(ct),
+                };
+            connections.Record(groupId, entry);
         }
 
         var memberCount = await db.GroupMembers.CountAsync(m => m.IdGroupe == groupId, ct);

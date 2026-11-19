@@ -3,7 +3,8 @@
 # (/etc/cron.d/lonnii-daily-report, 06:00 New York time). Reads only: it changes nothing on the server.
 #
 #   Services   .NET API (+ /api/health), nginx, PostgreSQL, Node backend (pm2 workers online)
-#   Backup     last night's pg_dump in /var/backups/lonnii (age + size)
+#   Backup     last night's pg_dump in /var/backups/lonnii (age + size), and AWS's copy of it
+#              (status left by deploy/aws/lonnii-oci-mirror.sh in /var/lib/lonnii-mirror/aws-status)
 #   Disk       / and /boot (warns above 80 %)
 #   Errors     exceptions the .NET API logged in the last 24 h, most frequent first
 #   HTTPS      days left on www.lonnii.com's certificate
@@ -53,8 +54,29 @@ if [ -z "$last" ]; then
 else
   age_h=$(( ( $(date +%s) - $(stat -c %Y "$last") ) / 3600 ))
   size=$(du -h "$last" | cut -f1)
-  if [ "$age_h" -le 26 ]; then ok "Sauvegarde de la base : il y a ${age_h} h ($size)"; else warn "Sauvegarde de la base : la dernière date de ${age_h} h ($size)"; fi
+  if [ "$age_h" -le 26 ]; then ok "Sauvegarde de la base (OCI) : il y a ${age_h} h ($size)"; OCI_OK=yes; else warn "Sauvegarde de la base (OCI) : la dernière date de ${age_h} h ($size)"; fi
 fi
+
+# --- Copy on AWS ----------------------------------------------------------------------------------
+# AWS copies the dump, keys and shops' backups at 04:00 UTC (deploy/aws/lonnii-oci-mirror.sh) and leaves
+# its result here: "<when> OK <stamp> <dump> <size> <nb dumps> <total> <disk %>" or "<when> FAILED <stamp> <why>".
+AWS_STATUS=/var/lib/lonnii-mirror/aws-status
+if [ ! -f "$AWS_STATUS" ]; then
+  warn "Copie sur AWS : aucune nouvelle reçue d'AWS (copie pas encore installée ?)"
+else
+  read -r when result _stamp rest < "$AWS_STATUS"
+  aws_h=$(( ( $(date +%s) - $(date -d "$when" +%s 2>/dev/null || echo 0) ) / 3600 ))
+  if [ "$result" = OK ] && [ "$aws_h" -le 26 ]; then
+    read -r dump dsize ndumps total disk <<< "$rest"
+    ok "Copie sur AWS : faite il y a ${aws_h} h ($dsize, vérifiée) · $ndumps jours gardés · $total sur AWS · disque AWS ${disk} %"
+    AWS_OK=yes
+  elif [ "$result" = OK ]; then
+    warn "Copie sur AWS : la dernière réussie date de ${aws_h} h (AWS n'a rien envoyé depuis)"
+  else
+    warn "Copie sur AWS : ÉCHEC il y a ${aws_h} h - $rest"
+  fi
+fi
+if [ "${OCI_OK:-}" = yes ] && [ "${AWS_OK:-}" = yes ]; then ok "Les deux sauvegardes ont réussi : OCI et AWS"; fi
 
 SEC="Disque"
 # --- Disk -----------------------------------------------------------------------------------------
@@ -145,7 +167,7 @@ if [ -z "$ending" ]; then ok "Abonnements finissant sous 7 jours : aucun"; else 
 today=$(TZ=America/New_York date '+%d/%m/%Y')
 if [ ${#WARN[@]} -eq 0 ]; then
   verdict="Tout est OK"
-  summary="Serveur en marche, sauvegarde faite, aucune alerte."
+  summary="Serveur en marche, sauvegardes OCI et AWS faites, aucune alerte."
 else
   verdict="${#WARN[@]} point(s) à vérifier"
   summary="${WARN[0]}"

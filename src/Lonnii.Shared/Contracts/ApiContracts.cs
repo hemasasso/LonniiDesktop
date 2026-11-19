@@ -1806,7 +1806,14 @@ public sealed record DeviceListResponse(int MaxDevices, int Used, IReadOnlyList<
 /// on its Wi-Fi, which never check in with our server themselves. Null from older versions.</param>
 public sealed record LicenceRefreshRequest(
     string GroupId, string DeviceId, string? AppVersion = null, IReadOnlyList<SecurityEventDto>? Events = null,
-    string? HardwareSignature = null, string? BuildHash = null, IReadOnlyList<DeviceSeenDto>? Devices = null);
+    string? HardwareSignature = null, string? BuildHash = null, IReadOnlyList<DeviceSeenDto>? Devices = null,
+    IReadOnlyList<ShopSignInDto>? SignIns = null);
+
+/// <summary>Someone who signed in at the shop (on the host, a poste or a phone on the Wi-Fi), sent along
+/// with a licence check-in so the dashboard sees who works there, not only who came in from outside.</summary>
+public sealed record ShopSignInDto(
+    DateTime At, string? UserId, string? UserEmail, string? UserName, string? DeviceId, string? DeviceName,
+    string? Platform, string? IpAddress, string? AppVersion);
 
 /// <summary>One of the shop's devices as its host last saw it, sent along with a licence check-in.</summary>
 public sealed record DeviceSeenDto(

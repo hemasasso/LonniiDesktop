@@ -11,10 +11,15 @@ public static class ShopConnectionKinds
     /// <summary>A phone-only shop: our server is its host, the phone works on it directly.</summary>
     public const string PhoneOnly = "phone_only";
 
+    /// <summary>At the shop, on its host (the serveur laptop itself, a poste, a phone on the Wi-Fi).
+    /// Noted by the host and sent to our server with its licence check-in.</summary>
+    public const string Shop = "shop";
+
     public static string Label(string kind) => kind switch
     {
         Remote => "À distance",
         PhoneOnly => "Téléphone (boutique hébergée ici)",
+        Shop => "À la boutique",
         _ => kind,
     };
 }
@@ -56,7 +61,12 @@ public sealed class ShopConnectionLog(string dataDirectory)
     private string? PathFor(string groupId) =>
         Guid.TryParse(groupId, out var id) ? Path.Combine(_directory, id.ToString("D") + ".jsonl") : null;
 
-    public void Record(string groupId, StoredShopConnection connection)
+    public void Record(string groupId, StoredShopConnection connection) => RecordMany(groupId, [connection]);
+
+    /// <summary>Adds several entries in one go (a shop's sign-ins arriving with its check-in). An entry
+    /// within <see cref="Dedupe"/> of one already kept for the same person and device - before or after
+    /// it - is the same visit, so a batch sent again every hour adds nothing new.</summary>
+    public void RecordMany(string groupId, IEnumerable<StoredShopConnection> connections)
     {
         var path = PathFor(groupId);
         if (path is null) return;
@@ -64,18 +74,24 @@ public sealed class ShopConnectionLog(string dataDirectory)
         lock (_gate)
         {
             var existing = File.Exists(path) ? ReadFile(path) : [];
-            var last = existing.LastOrDefault(e =>
-                e.Kind == connection.Kind && e.UserId == connection.UserId && e.DeviceId == connection.DeviceId);
-            if (last is not null && connection.At - last.At < Dedupe) return;
+            var added = new List<StoredShopConnection>();
+            foreach (var connection in connections.OrderBy(c => c.At))
+            {
+                var duplicate = existing.Concat(added).Any(e =>
+                    e.Kind == connection.Kind && e.UserId == connection.UserId && e.DeviceId == connection.DeviceId
+                    && (connection.At - e.At).Duration() < Dedupe);
+                if (!duplicate) added.Add(connection);
+            }
+            if (added.Count == 0) return;
 
             try
             {
                 Directory.CreateDirectory(_directory);
-                if (existing.Count >= KeepLines * 2)
+                if (existing.Count + added.Count >= KeepLines * 2)
                 {
-                    File.WriteAllLines(path, existing.Skip(existing.Count - KeepLines).Select(e => JsonSerializer.Serialize(e, Json)));
+                    File.WriteAllLines(path, existing.Skip(Math.Max(0, existing.Count - KeepLines)).Select(e => JsonSerializer.Serialize(e, Json)));
                 }
-                File.AppendAllText(path, JsonSerializer.Serialize(connection, Json) + Environment.NewLine);
+                File.AppendAllLines(path, added.Select(c => JsonSerializer.Serialize(c, Json)));
             }
             catch (IOException)
             {

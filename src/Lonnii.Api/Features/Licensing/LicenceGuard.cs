@@ -36,10 +36,14 @@ namespace Lonnii.Api.Features.Licensing;
 /// host only (see <see cref="ILicenceWatermark"/>). Without it an older licence is not detected.</param>
 /// <param name="security">Where attempts to get round the licence are noted for the next check-in.</param>
 public class LicenceGuard(
-    LonniiDbContext db, string? publicKey = null, ILicenceWatermark? watermark = null, HostSecurityLog? security = null)
+    LonniiDbContext db, string? publicKey = null, ILicenceWatermark? watermark = null, HostSecurityLog? security = null,
+    Lonnii.Api.Features.Admin.ShopConnectionLog? connections = null)
 {
     /// <summary>The log attempts are noted in, for the check-in that carries them (null in some tests).</summary>
     public HostSecurityLog? Security => security;
+
+    /// <summary>Who signed in at the shop, sent along with each check-in (null in some tests).</summary>
+    public Lonnii.Api.Features.Admin.ShopConnectionLog? Connections => connections;
 
     public const string ExpiredMessage =
         "La licence de cet espace a expiré : l'ordinateur n'a pas pu joindre le serveur Lonnii " +

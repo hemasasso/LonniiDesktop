@@ -112,7 +112,11 @@ public static class DesktopAdminEndpoints
             SecurityAcknowledgedAt is { } ack ? Security.Where(e => e.ReceivedAt > ack).ToList() : Security;
 
         /// <summary>Sign-ins through our server (phones away from the shop, phone-only shops) this week.</summary>
-        public int ConnectionsThisWeek => Connections.Count(c => c.At >= Now.AddDays(-7));
+        public int ConnectionsThisWeek => FromAfar.Count(c => c.At >= Now.AddDays(-7));
+
+        /// <summary>Connections through our server only: sign-ins at the shop (reported by its host) are
+        /// listed with them but not counted as "à distance".</summary>
+        public IEnumerable<StoredShopConnection> FromAfar => Connections.Where(c => c.Kind != ShopConnectionKinds.Shop);
 
         public DateTime? LastConnectionAt => Connections.Count > 0 ? Connections.Max(c => c.At) : null;
 
@@ -333,6 +337,10 @@ public static class DesktopAdminEndpoints
         return Results.Ok(await ActivityOf(copy, id, "backup", replica.SnapshotAt, period, ct));
     }
 
+    /// <summary>What tills write in the client field when no client was given.</summary>
+    private static readonly HashSet<string> NoClientNames =
+        new(["N/A", "NA", "-", "--", "/", "0", "aucun", "anonyme", "client", "comptoir"], StringComparer.OrdinalIgnoreCase);
+
     private static async Task<ShopActivityDto> ActivityOf(
         LonniiDbContext data, string id, string source, DateTime? snapshotAt, int period, CancellationToken ct)
     {
@@ -345,7 +353,7 @@ public static class DesktopAdminEndpoints
         // cannot add or order decimals (the query failed with a 500). A month of one shop's sales is small.
         var sales = await data.Ventes.AsNoTracking()
             .Where(v => v.GroupId == id && v.DateVente >= today.AddDays(-30))
-            .Select(v => new { v.DateVente, v.MontantTotal, v.ServeurNom, v.ClientNom, v.ClientTelephone })
+            .Select(v => new { v.DateVente, v.MontantTotal, v.ServeurNom, v.ClientNom, v.ClientTelephone, v.CaisseId })
             .ToListAsync(ct);
 
         PeriodStatsDto Period(DateTime from, DateTime? to = null)
@@ -388,20 +396,45 @@ public static class DesktopAdminEndpoints
             .Take(8)
             .ToList();
 
+        // Every caisse of the period, and any still open whenever it started: who is selling, what each
+        // took, and the écart found at closing, so a wrong count can be followed up with the shop.
+        var caisseRows = await data.Caisses.AsNoTracking()
+            .Where(c => c.GroupId == id && (c.DateOuverture >= from || c.DateFermeture == null || c.DateFermeture >= from))
+            .OrderByDescending(c => c.DateOuverture)
+            .Take(100)
+            .ToListAsync(ct);
+        var caisses = caisseRows
+            .Select(c =>
+            {
+                var of = sales.Where(v => v.CaisseId == c.Id).ToList();
+                var open = c.DateFermeture == null;
+                return new AdminCaisseDto(
+                    c.Id, string.IsNullOrWhiteSpace(c.UserName) ? "?" : c.UserName, c.DateOuverture, c.DateFermeture,
+                    open ? "open" : "closed",
+                    open ? of.Count : Math.Max(c.TotalVentes, of.Count),
+                    open ? of.Sum(v => v.MontantTotal) : Math.Max(c.TotalChiffreAffaires, of.Sum(v => v.MontantTotal)),
+                    c.MontantInitial, c.MontantFinal, c.MontantFinalMobile,
+                    open ? null : c.Ecart, c.EcartResolved, c.EcartResolvedBy, c.EcartResolvedAt, c.EcartResolutionNote);
+            })
+            .ToList();
+
         var products = await data.Products.AsNoTracking().CountAsync(p => p.GroupId == id, ct);
         var lowStock = await data.Products.AsNoTracking()
             .CountAsync(p => p.GroupId == id && p.Quantity <= p.MinimumThreshold, ct);
         // Buyers named on the period's sales (by phone when there is one, else by name): most shops type
         // the name at the till without saving a client card, so the cards alone said "1".
+        // The web app writes "N/A" when nobody typed a name (13,294 of 13,473 live sales): not a client.
+        static bool Named(string? value) =>
+            !string.IsNullOrWhiteSpace(value) && !NoClientNames.Contains(value.Trim());
         var buyers = sales
             .Where(v => v.DateVente >= from)
-            .Select(v => !string.IsNullOrWhiteSpace(v.ClientTelephone) ? "t:" + v.ClientTelephone!.Replace(" ", "")
-                       : !string.IsNullOrWhiteSpace(v.ClientNom) ? "n:" + v.ClientNom!.Trim().ToLowerInvariant() : null)
+            .Select(v => Named(v.ClientTelephone) ? "t:" + v.ClientTelephone!.Replace(" ", "")
+                       : Named(v.ClientNom) ? "n:" + v.ClientNom!.Trim().ToLowerInvariant() : null)
             .Where(k => k != null)
             .Distinct()
             .Count();
         var anonymous = sales.Count(v => v.DateVente >= from
-            && string.IsNullOrWhiteSpace(v.ClientNom) && string.IsNullOrWhiteSpace(v.ClientTelephone));
+            && !Named(v.ClientNom) && !Named(v.ClientTelephone));
         var clients = await data.Clients.AsNoTracking().CountAsync(c => c.GroupId == id && c.IsActive, ct);
         var members = await data.GroupMembers.AsNoTracking().CountAsync(m => m.IdGroupe == id, ct);
 
@@ -424,7 +457,8 @@ public static class DesktopAdminEndpoints
             PeriodDays: period,
             Period: Period(from),
             Buyers: buyers,
-            AnonymousSales: anonymous);
+            AnonymousSales: anonymous,
+            Caisses: caisses);
     }
 
     /// <summary>The backup store only accepts GUID-shaped ids; one odd row in the shared table
@@ -442,7 +476,7 @@ public static class DesktopAdminEndpoints
         var shops = await LoadShopsAsync(db, backups, security, connections, null, ct);
         var now = DateTime.UtcNow;
         var dayAgo = now - ActiveWindow;
-        var recentConnections = shops.SelectMany(s => s.Connections.Where(c => c.At >= dayAgo).Select(c => (Shop: s, Connection: c))).ToList();
+        var recentConnections = shops.SelectMany(s => s.FromAfar.Where(c => c.At >= dayAgo).Select(c => (Shop: s, Connection: c))).ToList();
 
         var attention = shops
             .SelectMany(s => s.Attention())
@@ -898,6 +932,13 @@ public sealed record AdminTopProductDto(string Name, int Quantity, decimal Amoun
 
 public sealed record SellerStatsDto(string Name, int Sales, decimal Amount);
 
+/// <summary>One caisse session, for the shop's Activité tab. <paramref name="Ecart"/> is null while the caisse
+/// is open (nothing counted yet); counted minus expected once closed.</summary>
+public sealed record AdminCaisseDto(
+    int Id, string UserName, DateTime OpenedAt, DateTime? ClosedAt, string Status, int Sales, decimal Amount,
+    decimal OpeningFloat, decimal? CountedCash, decimal? CountedMobile, decimal? Ecart, bool EcartResolved,
+    string? EcartResolvedBy, DateTime? EcartResolvedAt, string? EcartResolutionNote);
+
 /// <summary>What a shop has been doing, from the data we hold. <paramref name="Source"/> is "live" (a
 /// phone-only shop, whose data is here), "backup" (read from the cloud copy taken at
 /// <paramref name="SnapshotAt"/>) or "none" (nothing to read; <paramref name="Message"/> says why).</summary>
@@ -920,7 +961,8 @@ public sealed record ShopActivityDto(
     int PeriodDays = 7,
     PeriodStatsDto? Period = null,
     int Buyers = 0,
-    int AnonymousSales = 0)
+    int AnonymousSales = 0,
+    IReadOnlyList<AdminCaisseDto>? Caisses = null)
 {
     public static ShopActivityDto None(string message)
     {

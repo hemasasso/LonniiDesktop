@@ -141,7 +141,8 @@ builder.Services.AddScoped<LicenceGuard>(services =>
     new LicenceGuard(
         services.GetRequiredService<Lonnii.Api.Features.Remote.ControlDb>().Db,
         watermark: services.GetService<ILicenceWatermark>(),
-        security: services.GetService<HostSecurityLog>()));
+        security: services.GetService<HostSecurityLog>(),
+        connections: services.GetService<Lonnii.Api.Features.Admin.ShopConnectionLog>()));
 // Signs licences on the licence server; holds no key (and signs nothing) on a shop's host.
 builder.Services.AddSingleton<LicenceSigner>();
 

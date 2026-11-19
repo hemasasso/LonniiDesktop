@@ -8,6 +8,9 @@
 #     backup can be authorised again. Tiny.
 #   * /etc/lonnii-licence-signing.key: signs every shop's licence. Without it, no licence can be renewed.
 #   * old copies beyond KEEP_DAYS are deleted.
+#   * QUICK=1 (the extra runs every 3 hours, see /etc/cron.d/lonnii-backup): database only, no keys (they do
+#     not change). Those daytime dumps are kept QUICK_KEEP_DAYS (2); the 02:15 one stays KEEP_DAYS. At worst a
+#     few hours of client data are lost instead of a day, and AWS copies each dump half an hour later.
 #
 # The customers' CLOUD BACKUPS (/var/lib/lonnii-api/backups) are not copied here: they are themselves backups
 # and will grow. They are covered by the Oracle boot-volume backup policy instead.
@@ -21,6 +24,9 @@ DB="${LIVE_DB:-lonnii_DaB_43}"
 DB_USER="${BACKUP_DB_USER:-backup_ro}"
 DEST="${BACKUP_DIR:-/var/backups/lonnii}"
 KEEP_DAYS="${KEEP_DAYS:-14}"
+QUICK="${QUICK:-0}"
+QUICK_KEEP_DAYS="${QUICK_KEEP_DAYS:-2}"
+NIGHTLY_HHMM="${NIGHTLY_HHMM:-0215}"
 PG="${PG_BIN:-/usr/pgsql-16/bin}"
 DATA_DIR="${API_DATA_DIR:-/var/lib/lonnii-api}"
 LICENCE_KEY="${LICENCE_KEY:-/etc/lonnii-licence-signing.key}"
@@ -41,6 +47,12 @@ PGPASSFILE=/root/.pgpass "$PG/pg_dump" -h localhost -U "$DB_USER" -Fc -f "$parti
 "$PG/pg_restore" --list "$partial" > /dev/null
 mv "$partial" "$DEST/db-$STAMP.dump"
 
+if [ "$QUICK" = 1 ]; then
+  find "$DEST" -maxdepth 1 -type f -name 'db-*.dump' ! -name "db-*-$NIGHTLY_HHMM.dump" -mtime +"$QUICK_KEEP_DAYS" -delete
+  log "done (quick): latest dump $(du -h "$DEST/db-$STAMP.dump" | cut -f1)"
+  exit 0
+fi
+
 if [ -f "$DATA_DIR/jwt.key" ]; then
   log "licence server key"
   # Not `cp -p`: that keeps the original's owner and mode, which made the copy readable by everyone.
@@ -59,6 +71,6 @@ else
 fi
 
 log "removing copies older than $KEEP_DAYS days"
-find "$DEST" -maxdepth 1 -type f \( -name 'db-*.dump' -o -name 'jwt-*.key' -o -name 'licence-signing-*.key' \) -mtime +"$KEEP_DAYS" -delete
+find "$DEST" -maxdepth 1 -type f \( -name "db-*-$NIGHTLY_HHMM.dump" -o -name 'jwt-*.key' -o -name 'licence-signing-*.key' \) -mtime +"$KEEP_DAYS" -delete
 
 log "done: $(find "$DEST" -maxdepth 1 -type f | wc -l) files, $(du -sh "$DEST" | cut -f1) in $DEST; latest dump $(du -h "$DEST/db-$STAMP.dump" | cut -f1)"

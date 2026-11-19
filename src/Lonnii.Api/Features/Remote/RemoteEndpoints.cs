@@ -134,9 +134,17 @@ public static class RemoteEndpoints
 
         // A shop no host has ever uploaded for - created online, used from phones - is read from a
         // copy built from our live data, refreshed each time a session opens (see LiveSnapshotBuilder).
-        using (await backups.LockAsync(groupId, ct))
+        // Only for someone this server knows as the shop's owner or member: rebuilding is heavy work,
+        // and any signed-in account could otherwise make us do it for any shop id (they were still
+        // refused below, but only after the work). Members of a shop made here are always known here.
+        var knownHere = groupe.IdUserAdmin == userId
+            || await db.GroupMembers.AnyAsync(m => m.IdGroupe == groupId && m.IdUser == userId, ct);
+        if (knownHere)
         {
-            await live.TryBuildAsync(groupId, ct);
+            using (await backups.LockAsync(groupId, ct))
+            {
+                await live.TryBuildAsync(groupId, ct);
+            }
         }
 
         var replica = await replicas.EnsureAsync(groupId, ct);
@@ -328,7 +336,7 @@ public static class RemoteEndpoints
         if (RemoteCommandTypes.IsProduct(request.Type))
         {
             productName = request.Product?.Name
-                ?? await db.Products.AsNoTracking().Where(p => p.Id == request.ProductId).Select(p => p.Name).FirstOrDefaultAsync(ct);
+                ?? await db.Products.AsNoTracking().Where(p => p.Id == request.ProductId && p.GroupId == scope.GroupId).Select(p => p.Name).FirstOrDefaultAsync(ct);
         }
 
         // A new account's password is checked above, then kept only as a hash: the queue is a file on

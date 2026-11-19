@@ -143,6 +143,15 @@ public static class LicenceEndpoints
             .Select(d => new DeviceSeenDto(d.DeviceId, d.LastSeenAt, d.AppVersion, d.DeviceName, d.Platform))
             .ToListAsync(ct);
 
+        // Who signed in at the shop this past week. Sent again each hour (our server skips what it already
+        // has), so a shop that was offline for days still reports its whole week once it reconnects.
+        var signIns = (guard.Connections?.Read(groupe.Id, DateTime.UtcNow.AddDays(-7)) ?? [])
+            .Where(c => c.Kind == Lonnii.Api.Features.Admin.ShopConnectionKinds.Shop)
+            .Take(200)
+            .Select(c => new ShopSignInDto(c.At, c.UserId, c.UserEmail, c.UserName, c.DeviceId, c.DeviceName,
+                c.Platform, c.IpAddress, c.AppVersion))
+            .ToList();
+
         try
         {
             try
@@ -150,7 +159,8 @@ public static class LicenceEndpoints
                 var response = await licences.RefreshAsync(
                     serverUrl, new LicenceRefreshRequest(groupe.Id, deviceId, HostVersion, events.Count > 0 ? events : null,
                         hardwareSignature ?? Infrastructure.HostMachineIdentity.Hardware,
-                        Infrastructure.HostBinaries.Hash, seen.Count > 0 ? seen : null), ct);
+                        Infrastructure.HostBinaries.Hash, seen.Count > 0 ? seen : null,
+                        signIns.Count > 0 ? signIns : null), ct);
                 answered = true;
 
                 // The server that just answered is the espace's: puts back a licence_server_url someone
@@ -200,8 +210,13 @@ public static class LicenceEndpoints
         return null;
     }
 
-    private static async Task<IResult> StatusAsync(string groupId, LicenceGuard guard, CancellationToken ct) =>
-        Results.Ok(await guard.CheckAsync(groupId, ct));
+    /// <summary>A shop computer's own licence state. Not on our server: it needed no login, so anyone with a
+    /// shop's id could read whether its licence was running or expired.</summary>
+    private static async Task<IResult> StatusAsync(string groupId, LicenceGuard guard, LonniiDbContext db, CancellationToken ct)
+    {
+        if (!ShippedHost.IsShipped && db.Database.IsNpgsql()) return Results.NotFound();
+        return Results.Ok(await guard.CheckAsync(groupId, ct));
+    }
 
     private static async Task<IResult> RefreshAsync(
         LicenceRefreshRequest request,
@@ -210,6 +225,7 @@ public static class LicenceEndpoints
         BackupTokens backupTokens,
         LicenceSigner signer,
         SecurityEventStore securityEvents,
+        Lonnii.Api.Features.Admin.ShopConnectionLog connections,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.GroupId) || string.IsNullOrWhiteSpace(request.DeviceId))
@@ -342,6 +358,21 @@ public static class LicenceEndpoints
                 if (!string.IsNullOrWhiteSpace(r.AppVersion)) d.AppVersion = r.AppVersion[..Math.Min(r.AppVersion.Length, 20)];
                 if (!string.IsNullOrWhiteSpace(r.DeviceName)) d.DeviceName = r.DeviceName[..Math.Min(r.DeviceName.Length, 80)];
             }
+        }
+
+        // Who signed in at the shop, as its host noted it. Only the host's word, so kept as a log line
+        // for the dashboard and nothing else; a time in the future or over a month old is dropped.
+        if (request.SignIns is { Count: > 0 } signIns)
+        {
+            static string? Cut(string? v, int max) =>
+                string.IsNullOrWhiteSpace(v) ? null : v.Trim().Length > max ? v.Trim()[..max] : v.Trim();
+            connections.RecordMany(groupe.Id, signIns
+                .Where(x => x.At <= now.AddHours(1) && x.At >= now.AddDays(-30))
+                .Take(200)
+                .Select(x => new Lonnii.Api.Features.Admin.StoredShopConnection(
+                    Lonnii.Api.Features.Admin.ShopConnectionKinds.Shop, x.At, Cut(x.UserId, 80), Cut(x.UserEmail, 200),
+                    Cut(x.UserName, 120), Cut(x.DeviceId, 80), Cut(x.DeviceName, 80), Cut(x.Platform, 20),
+                    Cut(x.IpAddress, 64), Cut(x.AppVersion, 20))));
         }
 
         await db.SaveChangesAsync(ct);

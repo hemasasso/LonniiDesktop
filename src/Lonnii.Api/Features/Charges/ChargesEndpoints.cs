@@ -292,11 +292,37 @@ public static class ChargesEndpoints
 
         var rows = await db.Charges.AsNoTracking()
             .Where(c => c.GroupId == scope.GroupId && c.IsRecurring && c.RecurringSourceId == null)
-            .OrderByDescending(c => c.RecurringActive).ThenByDescending(c => c.CreatedAt)
+            // Stable order: stopping or reactivating one must not move the rows under the next click
+            // (sorting active-first did, so the next Arrêter landed on another charge).
+            .OrderByDescending(c => c.CreatedAt).ThenByDescending(c => c.Id)
             .ToListAsync(ct);
 
         var names = await DisplayNamesAsync(db, rows.Select(c => c.CreatedBy), ct);
         return Results.Ok(new ChargesListResponse(rows.Select(c => ToDto(c, names)).ToList()));
+    }
+
+    /// <summary>
+    /// "Introuvable", with what this computer does hold: a change sent from afar is applied by the
+    /// shop's host, and when its data is not the copy the phone read (another computer collecting the
+    /// requests, a copy out of date), the message shows it - the charge number asked for, what that
+    /// number is here, the recurring charges here and the computer's name.
+    /// </summary>
+    private static async Task<IResult> RecurringNotFoundAsync(int id, GroupScope scope, LonniiDbContext db, CancellationToken ct)
+    {
+        var row = await db.Charges.AsNoTracking().Where(c => c.Id == id)
+            .Select(c => new { c.GroupId, c.IsRecurring, c.RecurringSourceId, c.Description }).FirstOrDefaultAsync(ct);
+        var here = await db.Charges.AsNoTracking()
+            .Where(c => c.GroupId == scope.GroupId && c.IsRecurring && c.RecurringSourceId == null)
+            .OrderBy(c => c.Id).Select(c => c.Id).Take(20).ToListAsync(ct);
+
+        var what = row is null ? "n'existe pas ici"
+            : row.GroupId != scope.GroupId ? "appartient à un autre espace"
+            : row.RecurringSourceId is not null ? $"est une échéance créée automatiquement (« {row.Description} »)"
+            : !row.IsRecurring ? $"n'est pas récurrente (« {row.Description} »)"
+            : "est introuvable";
+        var message = $"Charge récurrente introuvable : la n° {id} {what}. " +
+                      $"Récurrentes sur ce poste ({Environment.MachineName}) : {(here.Count == 0 ? "aucune" : string.Join(", ", here))}.";
+        return Results.NotFound(new ApiError(message));
     }
 
     private static async Task<IResult> StopRecurringAsync(
@@ -304,7 +330,7 @@ public static class ChargesEndpoints
     {
         var charge = await db.Charges.FirstOrDefaultAsync(
             c => c.Id == id && c.GroupId == scope.GroupId && c.IsRecurring, ct);
-        if (charge is null) return Results.NotFound(new ApiError("Charge récurrente introuvable"));
+        if (charge is null) return await RecurringNotFoundAsync(id, scope, db, ct);
 
         charge.RecurringActive = false;
         charge.UpdatedAt = DateTime.UtcNow;
@@ -319,7 +345,7 @@ public static class ChargesEndpoints
     {
         var charge = await db.Charges.FirstOrDefaultAsync(
             c => c.Id == id && c.GroupId == scope.GroupId && c.IsRecurring, ct);
-        if (charge is null) return Results.NotFound(new ApiError("Charge récurrente introuvable"));
+        if (charge is null) return await RecurringNotFoundAsync(id, scope, db, ct);
 
         charge.RecurringActive = true;
         charge.RecurringEndDate = request.RecurringEndDate?.Date ?? charge.RecurringEndDate;

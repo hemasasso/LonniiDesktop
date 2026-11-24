@@ -77,6 +77,9 @@ public static class DesktopAdminEndpoints
         // Moves where the shop's data lives (its computer or our server): owner and super admins.
         group.MapPut("/shops/{id}/phone-only", SetPhoneOnlyAsync).RequireDashboardSuperAdmin();
 
+        // Old Lonnii Web (React) espaces, not yet on the desktop side - found to be made phone-only.
+        group.MapGet("/web-espaces", WebEspacesAsync).RequireDashboardSuperAdmin();
+
         // Gestion is what turns Programme-only into the full product: owner and super admins.
         group.MapPut("/shops/{id}/gestion", SetGestionAccessAsync).RequireDashboardSuperAdmin();
 
@@ -147,7 +150,8 @@ public static class DesktopAdminEndpoints
 
         public bool AtDeviceLimit => ActiveDevices.Count >= Groupe.MaxDevices;
 
-        public bool BackupStale => IsOnline
+        // A phone-only shop has no computer uploading a copy: its data is our database, saved nightly.
+        public bool BackupStale => IsOnline && !Groupe.PhoneOnly
             && (Backup?.SnapshotAt is not { } at || Now - at > TimeSpan.FromDays(BackupStaleDays));
 
         public bool IsPending => Groupe.ApprovalStatus == ApprovalStatuses.Pending;
@@ -283,7 +287,19 @@ public static class DesktopAdminEndpoints
     private const int ConnectionHistoryDays = 30;
 
     /// <summary>The most sign-ins the all-shops list returns at once.</summary>
-    private const int MaxConnectionsListed = 300;
+    /// <summary>How many sign-ins are read before keeping the last ones of each person.</summary>
+    private const int MaxConnectionsRead = 20000;
+
+    /// <summary>Sign-ins kept per person in a list: their newest ones (the dashboard pages through the rest).</summary>
+    private const int ConnectionsPerPerson = 20;
+
+    /// <summary>Newest first, at most <see cref="ConnectionsPerPerson"/> per person (no account = one bucket).</summary>
+    private static List<T> LastPerPerson<T>(IEnumerable<T> rows, Func<T, DateTime> at, Func<T, string?> person) =>
+        rows.OrderByDescending(at)
+            .GroupBy(r => person(r) ?? string.Empty)
+            .SelectMany(g => g.Take(ConnectionsPerPerson))
+            .OrderByDescending(at)
+            .ToList();
 
     private static AdminConnectionDto ToDto(string shopId, string shopName, StoredShopConnection c) => new(
         shopId, shopName, c.Kind, ShopConnectionKinds.Label(c.Kind), c.At, c.UserEmail, c.UserName,
@@ -295,7 +311,8 @@ public static class DesktopAdminEndpoints
         int? days, LonniiDbContext db, ShopConnectionLog connections, CancellationToken ct)
     {
         var since = DateTime.UtcNow.AddDays(-Math.Clamp(days ?? 7, 1, 90));
-        var recent = connections.ReadAll(since, MaxConnectionsListed);
+        var recent = LastPerPerson(connections.ReadAll(since, MaxConnectionsRead), r => r.Connection.At,
+            r => r.Connection.UserId ?? r.Connection.UserEmail);
 
         var ids = recent.Select(r => r.GroupId).Distinct().ToList();
         var names = await db.Groupes.AsNoTracking()
@@ -601,7 +618,8 @@ public static class DesktopAdminEndpoints
                 return new AdminSecurityEventDto(
                     e.Kind, label, severity, e.At, e.ReceivedAt, e.Detail, e.DeviceId, e.IpAddress, e.AppVersion, e.FromServer);
             })],
-            [.. shop.Connections.Take(200).Select(c => ToDto(shop.Groupe.Id, shop.Groupe.Nom, c))],
+            [.. LastPerPerson(shop.Connections, c => c.At, c => c.UserId ?? c.UserEmail)
+                .Select(c => ToDto(shop.Groupe.Id, shop.Groupe.Nom, c))],
             shop.SecurityAcknowledgedAt));
     }
 
@@ -825,6 +843,51 @@ public static class DesktopAdminEndpoints
     /// copy of the data, apart from what the phones now change here. Its data on our server is what
     /// the phones see - a computer shop moved over brings only what was last sent here.
     /// </summary>
+    /// <summary>
+    /// Lonnii Web espaces that the desktop side does not list yet (no computer, no licence check, not
+    /// phone-only, approved - see <see cref="LoadShopsAsync"/>), by name, owner name or e-mail. Their
+    /// data already lives in our PostgreSQL, where a phone-only shop reads and writes, so ticking
+    /// phone-only (PUT /shops/{id}/phone-only) is all it takes to bring one over.
+    /// </summary>
+    private static async Task<IResult> WebEspacesAsync(string? search, LonniiDbContext db, CancellationToken ct)
+    {
+        var term = search?.Trim() ?? string.Empty;
+        if (term.Length < 2) return Results.Ok(new WebEspacesResponse([]));
+        var like = $"%{term.ToLower()}%";
+        var now = DateTime.UtcNow;
+
+        var rows = await (
+                from g in db.Groupes.AsNoTracking()
+                join u in db.Users.AsNoTracking() on g.IdUserAdmin equals u.IdUser into owners
+                from u in owners.DefaultIfEmpty()
+                where !g.IsDeleted && !g.PhoneOnly
+                      && g.ApprovalStatus == ApprovalStatuses.Approved
+                      && g.LastLicenceCheckAt == null
+                      && !db.Devices.Any(d => d.GroupId == g.Id)
+                      && (EF.Functions.Like(g.Nom.ToLower(), like)
+                          || (u != null && (EF.Functions.Like(u.Email.ToLower(), like)
+                                            || EF.Functions.Like((u.FirstName ?? "").ToLower(), like)
+                                            || EF.Functions.Like((u.LastName ?? "").ToLower(), like))))
+                orderby g.Nom
+                select new { g.Id, g.Nom, u.FirstName, u.LastName, u.Email })
+            .Take(25)
+            .ToListAsync(ct);
+
+        var ids = rows.Select(r => r.Id).ToList();
+        var subscriptions = await db.DashboardSubscriptions.AsNoTracking()
+            .Where(s => ids.Contains(s.GroupId)).ToListAsync(ct);
+        var members = await db.GroupMembers.AsNoTracking()
+            .Where(m => ids.Contains(m.IdGroupe)).GroupBy(m => m.IdGroupe)
+            .Select(x => new { x.Key, Count = x.Count() }).ToListAsync(ct);
+
+        return Results.Ok(new WebEspacesResponse(rows.Select(r => new WebEspaceDto(
+            r.Id, r.Nom,
+            string.Join(' ', new[] { r.FirstName, r.LastName }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim() is { Length: > 0 } n ? n : r.Email,
+            r.Email,
+            members.FirstOrDefault(m => m.Key == r.Id)?.Count ?? 0,
+            subscriptions.Any(s => s.GroupId == r.Id && s.IsCurrentAt(now)))).ToList()));
+    }
+
     private static async Task<IResult> SetPhoneOnlyAsync(
         string id,
         SetPhoneOnlyRequest request,
@@ -1045,5 +1108,10 @@ public sealed record SetBlockedRequest(bool Blocked, string? Reason);
 
 /// <param name="RestoreComputers">When unticking: bring back the machines that ticking it removed.</param>
 public sealed record SetPhoneOnlyRequest(bool PhoneOnly, bool RestoreComputers = false);
+
+/// <summary>A Lonnii Web espace not yet on the desktop side; SubscriptionActive: phones need one to sign in.</summary>
+public sealed record WebEspaceDto(string Id, string Nom, string? Owner, string? OwnerEmail, int Members, bool SubscriptionActive);
+
+public sealed record WebEspacesResponse(IReadOnlyList<WebEspaceDto> Espaces);
 
 public sealed record SetGestionAccessRequest(bool Enabled);

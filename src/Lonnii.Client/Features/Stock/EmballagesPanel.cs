@@ -884,9 +884,11 @@ public sealed class EmballagesPanel : UserControl
             if (count == 0) continue;
             var pile = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom, HorizontalAlignment = HorizontalAlignment.Center };
             Grid.SetColumn(pile, i);
+            var pct = share is > 0 and < 1 ? "<1 %" : $"{Math.Round(share):0} %";
+            // Number of crates on top, its share of the total under the pile.
             pile.Children.Add(new TextBlock
             {
-                Text = share is > 0 and < 1 ? "<1 %" : $"{Math.Round(share):0} %",
+                Text = Count(part.Value),
                 FontSize = pctSize, FontWeight = FontWeights.Bold, Foreground = EmballageArt.Brush(part.Color),
                 HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 3),
             });
@@ -900,10 +902,18 @@ public sealed class EmballagesPanel : UserControl
             {
                 var caption = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 0) };
                 caption.Children.Add(Text(part.Label + "  ", 12, "TextSecondary"));
-                var value = Text(WithUnit(part.Value, unit), 12.5, "TextPrimary", FontWeights.SemiBold);
+                var value = Text(pct, 12.5, "TextPrimary", FontWeights.SemiBold);
                 value.TextWrapping = TextWrapping.NoWrap;
                 caption.Children.Add(value);
                 pile.Children.Add(caption);
+            }
+            else
+            {
+                pile.Children.Add(new TextBlock
+                {
+                    Text = pct, FontSize = Math.Max(10, pctSize - 2), Foreground = EmballageArt.Brush(part.Color),
+                    HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 3, 0, 0),
+                });
             }
             panel.Children.Add(pile);
         }
